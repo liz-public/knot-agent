@@ -1,8 +1,11 @@
-import { Runtime } from './core.js'
-import { events } from './protocol.js'
-import { MockLlmPlugin, OpenAiChatPlugin } from './plugins/llm.js'
-import { OutputPlugin } from './plugins/output.js'
-import { demoLookupTool, ToolPlugin } from './plugins/tool.js'
+import { createJournal } from './journal.js'
+import { SESSION_START, USER_MESSAGE } from './protocol.js'
+import { mockLlmPlugin } from './plugins/llm-mock.js'
+import { openAiLlmPlugin } from './plugins/llm-openai.js'
+import { outputPlugin } from './plugins/output.js'
+import { systemPromptPlugin } from './plugins/system-prompt.js'
+import { demoLookupTool, toolSchemas, toolsPlugin } from './plugins/tools.js'
+import { tracePlugin } from './plugins/trace.js'
 
 function optionalJson(value: string | undefined): Record<string, unknown> | undefined {
   if (value === undefined) return undefined
@@ -13,30 +16,36 @@ function optionalJson(value: string | undefined): Record<string, unknown> | unde
   return parsed as Record<string, unknown>
 }
 
-const tool = new ToolPlugin([demoLookupTool])
+const tools = [demoLookupTool]
 const baseUrl = process.env['KNOT_BASE_URL']
 const model = process.env['KNOT_MODEL']
 const llm = baseUrl !== undefined && model !== undefined
-  ? new OpenAiChatPlugin({
-      baseUrl,
-      apiKey: process.env['KNOT_API_KEY'],
-      model,
-      tools: tool.schemas,
-      system: [
-        'You are a concise assistant.',
-        'Use demo_lookup before answering questions about a project status.',
-      ].join(' '),
-      extraBody: optionalJson(process.env['KNOT_REQUEST_EXTRA_JSON']),
-    })
-  : new MockLlmPlugin()
+  ? openAiLlmPlugin({
+    baseUrl,
+    apiKey: process.env['KNOT_API_KEY'],
+    model,
+    tools: toolSchemas(tools),
+    extraBody: optionalJson(process.env['KNOT_REQUEST_EXTRA_JSON']),
+  })
+  : mockLlmPlugin()
 
-const runtime = new Runtime(
-  [llm, tool, new OutputPlugin()],
-  { trace: line => console.error(line) },
-)
-const query = process.argv.slice(2).join(' ')
-  || 'Look up the status of knot-agent and report it.'
+const { journal, runUntilIdle } = createJournal()
 
-runtime.ingress(events.userMessage, { content: query })
-await runtime.runUntilIdle()
+for (const plugin of [
+  tracePlugin(event => console.error(`[trace] ${event.type}`, event.data)),
+  systemPromptPlugin(
+    'You are a concise assistant. Use demo_lookup before answering questions about a project status.',
+  ),
+  llm,
+  toolsPlugin(tools),
+  outputPlugin(content => console.log(content)),
+]) plugin(journal)
 
+journal.append(SESSION_START, {})
+await runUntilIdle()
+
+journal.append(USER_MESSAGE, {
+  content: process.argv.slice(2).join(' ')
+    || 'Look up the status of knot-agent and report it.',
+})
+await runUntilIdle()

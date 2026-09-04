@@ -3,19 +3,19 @@
 A minimal experiment: can an agent be driven only by an append-only journal and
 plugins reacting to events?
 
-There is no business `AgentLoop`. The only loop belongs to the runtime and moves
-through journal events in sequence:
+There is no business `AgentLoop` and no runtime object. A plugin subscribes to
+event types, runs its own logic, and appends new events or nothing at all. When
+those subscriptions form a cycle the agent keeps going; when nothing new is
+appended it stops.
 
 ```text
+session.start
+  -> system prompt plugin -> system.prompt
 user.message
-  -> llm
-  -> tool.call
-  -> tool
-  -> tool.result
-  -> llm
-  -> assistant.message
+  -> llm -> tool.call
+  -> tools -> tool.result
+  -> llm -> assistant.message
   -> output
-  -> idle
 ```
 
 Plugins never call each other. They only read the journal and append events.
@@ -56,35 +56,53 @@ npm test
 
 ## The entire kernel contract
 
+`src/journal.ts` is the whole kernel. It imports nothing and knows no business
+event type.
+
 ```ts
-type Event = { seq: number; type: string; data: unknown }
+type Event = { readonly type: string; readonly data: unknown }
+type Handler = (event: Event) => void | Promise<void>
+type Plugin = (journal: Journal) => void
 
-interface Plugin {
-  name: string
-  subscriptions: string[]
-  handle(event: Event, context: PluginContext): Promise<void> | void
-}
-
-interface PluginContext {
+interface Journal {
   append(type: string, data: unknown): Event
   read(): readonly Event[]
+  subscribe(type: string, handler: Handler): void
 }
+
+function createJournal(): { journal: Journal; runUntilIdle: () => Promise<void> }
 ```
 
-Runtime semantics:
+Delivery semantics:
 
-1. Events are immutable and append-only.
-2. Events are handled in `seq` order.
-3. Subscribers run serially in registration order.
-4. Events appended by handlers go to the journal tail.
-5. An unhandled event or plugin failure stops the runtime.
-6. An empty queue means idle; the kernel does not interpret task completion.
+1. The journal is append-only; an appended event is delivered exactly once.
+2. Events are delivered in journal order, so events appended by a handler are
+   handled after every subscriber of the current event has finished.
+3. Subscribers of one event run serially in registration order. `*` is only a
+   match-all selector and holds its own registration position, so a trace plugin
+   has no privilege over any other plugin.
+4. An event with no subscriber is legal. The kernel cannot know whether a
+   business event requires a consumer; the plugin defining that protocol must
+   decide.
+5. A handler that throws aborts the drain and the error propagates unchanged.
+   Nothing is retried and no error event is appended.
+6. `runUntilIdle` belongs to the assembly layer, never to a plugin, and rejects
+   if it is re-entered.
+
+Installing a plugin is one call: `plugin(journal)`. Assembly happens in
+`src/main.ts`, which is the only place that knows what this agent is made of.
+Tests are just a different assembly — see `test/agent.test.ts`, where the same
+trace plugin writes into an array instead of stderr.
+
+`src/protocol.ts` holds the event types those plugins agreed on. It is a plain
+declaration file, not part of the kernel.
 
 ## Deliberately absent
 
 Persistence, multiple sessions, priority, capabilities, endpoints, dependency
-graphs, retries, compaction, permissions, concurrency, dynamic plugins, TUI,
-web UI, and remote plugin protocols.
+graphs, retries, compaction, permissions, concurrency, parallel tool calls,
+streaming, dynamic plugin loading, TUI, web UI, and remote plugin protocols.
 
 They will be added only after a real plugin cannot be implemented correctly
-without changing the kernel.
+without changing the kernel. The reasoning behind the current shape is in
+[docs/reviews/minimal-kernel-review-response.md](docs/reviews/minimal-kernel-review-response.md).
