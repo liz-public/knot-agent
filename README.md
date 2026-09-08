@@ -1,5 +1,24 @@
 # knot-agent
 
+The smallest journal-first agent prototype.
+
+## CASE1: Android call flow
+
+The isolated CASE1 assembly reproduces this path with standard function calling:
+
+`user.message -> shortcut -> bash(contact) -> LLM -> bash(select 1) -> LLM -> assistant.message`
+
+Run it with the deterministic mock provider:
+
+```sh
+npm run case1 -- '给李行素打电话'
+```
+
+The answer is written to stdout; the complete event trace and elapsed time are
+written to stderr. To select the OpenAI-compatible provider, set
+`KNOT_BASE_URL`, `KNOT_MODEL`, and optionally `KNOT_API_KEY`,
+`KNOT_CONTEXT_WINDOW`, and `KNOT_REQUEST_EXTRA_JSON`.
+
 A minimal experiment: can an agent be driven only by an append-only journal and
 plugins reacting to events?
 
