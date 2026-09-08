@@ -45,9 +45,19 @@ export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
   }
 }
 
-export function mockAndroidBashTool(): ToolDefinition {
-  let pendingContact: string | undefined
+// The candidate list lives on the device, not in this process and not in the
+// journal. tool.result only records what we observed, so the journal holds the
+// agent's belief about the device; the device holds the truth. When the two
+// diverge the tool reports it and the hint drives the model to recover.
+export interface AndroidDeviceSession {
+  pendingContact?: string
+}
 
+export const createAndroidDeviceSession = (): AndroidDeviceSession => ({})
+
+export function mockAndroidBashTool(
+  session: AndroidDeviceSession = createAndroidDeviceSession(),
+): ToolDefinition {
   return {
     name: 'bash',
     schema: {
@@ -72,7 +82,7 @@ export function mockAndroidBashTool(): ToolDefinition {
       const contact = command.match(/^contact call\s+(.+)$/)
       if (contact !== null) {
         const name = contact[1]!.trim().replace(/^['"]|['"]$/g, '')
-        pendingContact = name
+        session.pendingContact = name
         const value = {
           source: 'contact',
           candidates: [{ ordinal_1based: 1, display_name: name }],
@@ -89,7 +99,7 @@ export function mockAndroidBashTool(): ToolDefinition {
 
       const selection = command.match(/^select\s+(\d+)$/)
       if (selection !== null) {
-        if (pendingContact === undefined) {
+        if (session.pendingContact === undefined) {
           return {
             content: JSON.stringify({
               error: 'no_active_list',
@@ -105,8 +115,8 @@ export function mockAndroidBashTool(): ToolDefinition {
             }),
           }
         }
-        const name = pendingContact
-        pendingContact = undefined
+        const name = session.pendingContact
+        session.pendingContact = undefined
         return {
           content: JSON.stringify({
             action: 'direct_dial',

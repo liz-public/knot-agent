@@ -26,7 +26,11 @@ import {
   type LlmInvoke,
   type ToolCall,
 } from '../src/cases/case1/protocol.js'
-import type { ToolDefinition } from '../src/cases/case1/tools.js'
+import {
+  createAndroidDeviceSession,
+  mockAndroidBashTool,
+  type ToolDefinition,
+} from '../src/cases/case1/tools.js'
 
 const echoTool: ToolDefinition = {
   name: 'echo',
@@ -393,4 +397,82 @@ test('the arbiter asks the LLM exactly once when every provider declines', async
   assert.equal(smallModel.count, 2)
   assert.equal(seen.filter(event => event.type === LLM_REQUEST).length, 1)
   assert.equal(seen.filter(event => event.type === LLM_INVOKE).length, 1)
+})
+
+test('the mock device rejects a selection it never offered', async () => {
+  const session = createAndroidDeviceSession()
+  const tool = mockAndroidBashTool(session)
+
+  const orphan = await tool.execute({ command: 'select 1' })
+  assert.match(orphan.content, /no_active_list/)
+
+  await tool.execute({ command: 'contact call 李行素' })
+  const outOfRange = await tool.execute({ command: 'select 2' })
+  assert.match(outOfRange.content, /invalid_selection/)
+  assert.equal(session.pendingContact, '李行素')
+})
+
+test('the turn recovers when the device forgot what the journal remembers', async () => {
+  const session = createAndroidDeviceSession()
+  const seen: Event[] = []
+  const replies: string[] = []
+  let callNumber = 0
+
+  const toolCall = (command: string) => {
+    callNumber += 1
+    return {
+      generated: {
+        toolCalls: [{ id: `call-${callNumber}`, name: 'bash', arguments: { command } }],
+      },
+      usage: fixedUsage(),
+    }
+  }
+  const provider: LlmProvider = {
+    async generate(call) {
+      const turnId = call.request.purpose === 'agent' ? call.request.turnId : 'compress'
+      const latest = [...call.messages].reverse().find(message => message.role === 'tool')
+      const observed = latest?.content ?? ''
+      // Turn 1 stops while the device still holds a candidate list.
+      if (turnId === 'turn-1') {
+        return { generated: { content: '找到一个候选，需要我拨打吗？', toolCalls: [] }, usage: fixedUsage() }
+      }
+      if (observed.includes('no_active_list')) return toolCall('contact call 李行素')
+      if (observed.includes('"action":"direct_dial"')) {
+        return { generated: { content: '已为您拨通李行素的电话。', toolCalls: [] }, usage: fixedUsage() }
+      }
+      return toolCall('select 1')
+    },
+  }
+
+  const agent = createCase1Agent({
+    llm: llmPlugin(provider),
+    tools: [mockAndroidBashTool(session)],
+    output: { content: content => replies.push(content) },
+    trace: event => {
+      seen.push(event)
+    },
+  })
+
+  await agent.submit('给李行素打电话')
+  assert.equal(session.pendingContact, '李行素')
+
+  // The device drops the list: an app restart, a timeout, anything we cannot see.
+  session.pendingContact = undefined
+
+  await agent.submit('就选第一个')
+
+  const secondTurnContext = seen
+    .filter(event => event.type === CONTEXT_DYNAMIC)
+    .map(event => event.data as DynamicContext)
+    .find(context => context.turnId === 'turn-2')
+  // The journal still believes a selection is pending, which is why the model
+  // tries select 1 first.
+  assert.match(secondTurnContext?.content ?? '', /pending\.selection/)
+
+  const observations = seen
+    .filter(event => event.type === TOOL_RESULT)
+    .map(event => (event.data as { content: string }).content)
+  assert.ok(observations.some(content => content.includes('no_active_list')))
+  assert.deepEqual(replies.at(-1), '已为您拨通李行素的电话。')
+  assert.equal(session.pendingContact, undefined)
 })
