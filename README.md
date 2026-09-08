@@ -2,6 +2,10 @@
 
 The smallest journal-first agent prototype.
 
+Before changing anything here, read [AGENTS.md](AGENTS.md): it holds the kernel
+contract, the plugin-layer rules earned from CASE1, and the questions that are
+still open.
+
 ## CASE1: Android call flow
 
 The isolated CASE1 assembly reproduces this path with standard function calling:

@@ -274,6 +274,6 @@ let pendingContact: string | undefined
 按上一份评审的排序，以下留给 CASE2：
 
 1. **`src/plugins/*` 与 `src/cases/case1/*` 的重复。** 现在有 5 个同名文件，两个 `llm-openai.ts` 里 fetch 加解析那段是实打实的复制。建议把 `chatCompletion()` 提成零 Journal 知识、零协议知识的纯传输函数，各 case 用自己的协议包成插件；同时决定上一版的 `src/main.ts` + `src/plugins/*` demo 还留不留。
-2. **`history.compress.request` 是一跳纯转发。** 把 `instruction` 放进 `history.compaction.required` 就能省掉一个事件类型和一次投递。17 个事件类型对一个 case 偏多，这是最容易砍的一个。
+2. **`history.compress.request` 是一跳纯转发。** 把 `instruction` 放进 `history.compaction.required` 就能省掉一个事件类型和一次投递。16 个事件类型对一个 case 偏多，这是最容易砍的一个。
 3. **`tsc` 不清理 `dist/`。** 删掉的测试文件会继续参与验证（本轮就撞到过一次，跑出了不存在的第 15 项）。建议 test 前清一次或改用 `tsc --build`。
 4. **失控循环没有保护。** 本轮写测试时构造过一个每次都返回工具调用的 provider，结果 Journal 无限增长直到 V8 OOM。这符合 Q02 第 5 点"由业务插件自己保证终止"的约定，但真机上需要有个普通插件来数轮数并追加终止事件。

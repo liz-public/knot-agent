@@ -205,7 +205,7 @@ const output = ordered
 
 顺带一提：`ShortcutRule.priority` 不算违反禁止清单第 7 条——那条针对的是内核，插件在自己内部给自己的规则排序完全正当。只是目前只有一条规则，`priority` 是暂时的空转。
 
-**`history.compress.request` 是一跳纯转发。** `contextAssembler` 追加它，`compressHistory` 只是加上 `instruction` 再转成 `llm.request`。如果 `compressHistory` 在追加 `history.compaction.required` 时就把 `instruction` 带上，`contextAssembler` 就能直接追加 `llm.request(purpose: 'history.compress')`，省掉一个事件类型和一次投递。17 个事件类型对一个 case 来说偏多，这是最容易砍的一个。
+**`history.compress.request` 是一跳纯转发。** `contextAssembler` 追加它，`compressHistory` 只是加上 `instruction` 再转成 `llm.request`。如果 `compressHistory` 在追加 `history.compaction.required` 时就把 `instruction` 带上，`contextAssembler` 就能直接追加 `llm.request(purpose: 'history.compress')`，省掉一个事件类型和一次投递。16 个事件类型对一个 case 来说偏多，这是最容易砍的一个。
 
 **mock 工具的两条错误分支没有测试。** `no_active_list` 和 `invalid_selection` 都不可达。case 里的不可达分支正是你在 Q11 批评过的"做个各个异常或者兜底的分支，没有触发，也无法测试验证"。要么补两条测试（模型选了不存在的序号、跳过 contact 直接 select），要么删掉。我建议补测试——这两条恰好能验证"工具用 hint 引导模型自我纠错"这条真实机制。
 
