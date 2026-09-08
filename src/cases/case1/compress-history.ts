@@ -45,7 +45,7 @@ export const compressHistoryPlugin = (options: CompressHistoryOptions = {}): Plu
       }
       journal.append(HISTORY_CHECKPOINT, {
         requirementId: result.request.requirementId,
-        throughIndex: result.request.throughIndex,
+        throughRequestId: result.request.throughRequestId,
         summary,
       })
       journal.append(LLM_REQUEST, result.request.resume)
@@ -54,11 +54,10 @@ export const compressHistoryPlugin = (options: CompressHistoryOptions = {}): Plu
 
     const { totalTokens, contextWindow } = result.usage
     if (contextWindow <= 0 || totalTokens / contextWindow < threshold) return
-    const events = journal.read()
-    if (hasPendingCompaction(events)) return
+    if (hasPendingCompaction(journal.read())) return
     journal.append(HISTORY_COMPACTION_REQUIRED, {
       requirementId: `compact-${result.requestId}`,
-      throughIndex: events.indexOf(event),
+      throughRequestId: result.requestId,
     })
   })
 
@@ -68,7 +67,7 @@ export const compressHistoryPlugin = (options: CompressHistoryOptions = {}): Plu
       purpose: 'history.compress',
       turnId: request.turnId,
       requirementId: request.requirementId,
-      throughIndex: request.throughIndex,
+      throughRequestId: request.throughRequestId,
       instruction,
       resume: request.resume,
     })

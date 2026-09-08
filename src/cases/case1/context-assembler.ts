@@ -5,6 +5,7 @@ import {
   HISTORY_CHECKPOINT,
   HISTORY_COMPACTION_REQUIRED,
   HISTORY_COMPRESS_REQUEST,
+  LLM_GENERATED,
   LLM_INVOKE,
   LLM_REQUEST,
   SYSTEM_PROMPT,
@@ -16,6 +17,7 @@ import {
   type DynamicContext,
   type HistoryCheckpoint,
   type HistoryCompactionRequired,
+  type LlmGenerated,
   type LlmRequest,
   type SystemPrompt,
   type ToolCall,
@@ -42,6 +44,20 @@ function latestCheckpoint(events: readonly Event[]): HistoryCheckpoint | undefin
     if (event?.type === HISTORY_CHECKPOINT) return event.data as HistoryCheckpoint
   }
   return undefined
+}
+
+function generationIndex(events: readonly Event[], requestId: string): number {
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]
+    if (event?.type !== LLM_GENERATED) continue
+    if ((event.data as LlmGenerated).requestId === requestId) return index
+  }
+  throw new Error(`no generation recorded for requestId ${requestId}`)
+}
+
+function tailStart(events: readonly Event[], checkpoint?: HistoryCheckpoint): number {
+  if (checkpoint === undefined) return 0
+  return generationIndex(events, checkpoint.throughRequestId) + 1
 }
 
 function semanticMessages(
@@ -110,13 +126,13 @@ export const contextAssemblerPlugin = (
 
     let messages: ChatMessage[]
     if (request.purpose === 'history.compress') {
-      const previous = latestCheckpoint(events)
-      const start = previous === undefined ? 0 : previous.throughIndex + 1
+      const start = tailStart(events, latestCheckpoint(events))
+      const through = generationIndex(events, request.throughRequestId)
       messages = [
         { role: 'system', content: request.instruction },
         {
           role: 'user',
-          content: JSON.stringify(semanticMessages(events, start, request.throughIndex)),
+          content: JSON.stringify(semanticMessages(events, start, through)),
         },
       ]
     } else {
@@ -124,7 +140,7 @@ export const contextAssemblerPlugin = (
         .filter(item => item.type === SYSTEM_PROMPT)
         .map(item => (item.data as SystemPrompt).content)
       const checkpoint = latestCheckpoint(events)
-      const start = checkpoint === undefined ? 0 : checkpoint.throughIndex + 1
+      const start = tailStart(events, checkpoint)
       messages = prompts.length === 0
         ? []
         : [{ role: 'system', content: prompts.join('\n\n') }]

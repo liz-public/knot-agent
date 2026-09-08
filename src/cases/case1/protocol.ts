@@ -79,7 +79,7 @@ export interface CompressionLlmRequest {
   purpose: 'history.compress'
   turnId: string
   requirementId: string
-  throughIndex: number
+  throughRequestId: string
   instruction: string
   resume: AgentLlmRequest
 }
@@ -128,9 +128,12 @@ export interface LlmGenerated {
   usage: LlmUsage
 }
 
+// The boundary is the requestId of the generation that tripped the threshold,
+// not a journal position: an index would silently shift under persistence,
+// trimming, fork or replay instead of failing.
 export interface HistoryCompactionRequired {
   requirementId: string
-  throughIndex: number
+  throughRequestId: string
 }
 
 export interface HistoryCompressRequest extends HistoryCompactionRequired {
