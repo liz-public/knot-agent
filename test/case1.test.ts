@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
+import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
 import { mockLlmPlugin } from '../src/cases/case1/llm-mock.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
 import {
@@ -15,6 +16,29 @@ import {
   type LlmInvoke,
   type ToolCall,
 } from '../src/cases/case1/protocol.js'
+import type { ToolDefinition } from '../src/cases/case1/tools.js'
+
+const echoTool: ToolDefinition = {
+  name: 'echo',
+  schema: {
+    type: 'function',
+    function: {
+      name: 'echo',
+      description: 'Echo one string back.',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+        additionalProperties: false,
+      },
+    },
+  },
+  execute: arguments_ => ({ content: JSON.stringify({ echoed: arguments_['text'] }) }),
+}
+
+function fixedUsage() {
+  return { inputTokens: 10, outputTokens: 1, totalTokens: 11, contextWindow: 100000 }
+}
 
 test('CASE1 keeps one dynamic context through shortcut, tools, compression, and final reply', async () => {
   const seen: Event[] = []
@@ -153,4 +177,88 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('parallel tool calls in one generation resume the turn exactly once', async () => {
+  const seen: Event[] = []
+  let generations = 0
+  const provider: LlmProvider = {
+    async generate() {
+      generations += 1
+      if (generations === 1) {
+        return {
+          generated: {
+            toolCalls: ['a', 'b', 'c'].map(id => ({
+              id,
+              name: 'echo',
+              arguments: { text: id },
+            })),
+          },
+          usage: fixedUsage(),
+        }
+      }
+      return { generated: { content: '三件事都办好了。', toolCalls: [] }, usage: fixedUsage() }
+    },
+  }
+
+  const replies: string[] = []
+  const agent = createCase1Agent({
+    llm: llmPlugin(provider),
+    tools: [echoTool],
+    output: { content: content => replies.push(content) },
+    trace: event => {
+      seen.push(event)
+    },
+  })
+  await agent.submit('你好')
+
+  assert.equal(seen.filter(event => event.type === TOOL_CALL).length, 3)
+  assert.equal(seen.filter(event => event.type === TOOL_RESULT).length, 3)
+  assert.equal(seen.filter(event => event.type === LLM_INVOKE).length, 2)
+  assert.equal(generations, 2)
+  assert.deepEqual(replies, ['三件事都办好了。'])
+})
+
+test('the join does not depend on how long each parallel tool takes', async () => {
+  const seen: Event[] = []
+  let generations = 0
+  const slowEcho: ToolDefinition = {
+    name: 'echo',
+    schema: echoTool.schema,
+    async execute(arguments_) {
+      const text = String(arguments_['text'])
+      await new Promise(resolve => setTimeout(resolve, text === 'a' ? 20 : 0))
+      return { content: JSON.stringify({ echoed: text }) }
+    },
+  }
+  const provider: LlmProvider = {
+    async generate() {
+      generations += 1
+      if (generations === 1) {
+        return {
+          generated: {
+            toolCalls: ['a', 'b'].map(id => ({ id, name: 'echo', arguments: { text: id } })),
+          },
+          usage: fixedUsage(),
+        }
+      }
+      return { generated: { content: '两件事都办好了。', toolCalls: [] }, usage: fixedUsage() }
+    },
+  }
+
+  const agent = createCase1Agent({
+    llm: llmPlugin(provider),
+    tools: [slowEcho],
+    trace: event => {
+      seen.push(event)
+    },
+  })
+  await agent.submit('你好')
+
+  assert.equal(generations, 2)
+  assert.deepEqual(
+    seen.filter(event => event.type === TOOL_RESULT).map(event => (event.data as { callId: string }).callId),
+    ['a', 'b'],
+  )
+  assert.equal(seen.filter(event => event.type === ASSISTANT_MESSAGE).length, 1)
 })
