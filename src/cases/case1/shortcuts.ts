@@ -1,7 +1,7 @@
 import type { Plugin } from '../../journal.js'
+import { turnHasContent } from './content.js'
 import {
   ASSISTANT_MESSAGE,
-  CONTENT_NO_MATCH,
   CONTENT_REQUEST,
   TOOL_CALL,
   type ContentRequest,
@@ -36,24 +36,25 @@ export const shortcutPlugin = (rules: readonly ShortcutRule[]): Plugin => {
   const ordered = [...rules].sort((a, b) => b.priority - a.priority)
   return journal => journal.subscribe(CONTENT_REQUEST, event => {
     const request = event.data as ContentRequest
-    const output = ordered
-      .map(rule => rule.match(request.query))
-      .find(result => result !== undefined)
+    if (turnHasContent(journal.read(), request.turnId)) return
 
-    if (output === undefined) {
-      journal.append(CONTENT_NO_MATCH, { turnId: request.turnId })
-    } else if (output.kind === 'message') {
-      journal.append(ASSISTANT_MESSAGE, {
-        turnId: request.turnId,
-        content: output.content,
-      })
-    } else {
-      journal.append(TOOL_CALL, {
-        turnId: request.turnId,
-        callId: `shortcut-${request.turnId}`,
-        name: output.name,
-        arguments: output.arguments,
-      })
+    for (const rule of ordered) {
+      const output = rule.match(request.query)
+      if (output === undefined) continue
+      if (output.kind === 'message') {
+        journal.append(ASSISTANT_MESSAGE, {
+          turnId: request.turnId,
+          content: output.content,
+        })
+      } else {
+        journal.append(TOOL_CALL, {
+          turnId: request.turnId,
+          callId: `shortcut-${request.turnId}`,
+          name: output.name,
+          arguments: output.arguments,
+        })
+      }
+      return
     }
   })
 }

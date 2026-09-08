@@ -1,11 +1,9 @@
 import type { Event, Plugin } from '../../journal.js'
 import {
-  CONTENT_NO_MATCH,
   CONTENT_REQUEST,
   LLM_REQUEST,
   TOOL_CALL,
   TOOL_RESULT,
-  type ContentNoMatch,
   type ToolCall,
   type ToolResult,
   type UserMessage,
@@ -43,11 +41,6 @@ export const agentFlowPlugin = (): Plugin => journal => {
       turnId: message.turnId,
       query: message.content,
     })
-  })
-
-  journal.subscribe(CONTENT_NO_MATCH, event => {
-    const miss = event.data as ContentNoMatch
-    journal.append(LLM_REQUEST, { purpose: 'agent', turnId: miss.turnId })
   })
 
   journal.subscribe(TOOL_RESULT, event => {

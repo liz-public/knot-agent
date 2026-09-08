@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { Event } from '../src/journal.js'
+import type { Event, Plugin } from '../src/journal.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
+import { turnHasContent } from '../src/cases/case1/content.js'
 import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
@@ -12,12 +13,15 @@ import {
 } from '../src/cases/case1/projection.js'
 import {
   ASSISTANT_MESSAGE,
+  CONTENT_REQUEST,
   CONTEXT_DYNAMIC,
   HISTORY_CHECKPOINT,
   LLM_INVOKE,
+  LLM_REQUEST,
   TOOL_CALL,
   TOOL_RESULT,
   type ChatMessage,
+  type ContentRequest,
   type DynamicContext,
   type LlmInvoke,
   type ToolCall,
@@ -295,4 +299,98 @@ test('every model input can be rebuilt from the journal and its manifest', async
 
   assert.equal(sent.length, 3)
   assert.deepEqual(rebuilt, sent)
+})
+
+// Stands in for a real second content provider: a small classifier that costs a
+// network round trip, so being called at all is observable.
+function smallModelProviderPlugin(calls: { count: number }): Plugin {
+  return journal => journal.subscribe(CONTENT_REQUEST, async event => {
+    const request = event.data as ContentRequest
+    if (turnHasContent(journal.read(), request.turnId)) return
+    calls.count += 1
+    await new Promise(resolve => setTimeout(resolve, 5))
+    if (!request.query.includes('静音')) return
+    journal.append(TOOL_CALL, {
+      turnId: request.turnId,
+      callId: `small-model-${request.turnId}`,
+      name: 'bash',
+      arguments: { command: 'volume mute' },
+    })
+  })
+}
+
+test('a matching provider stops later providers from spending anything', async () => {
+  const smallModel = { count: 0 }
+  let generations = 0
+  const agent = createCase1Agent({
+    llm: llmPlugin({
+      async generate() {
+        generations += 1
+        return { generated: { content: '好了。', toolCalls: [] }, usage: fixedUsage() }
+      },
+    }),
+    contentProviders: [smallModelProviderPlugin(smallModel)],
+  })
+
+  await agent.submit('给李行素打电话')
+
+  // The rule answered, so the classifier never ran; the single generation is
+  // the one that turns the tool result into a reply.
+  assert.equal(smallModel.count, 0)
+  assert.equal(generations, 1)
+})
+
+test('an async provider can answer a turn the rules missed, without the LLM', async () => {
+  const seen: Event[] = []
+  const smallModel = { count: 0 }
+  let generations = 0
+  const agent = createCase1Agent({
+    llm: llmPlugin({
+      async generate() {
+        generations += 1
+        return { generated: { content: '已静音。', toolCalls: [] }, usage: fixedUsage() }
+      },
+    }),
+    tools: [{
+      name: 'bash',
+      schema: echoTool.schema,
+      execute: () => ({ content: JSON.stringify({ action: 'muted' }) }),
+    }],
+    contentProviders: [smallModelProviderPlugin(smallModel)],
+    trace: event => {
+      seen.push(event)
+    },
+  })
+
+  await agent.submit('帮我把手机静音')
+
+  assert.equal(smallModel.count, 1)
+  assert.deepEqual(
+    seen.filter(event => event.type === TOOL_CALL).map(event => (event.data as ToolCall).callId),
+    ['small-model-turn-1'],
+  )
+  // The arbiter stood down because the small model answered, so the only
+  // generation is the one resuming the turn after the tool result.
+  assert.equal(generations, 1)
+})
+
+test('the arbiter asks the LLM exactly once when every provider declines', async () => {
+  const seen: Event[] = []
+  const smallModel = { count: 0 }
+  const agent = createCase1Agent({
+    llm: mockLlmPlugin(),
+    contentProviders: [
+      smallModelProviderPlugin(smallModel),
+      smallModelProviderPlugin(smallModel),
+    ],
+    trace: event => {
+      seen.push(event)
+    },
+  })
+
+  await agent.submit('今天天气怎么样')
+
+  assert.equal(smallModel.count, 2)
+  assert.equal(seen.filter(event => event.type === LLM_REQUEST).length, 1)
+  assert.equal(seen.filter(event => event.type === LLM_INVOKE).length, 1)
 })

@@ -3,7 +3,6 @@ export const SYSTEM_PROMPT = 'system.prompt'
 export const USER_MESSAGE = 'user.message'
 export const CONTEXT_DYNAMIC = 'context.dynamic'
 export const CONTENT_REQUEST = 'content.request'
-export const CONTENT_NO_MATCH = 'content.no_match'
 export const LLM_REQUEST = 'llm.request'
 export const LLM_INVOKE = 'llm.invoke'
 export const LLM_GENERATED = 'llm.generated'
@@ -36,10 +35,6 @@ export interface DynamicContext {
 export interface ContentRequest {
   turnId: string
   query: string
-}
-
-export interface ContentNoMatch {
-  turnId: string
 }
 
 export interface ToolRegistry {
