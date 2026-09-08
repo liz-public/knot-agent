@@ -1,28 +1,41 @@
 import type { Plugin } from '../../journal.js'
+import { projectMessages, projectTools } from './projection.js'
 import {
   ASSISTANT_MESSAGE,
   ASSISTANT_REASONING,
   LLM_GENERATED,
   LLM_INVOKE,
   TOOL_CALL,
+  type ChatMessage,
   type LlmGenerated,
   type LlmInvoke,
+  type LlmRequest,
 } from './protocol.js'
 
+export interface LlmCall {
+  readonly request: LlmRequest
+  readonly messages: readonly ChatMessage[]
+  readonly tools: readonly Record<string, unknown>[]
+}
+
 export interface LlmProvider {
-  generate(invoke: LlmInvoke): Promise<Omit<LlmGenerated, 'requestId' | 'request'>>
+  generate(call: LlmCall): Promise<Pick<LlmGenerated, 'generated' | 'usage'>>
 }
 
 export const llmPlugin = (provider: LlmProvider): Plugin =>
   journal => journal.subscribe(LLM_INVOKE, async event => {
     const invoke = event.data as LlmInvoke
-    const result = await provider.generate(invoke)
-    const generated: LlmGenerated = {
+    const events = journal.read()
+    const result = await provider.generate({
+      request: invoke.request,
+      messages: projectMessages(events, invoke),
+      tools: invoke.manifest.kind === 'agent' ? projectTools(events) : [],
+    })
+    journal.append(LLM_GENERATED, {
       requestId: invoke.requestId,
       request: invoke.request,
       ...result,
-    }
-    journal.append(LLM_GENERATED, generated)
+    })
 
     if (invoke.request.purpose !== 'agent') return
 

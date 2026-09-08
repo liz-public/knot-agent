@@ -1,5 +1,11 @@
 import type { Plugin } from '../../journal.js'
-import { TOOL_CALL, TOOL_RESULT, type ToolCall } from './protocol.js'
+import {
+  SESSION_START,
+  TOOL_CALL,
+  TOOL_REGISTRY,
+  TOOL_RESULT,
+  type ToolCall,
+} from './protocol.js'
 
 export interface ToolExecution {
   readonly content: string
@@ -16,19 +22,27 @@ export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
   const byName = new Map(tools.map(tool => [tool.name, tool]))
   if (byName.size !== tools.length) throw new Error('duplicate tool name')
 
-  return journal => journal.subscribe(TOOL_CALL, async event => {
-    const call = event.data as ToolCall
-    const tool = byName.get(call.name)
-    if (tool === undefined) throw new Error(`unknown tool: ${call.name}`)
-    const result = await tool.execute(call.arguments)
-    journal.append(TOOL_RESULT, {
-      turnId: call.turnId,
-      callId: call.callId,
-      name: call.name,
-      content: result.content,
-      ...(result.state === undefined ? {} : { state: result.state }),
+  return journal => {
+    // Announcing the schemas on the journal keeps the tool list out of every
+    // model input and lets any plugin discover what this agent can do.
+    journal.subscribe(SESSION_START, () => {
+      journal.append(TOOL_REGISTRY, { schemas: tools.map(tool => tool.schema) })
     })
-  })
+
+    journal.subscribe(TOOL_CALL, async event => {
+      const call = event.data as ToolCall
+      const tool = byName.get(call.name)
+      if (tool === undefined) throw new Error(`unknown tool: ${call.name}`)
+      const result = await tool.execute(call.arguments)
+      journal.append(TOOL_RESULT, {
+        turnId: call.turnId,
+        callId: call.callId,
+        name: call.name,
+        content: result.content,
+        ...(result.state === undefined ? {} : { state: result.state }),
+      })
+    })
+  }
 }
 
 export function mockAndroidBashTool(): ToolDefinition {

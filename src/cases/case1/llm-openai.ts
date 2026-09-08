@@ -1,6 +1,5 @@
 import type { Plugin } from '../../journal.js'
-import { llmPlugin, type LlmProvider } from './llm.js'
-import type { LlmInvoke } from './protocol.js'
+import { llmPlugin, type LlmCall, type LlmProvider } from './llm.js'
 
 export interface OpenAiLlmOptions {
   readonly baseUrl: string
@@ -16,7 +15,7 @@ export const openAiLlmPlugin = (options: OpenAiLlmOptions): Plugin => {
     : `${options.baseUrl.replace(/\/$/, '')}/chat/completions`
 
   const provider: LlmProvider = {
-    async generate(invoke: LlmInvoke) {
+    async generate(call: LlmCall) {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -26,10 +25,10 @@ export const openAiLlmPlugin = (options: OpenAiLlmOptions): Plugin => {
         body: JSON.stringify({
           ...options.extraBody,
           model: options.model,
-          messages: invoke.messages,
-          ...(invoke.tools.length === 0
+          messages: call.messages,
+          ...(call.tools.length === 0
             ? {}
-            : { tools: invoke.tools, tool_choice: 'auto' }),
+            : { tools: call.tools, tool_choice: 'auto' }),
         }),
       })
       if (!response.ok) {

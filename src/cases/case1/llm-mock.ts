@@ -1,19 +1,22 @@
 import type { Plugin } from '../../journal.js'
-import { llmPlugin, type LlmProvider } from './llm.js'
-import type { LlmInvoke, LlmUsage } from './protocol.js'
+import { llmPlugin, type LlmCall, type LlmProvider } from './llm.js'
+import type { LlmUsage } from './protocol.js'
 
 export interface MockLlmOptions {
   readonly contextWindow?: number
   readonly firstAgentInputTokens?: number
 }
 
-export const mockLlmPlugin = (options: MockLlmOptions = {}): Plugin => {
+export const mockLlmPlugin = (options: MockLlmOptions = {}): Plugin =>
+  llmPlugin(mockLlmProvider(options))
+
+export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
   const contextWindow = options.contextWindow ?? 1000
   let agentCalls = 0
 
-  const provider: LlmProvider = {
-    async generate(invoke: LlmInvoke) {
-      if (invoke.request.purpose === 'history.compress') {
+  return {
+    async generate(call: LlmCall) {
+      if (call.request.purpose === 'history.compress') {
         return {
           generated: {
             content: '用户要求给李行素打电话；联系人查询得到唯一候选李行素。',
@@ -24,7 +27,7 @@ export const mockLlmPlugin = (options: MockLlmOptions = {}): Plugin => {
       }
 
       agentCalls += 1
-      const latestTool = [...invoke.messages].reverse().find(message => message.role === 'tool')
+      const latestTool = [...call.messages].reverse().find(message => message.role === 'tool')
       const inputTokens = agentCalls === 1 && options.firstAgentInputTokens !== undefined
         ? options.firstAgentInputTokens
         : 120
@@ -58,8 +61,6 @@ export const mockLlmPlugin = (options: MockLlmOptions = {}): Plugin => {
       }
     },
   }
-
-  return llmPlugin(provider)
 }
 
 function usage(inputTokens: number, outputTokens: number, contextWindow: number): LlmUsage {

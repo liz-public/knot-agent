@@ -7,6 +7,7 @@ export const CONTENT_NO_MATCH = 'content.no_match'
 export const LLM_REQUEST = 'llm.request'
 export const LLM_INVOKE = 'llm.invoke'
 export const LLM_GENERATED = 'llm.generated'
+export const TOOL_REGISTRY = 'tool.registry'
 export const TOOL_CALL = 'tool.call'
 export const TOOL_RESULT = 'tool.result'
 export const ASSISTANT_REASONING = 'assistant.reasoning'
@@ -39,6 +40,10 @@ export interface ContentRequest {
 
 export interface ContentNoMatch {
   turnId: string
+}
+
+export interface ToolRegistry {
+  schemas: readonly Record<string, unknown>[]
 }
 
 export interface ToolCall {
@@ -97,11 +102,27 @@ export interface ChatMessage {
   }>
 }
 
+// The manifest records how to rebuild one model input from the journal instead
+// of storing the materialized messages, which would repeat the whole history
+// once per generation and make the journal grow with the square of the turns.
+export type ContextManifest =
+  | {
+    kind: 'agent'
+    dynamicTurnId: string
+    tailAfterRequestId?: string
+    summaryOfRequirementId?: string
+  }
+  | {
+    kind: 'compress'
+    instruction: string
+    tailAfterRequestId?: string
+    tailThroughRequestId: string
+  }
+
 export interface LlmInvoke {
   requestId: string
   request: LlmRequest
-  messages: readonly ChatMessage[]
-  tools: readonly Record<string, unknown>[]
+  manifest: ContextManifest
 }
 
 export interface GeneratedContent {

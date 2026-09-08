@@ -3,8 +3,13 @@ import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
 import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
-import { mockLlmPlugin } from '../src/cases/case1/llm-mock.js'
+import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
+import {
+  isDynamicContextMessage,
+  projectMessages,
+  projectTools,
+} from '../src/cases/case1/projection.js'
 import {
   ASSISTANT_MESSAGE,
   CONTEXT_DYNAMIC,
@@ -12,6 +17,7 @@ import {
   LLM_INVOKE,
   TOOL_CALL,
   TOOL_RESULT,
+  type ChatMessage,
   type DynamicContext,
   type LlmInvoke,
   type ToolCall,
@@ -83,15 +89,13 @@ test('CASE1 keeps one dynamic context through shortcut, tools, compression, and 
   ])
   const agentInvocations = invocations.filter(item => item.request.purpose === 'agent')
   const runtimeContextMessages = agentInvocations.map(invoke =>
-    invoke.messages.filter(message =>
-      message.content?.startsWith('以下是仅对当前用户请求有效的运行时上下文：'),
-    ),
+    projectMessages(agent.journal.read(), invoke).filter(isDynamicContextMessage),
   )
   assert.equal(runtimeContextMessages[0]?.length, 1)
   assert.equal(runtimeContextMessages[1]?.length, 1)
   assert.equal(runtimeContextMessages[0]?.[0]?.content, runtimeContextMessages[1]?.[0]?.content)
-  assert.ok(agentInvocations.every(invoke => invoke.tools.length === 1))
-  assert.equal(invocations[1]?.tools.length, 0)
+  assert.equal(projectTools(agent.journal.read()).length, 1)
+  assert.equal(invocations[1]?.manifest.kind, 'compress')
 
   const checkpointIndex = seen.findIndex(event => event.type === HISTORY_CHECKPOINT)
   const finalIndex = seen.findIndex(event => event.type === ASSISTANT_MESSAGE)
@@ -118,9 +122,8 @@ test('CASE1 creates a fresh dynamic context for the next user query', async () =
     .filter(event => event.type === LLM_INVOKE)
     .map(event => event.data as LlmInvoke)
     .at(-1)!
-  const visibleDynamic = latestInvoke.messages.filter(message =>
-    message.content?.startsWith('以下是仅对当前用户请求有效的运行时上下文：'),
-  )
+  const visibleDynamic = projectMessages(agent.journal.read(), latestInvoke)
+    .filter(isDynamicContextMessage)
   assert.equal(visibleDynamic.length, 1)
   assert.doesNotMatch(visibleDynamic[0]?.content ?? '', /contact|select|dialer/)
 })
@@ -261,4 +264,35 @@ test('the join does not depend on how long each parallel tool takes', async () =
     ['a', 'b'],
   )
   assert.equal(seen.filter(event => event.type === ASSISTANT_MESSAGE).length, 1)
+})
+
+test('every model input can be rebuilt from the journal and its manifest', async () => {
+  const seen: Event[] = []
+  const sent: ChatMessage[][] = []
+  const provider = mockLlmProvider({ contextWindow: 1000, firstAgentInputTokens: 800 })
+  const recording: LlmProvider = {
+    generate(call) {
+      sent.push([...call.messages])
+      return provider.generate(call)
+    },
+  }
+
+  const agent = createCase1Agent({
+    llm: llmPlugin(recording),
+    compression: { threshold: 0.8 },
+    now: () => new Date('2026-07-07T06:56:27.000Z'),
+    trace: event => {
+      seen.push(event)
+    },
+  })
+  await agent.submit('给李行素打电话')
+
+  // Replayed against the finished journal, which is longer than it was at the
+  // time of each call: both ends of every window are addressed by content.
+  const rebuilt = seen
+    .filter(event => event.type === LLM_INVOKE)
+    .map(event => projectMessages(agent.journal.read(), event.data as LlmInvoke))
+
+  assert.equal(sent.length, 3)
+  assert.deepEqual(rebuilt, sent)
 })

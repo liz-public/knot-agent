@@ -36,7 +36,7 @@ export function createCase1Agent(options: Case1Options) {
     compressHistoryPlugin(options.compression),
     agentFlowPlugin(),
     shortcutPlugin([androidCallRule]),
-    contextAssemblerPlugin(tools.map(tool => tool.schema)),
+    contextAssemblerPlugin(),
     options.llm,
     toolsPlugin(tools),
     outputPlugin(options.output ?? { content: () => undefined }),
