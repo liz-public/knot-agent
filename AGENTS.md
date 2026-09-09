@@ -157,27 +157,23 @@ CASE1 的做法是两端都用内容标识钉住：起点是"某次生成之后"
 
 **新 case 只要引入窗口（压缩、分页、回溯、局部投影），就必须能通过这条"重放字节一致"的测试。**
 
-### 4.5 "命中就产出、不命中就沉默"是一句守卫，而且只能写一处
+### 4.5 有序多选一是一个领域操作，只能由一个插件拥有
 
-先说清楚内核做了什么：**什么都没做。** 内核把 `content.request` 串行投递给每一个订阅者，不会因为前一个已经产出就跳过后面的。所谓"命中就停止分发"完全不是内核行为，它就是一句话：
+`content.request` 不是允许多个插件各自反应的广播，而是“按顺序寻找第一个答案”的一次领域操作。把每个来源包装成订阅者，会把 first-match 藏进注册顺序和 Journal 回看；来源看似是插件，实际只是同一调度器里的候选策略。
 
-> **动手之前先看 Journal 里这一轮有没有答案了。**
-
-```ts
-if (turnHasContent(journal.read(), request.turnId)) return
-```
-
-成立靠的是投递语义第 2 条：追加的事件**立刻进数组、稍后才投递**，所以后一个 provider 读得到前一个刚产出的东西。没有选举、没有注册表、没有 priority 字段，注册顺序就是优先级。
-
-但**这句守卫不能靠每个 provider 记得写**——N 份重复的义务就是 N 个忘记的机会，而忘记的代价是小模型白跑几百毫秒加真金白银。所以守卫收进唯一的一个包装里，provider 的契约**就是它的函数签名**：
+正确形状与 `toolsPlugin(ToolDefinition[])` 对称：一个 `contentPlugin(ContentSource[])` 订阅 Journal，内部用普通 `for` 循环依次调用来源，第一个命中后立即返回，后续来源不再运行。
 
 ```ts
-contentProviderPlugin(request => 输出 | undefined)   // 命中就产出，不命中就 return undefined
+contentPlugin([
+  shortcutSource,
+  smallModelSource,
+  llmContentSource, // 必中的末位来源
+])
 ```
 
-推论：**LLM 就是优先级最低的那个 provider**（`llmProviderPlugin`，装在最后），"仲裁器"这个概念不需要存在。参照 `src/cases/case1/content.ts`。
+`ContentSource` 是普通策略函数，不是 Journal 插件：它只知道“回答或返回 `undefined`”，不知道其他来源、自己的顺序或 Journal 的投递机制。顺序只在装配表出现一次。
 
-**同理适用于任何"多个插件订阅同一个请求、只该有一个应答"的场景**：不要让弃权者各自追加一条 `x.no_match`——局部结论冒充全局结论，会退化成扇出。弃权就是沉默。
+**判据：**允许 0～N 方独立反应才用多个 Journal 订阅者；要求 N 选一、有序 fallback 时，用一个领域插件组合 N 个策略。不要让弃权者各自追加 `x.no_match`，也不要把局部 first-match 强行事件化。
 
 ### 4.6 状态按**所有者**归位；Journal 记观测，不冒充外部真相
 
@@ -234,7 +230,7 @@ CASE1 的五个问题，**没有一个的正确解法需要内核提供新能力
 | 并行工具扇出 | barrier / join / correlation | 把粒度改对：一次决策一条事件，join 不存在 |
 | 压缩水位线 | 内核 `seq` | 生成的 `requestId` |
 | Journal 平方膨胀 | 瞬时 payload 通道 | manifest + 纯投影函数 |
-| 内容仲裁 | priority / capability 注册表 | 注册顺序 + 一句"先看 Journal"，LLM 是末位 provider |
+| 内容仲裁 | priority / capability 注册表 | 一个 content 插件 + 有序 sources，LLM 是末位 source |
 | 工具状态 | 给插件的状态注入面 | 按所有者归位，外部责任方装配期显式传入 |
 
 另外这些已被明确否决，不要回头：

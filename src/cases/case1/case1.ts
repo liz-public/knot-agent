@@ -2,19 +2,19 @@ import { createJournal, type Event, type Plugin } from '../../journal.js'
 import { tracePlugin } from '../../plugins/trace.js'
 import { agentFlowPlugin } from './agent-flow.js'
 import { compressHistoryPlugin, type CompressHistoryOptions } from './compress-history.js'
-import { llmProviderPlugin } from './content.js'
+import { contentPlugin, llmContentSource, type ContentSource } from './content.js'
 import { contextAssemblerPlugin } from './context-assembler.js'
 import { outputPlugin, type OutputSinks } from './output.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
 import { case1Commands, runtimeContextPlugin } from './runtime-context.js'
-import { androidCallRule, shortcutPlugin } from './shortcuts.js'
+import { androidCallRule, shortcutSource } from './shortcuts.js'
 import { systemPromptPlugin } from './system-prompt.js'
 import { mockAndroidBashTool, toolsPlugin, type ToolDefinition } from './tools.js'
 
 export interface Case1Options {
   readonly llm: Plugin
-  /** Extra content providers, tried after the built-in shortcut rules. */
-  readonly contentProviders?: readonly Plugin[]
+  /** Extra content sources, tried after the built-in shortcut rules. */
+  readonly contentSources?: readonly ContentSource[]
   readonly tools?: readonly ToolDefinition[]
   readonly output?: OutputSinks
   readonly trace?: (event: Event) => void
@@ -38,9 +38,11 @@ export function createCase1Agent(options: Case1Options) {
     }),
     compressHistoryPlugin(options.compression),
     agentFlowPlugin(),
-    shortcutPlugin([androidCallRule]),
-    ...(options.contentProviders ?? []),
-    llmProviderPlugin(),
+    contentPlugin([
+      shortcutSource([androidCallRule]),
+      ...(options.contentSources ?? []),
+      llmContentSource,
+    ]),
     contextAssemblerPlugin(),
     options.llm,
     toolsPlugin(tools),

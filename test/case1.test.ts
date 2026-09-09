@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { Event, Plugin } from '../src/journal.js'
+import type { Event } from '../src/journal.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
-import { contentProviderPlugin } from '../src/cases/case1/content.js'
+import type { ContentSource } from '../src/cases/case1/content.js'
 import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
@@ -313,11 +313,11 @@ test('every model input can be rebuilt from the journal and its manifest', async
   assert.deepEqual(rebuilt, sent)
 })
 
-// Stands in for a real second content provider: a small classifier that costs a
-// network round trip, so being called at all is observable. It carries no guard
-// of its own, which is the point: the wrapper holds the only one.
-function smallModelProviderPlugin(calls: { count: number }): Plugin {
-  return contentProviderPlugin(async request => {
+// Stands in for a second content source: a small classifier that costs a network
+// round trip, so being called at all is observable. The content plugin owns the
+// ordered first-match loop; a source only answers or declines.
+function smallModelSource(calls: { count: number }): ContentSource {
+  return async request => {
     calls.count += 1
     await new Promise(resolve => setTimeout(resolve, 5))
     if (!request.query.includes('静音')) return undefined
@@ -329,10 +329,10 @@ function smallModelProviderPlugin(calls: { count: number }): Plugin {
         arguments: { command: 'volume mute' },
       }],
     }
-  })
+  }
 }
 
-test('a matching provider stops later providers from spending anything', async () => {
+test('a matching source stops later sources from spending anything', async () => {
   const smallModel = { count: 0 }
   let generations = 0
   const agent = createCase1Agent({
@@ -342,7 +342,7 @@ test('a matching provider stops later providers from spending anything', async (
         return { generated: { content: '好了。', toolCalls: [] }, usage: fixedUsage() }
       },
     }),
-    contentProviders: [smallModelProviderPlugin(smallModel)],
+    contentSources: [smallModelSource(smallModel)],
   })
 
   await agent.submit('给李行素打电话')
@@ -353,7 +353,7 @@ test('a matching provider stops later providers from spending anything', async (
   assert.equal(generations, 1)
 })
 
-test('an async provider can answer a turn the rules missed, without the LLM', async () => {
+test('an async source can answer a turn the rules missed, without the LLM', async () => {
   const seen: Event[] = []
   const smallModel = { count: 0 }
   let generations = 0
@@ -369,7 +369,7 @@ test('an async provider can answer a turn the rules missed, without the LLM', as
       schema: echoTool.schema,
       execute: () => ({ content: JSON.stringify({ action: 'muted' }) }),
     }],
-    contentProviders: [smallModelProviderPlugin(smallModel)],
+    contentSources: [smallModelSource(smallModel)],
     trace: event => {
       seen.push(event)
     },
@@ -384,19 +384,19 @@ test('an async provider can answer a turn the rules missed, without the LLM', as
       .flatMap(event => (event.data as ToolCall).calls.map(call => call.callId)),
     ['small-model-turn-1'],
   )
-  // The LLM provider stood down because the small model answered, so the only
+  // The LLM source stood down because the small model answered, so the only
   // generation is the one resuming the turn after the tool result.
   assert.equal(generations, 1)
 })
 
-test('the LLM provider asks exactly once when every earlier provider declines', async () => {
+test('the LLM source asks exactly once when every earlier source declines', async () => {
   const seen: Event[] = []
   const smallModel = { count: 0 }
   const agent = createCase1Agent({
     llm: mockLlmPlugin(),
-    contentProviders: [
-      smallModelProviderPlugin(smallModel),
-      smallModelProviderPlugin(smallModel),
+    contentSources: [
+      smallModelSource(smallModel),
+      smallModelSource(smallModel),
     ],
     trace: event => {
       seen.push(event)

@@ -1,5 +1,4 @@
-import type { Plugin } from '../../journal.js'
-import { contentProviderPlugin } from './content.js'
+import type { ContentSource } from './content.js'
 
 type ShortcutOutput =
   | { kind: 'message'; content: string }
@@ -26,9 +25,9 @@ export const androidCallRule: ShortcutRule = {
   },
 }
 
-export const shortcutPlugin = (rules: readonly ShortcutRule[]): Plugin => {
+export const shortcutSource = (rules: readonly ShortcutRule[]): ContentSource => {
   const ordered = [...rules].sort((a, b) => b.priority - a.priority)
-  return contentProviderPlugin(request => {
+  return request => {
     for (const rule of ordered) {
       const output = rule.match(request.query)
       if (output === undefined) continue
@@ -43,5 +42,5 @@ export const shortcutPlugin = (rules: readonly ShortcutRule[]): Plugin => {
       }
     }
     return undefined
-  })
+  }
 }
