@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Event, Plugin } from '../src/journal.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
-import { turnHasContent } from '../src/cases/case1/content.js'
+import { contentProviderPlugin } from '../src/cases/case1/content.js'
 import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
@@ -25,6 +25,7 @@ import {
   type DynamicContext,
   type LlmInvoke,
   type ToolCall,
+  type ToolResult,
 } from '../src/cases/case1/protocol.js'
 import {
   createAndroidDeviceSession,
@@ -82,7 +83,7 @@ test('CASE1 keeps one dynamic context through shortcut, tools, compression, and 
 
   const commands = seen
     .filter(event => event.type === TOOL_CALL)
-    .map(event => ((event.data as ToolCall).arguments['command']))
+    .flatMap(event => (event.data as ToolCall).calls.map(call => call.arguments['command']))
   assert.deepEqual(commands, ['contact call 李行素', 'select 1'])
   assert.equal(seen.filter(event => event.type === TOOL_RESULT).length, 2)
   assert.equal(seen.filter(event => event.type === HISTORY_CHECKPOINT).length, 1)
@@ -190,8 +191,7 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
   }
 })
 
-test('parallel tool calls in one generation resume the turn exactly once', async () => {
-  const seen: Event[] = []
+function parallelEchoProvider(ids: readonly string[], reply: string) {
   let generations = 0
   const provider: LlmProvider = {
     async generate() {
@@ -199,20 +199,21 @@ test('parallel tool calls in one generation resume the turn exactly once', async
       if (generations === 1) {
         return {
           generated: {
-            toolCalls: ['a', 'b', 'c'].map(id => ({
-              id,
-              name: 'echo',
-              arguments: { text: id },
-            })),
+            toolCalls: ids.map(id => ({ id, name: 'echo', arguments: { text: id } })),
           },
           usage: fixedUsage(),
         }
       }
-      return { generated: { content: '三件事都办好了。', toolCalls: [] }, usage: fixedUsage() }
+      return { generated: { content: reply, toolCalls: [] }, usage: fixedUsage() }
     },
   }
+  return { provider, generations: () => generations }
+}
 
+test('one generation of tool calls is one fact, and one result batch resumes the turn', async () => {
+  const seen: Event[] = []
   const replies: string[] = []
+  const { provider, generations } = parallelEchoProvider(['a', 'b', 'c'], '三件事都办好了。')
   const agent = createCase1Agent({
     llm: llmPlugin(provider),
     tools: [echoTool],
@@ -223,55 +224,62 @@ test('parallel tool calls in one generation resume the turn exactly once', async
   })
   await agent.submit('你好')
 
-  assert.equal(seen.filter(event => event.type === TOOL_CALL).length, 3)
-  assert.equal(seen.filter(event => event.type === TOOL_RESULT).length, 3)
+  const calls = seen.filter(event => event.type === TOOL_CALL)
+  const results = seen.filter(event => event.type === TOOL_RESULT)
+  assert.equal(calls.length, 1)
+  assert.equal(results.length, 1)
+  assert.deepEqual((calls[0]!.data as ToolCall).calls.map(call => call.callId), ['a', 'b', 'c'])
+  assert.deepEqual(
+    (results[0]!.data as ToolResult).results.map(result => result.callId),
+    ['a', 'b', 'c'],
+  )
   assert.equal(seen.filter(event => event.type === LLM_INVOKE).length, 2)
-  assert.equal(generations, 2)
+  assert.equal(generations(), 2)
   assert.deepEqual(replies, ['三件事都办好了。'])
 })
 
-test('the join does not depend on how long each parallel tool takes', async () => {
-  const seen: Event[] = []
-  let generations = 0
+// Per-call events would be executed strictly one after another, because the
+// kernel awaits every handler of an event before delivering the next one.
+test('the tools of one batch run concurrently', async () => {
+  const delay = 40
   const slowEcho: ToolDefinition = {
     name: 'echo',
     schema: echoTool.schema,
     async execute(arguments_) {
-      const text = String(arguments_['text'])
-      await new Promise(resolve => setTimeout(resolve, text === 'a' ? 20 : 0))
-      return { content: JSON.stringify({ echoed: text }) }
+      await new Promise(resolve => setTimeout(resolve, delay))
+      return { content: JSON.stringify({ echoed: arguments_['text'] }) }
     },
   }
-  const provider: LlmProvider = {
-    async generate() {
-      generations += 1
-      if (generations === 1) {
-        return {
-          generated: {
-            toolCalls: ['a', 'b'].map(id => ({ id, name: 'echo', arguments: { text: id } })),
-          },
-          usage: fixedUsage(),
-        }
-      }
-      return { generated: { content: '两件事都办好了。', toolCalls: [] }, usage: fixedUsage() }
-    },
-  }
+  const { provider } = parallelEchoProvider(['a', 'b', 'c'], '三件事都办好了。')
+  const agent = createCase1Agent({ llm: llmPlugin(provider), tools: [slowEcho] })
 
+  const startedAt = Date.now()
+  await agent.submit('你好')
+
+  assert.ok(Date.now() - startedAt < delay * 2, 'three concurrent tools must not cost 3x the delay')
+})
+
+test('a batch projects one assistant message carrying every call', async () => {
+  const sent: ChatMessage[][] = []
+  const { provider } = parallelEchoProvider(['a', 'b', 'c'], '三件事都办好了。')
   const agent = createCase1Agent({
-    llm: llmPlugin(provider),
-    tools: [slowEcho],
-    trace: event => {
-      seen.push(event)
-    },
+    llm: llmPlugin({
+      generate(call) {
+        sent.push([...call.messages])
+        return provider.generate(call)
+      },
+    }),
+    tools: [echoTool],
   })
   await agent.submit('你好')
 
-  assert.equal(generations, 2)
-  assert.deepEqual(
-    seen.filter(event => event.type === TOOL_RESULT).map(event => (event.data as { callId: string }).callId),
-    ['a', 'b'],
-  )
-  assert.equal(seen.filter(event => event.type === ASSISTANT_MESSAGE).length, 1)
+  // The API rejects a tool message that does not answer the assistant message
+  // right before it, so the tail must be one assistant message with all three
+  // ids followed by their three results.
+  const tail = sent[1]!.slice(-4)
+  assert.deepEqual(tail.map(message => message.role), ['assistant', 'tool', 'tool', 'tool'])
+  assert.deepEqual(tail[0]?.tool_calls?.map(call => call.id), ['a', 'b', 'c'])
+  assert.deepEqual(tail.slice(1).map(message => message.tool_call_id), ['a', 'b', 'c'])
 })
 
 test('every model input can be rebuilt from the journal and its manifest', async () => {
@@ -306,20 +314,21 @@ test('every model input can be rebuilt from the journal and its manifest', async
 })
 
 // Stands in for a real second content provider: a small classifier that costs a
-// network round trip, so being called at all is observable.
+// network round trip, so being called at all is observable. It carries no guard
+// of its own, which is the point: the wrapper holds the only one.
 function smallModelProviderPlugin(calls: { count: number }): Plugin {
-  return journal => journal.subscribe(CONTENT_REQUEST, async event => {
-    const request = event.data as ContentRequest
-    if (turnHasContent(journal.read(), request.turnId)) return
+  return contentProviderPlugin(async request => {
     calls.count += 1
     await new Promise(resolve => setTimeout(resolve, 5))
-    if (!request.query.includes('静音')) return
-    journal.append(TOOL_CALL, {
-      turnId: request.turnId,
-      callId: `small-model-${request.turnId}`,
-      name: 'bash',
-      arguments: { command: 'volume mute' },
-    })
+    if (!request.query.includes('静音')) return undefined
+    return {
+      kind: 'tools',
+      calls: [{
+        callId: `small-model-${request.turnId}`,
+        name: 'bash',
+        arguments: { command: 'volume mute' },
+      }],
+    }
   })
 }
 
@@ -370,15 +379,17 @@ test('an async provider can answer a turn the rules missed, without the LLM', as
 
   assert.equal(smallModel.count, 1)
   assert.deepEqual(
-    seen.filter(event => event.type === TOOL_CALL).map(event => (event.data as ToolCall).callId),
+    seen
+      .filter(event => event.type === TOOL_CALL)
+      .flatMap(event => (event.data as ToolCall).calls.map(call => call.callId)),
     ['small-model-turn-1'],
   )
-  // The arbiter stood down because the small model answered, so the only
+  // The LLM provider stood down because the small model answered, so the only
   // generation is the one resuming the turn after the tool result.
   assert.equal(generations, 1)
 })
 
-test('the arbiter asks the LLM exactly once when every provider declines', async () => {
+test('the LLM provider asks exactly once when every earlier provider declines', async () => {
   const seen: Event[] = []
   const smallModel = { count: 0 }
   const agent = createCase1Agent({
@@ -471,7 +482,7 @@ test('the turn recovers when the device forgot what the journal remembers', asyn
 
   const observations = seen
     .filter(event => event.type === TOOL_RESULT)
-    .map(event => (event.data as { content: string }).content)
+    .flatMap(event => (event.data as ToolResult).results.map(result => result.content))
   assert.ok(observations.some(content => content.includes('no_active_list')))
   assert.deepEqual(replies.at(-1), '已为您拨通李行素的电话。')
   assert.equal(session.pendingContact, undefined)

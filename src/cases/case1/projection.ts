@@ -86,19 +86,22 @@ function semanticMessages(
       messages.push({ role: 'user', content: message.content })
       if (dynamic?.turnId === message.turnId) messages.push(dynamicMessage(dynamic))
     } else if (event.type === TOOL_CALL) {
-      const call = event.data as ToolCall
+      // One assistant message carrying every call of the batch, immediately
+      // followed by one tool message per result: the shape the API requires.
+      const batch = event.data as ToolCall
       messages.push({
         role: 'assistant',
-        content: call.assistantContent ?? null,
-        tool_calls: [{
+        content: batch.assistantContent ?? null,
+        tool_calls: batch.calls.map(call => ({
           id: call.callId,
-          type: 'function',
+          type: 'function' as const,
           function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-        }],
+        })),
       })
     } else if (event.type === TOOL_RESULT) {
-      const result = event.data as ToolResult
-      messages.push({ role: 'tool', tool_call_id: result.callId, content: result.content })
+      for (const result of (event.data as ToolResult).results) {
+        messages.push({ role: 'tool', tool_call_id: result.callId, content: result.content })
+      }
     } else if (event.type === ASSISTANT_MESSAGE) {
       messages.push({ role: 'assistant', content: (event.data as AssistantMessage).content })
     }

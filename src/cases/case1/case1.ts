@@ -2,7 +2,7 @@ import { createJournal, type Event, type Plugin } from '../../journal.js'
 import { tracePlugin } from '../../plugins/trace.js'
 import { agentFlowPlugin } from './agent-flow.js'
 import { compressHistoryPlugin, type CompressHistoryOptions } from './compress-history.js'
-import { contentArbiterPlugin } from './content.js'
+import { llmProviderPlugin } from './content.js'
 import { contextAssemblerPlugin } from './context-assembler.js'
 import { outputPlugin, type OutputSinks } from './output.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
@@ -40,7 +40,7 @@ export function createCase1Agent(options: Case1Options) {
     agentFlowPlugin(),
     shortcutPlugin([androidCallRule]),
     ...(options.contentProviders ?? []),
-    contentArbiterPlugin(),
+    llmProviderPlugin(),
     contextAssemblerPlugin(),
     options.llm,
     toolsPlugin(tools),

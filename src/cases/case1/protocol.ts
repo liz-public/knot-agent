@@ -41,16 +41,24 @@ export interface ToolRegistry {
   schemas: readonly Record<string, unknown>[]
 }
 
-export interface ToolCall {
-  turnId: string
+export interface ToolCallRequest {
   callId: string
   name: string
   arguments: Record<string, unknown>
-  assistantContent?: string
 }
 
-export interface ToolResult {
+// One event per model decision. A generation emits one text and a list of
+// calls, so the whole batch is a single fact. Splitting it into one event per
+// call would serialize execution (the kernel awaits each event in turn),
+// project a malformed conversation (one assistant message per call instead of
+// one carrying every call), and duplicate assistantContent onto each of them.
+export interface ToolCall {
   turnId: string
+  assistantContent?: string
+  calls: readonly ToolCallRequest[]
+}
+
+export interface ToolResultEntry {
   callId: string
   name: string
   content: string
@@ -58,6 +66,11 @@ export interface ToolResult {
     key: string
     value: unknown | null
   }
+}
+
+export interface ToolResult {
+  turnId: string
+  results: readonly ToolResultEntry[]
 }
 
 export interface AssistantReasoning {

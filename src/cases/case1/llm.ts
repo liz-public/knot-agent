@@ -47,15 +47,15 @@ export const llmPlugin = (provider: LlmProvider): Plugin =>
       })
     }
     if (toolCalls.length > 0) {
-      for (const call of toolCalls) {
-        journal.append(TOOL_CALL, {
-          turnId: invoke.request.turnId,
+      journal.append(TOOL_CALL, {
+        turnId: invoke.request.turnId,
+        ...(content === undefined ? {} : { assistantContent: content }),
+        calls: toolCalls.map(call => ({
           callId: call.id,
           name: call.name,
           arguments: call.arguments,
-          ...(content === undefined ? {} : { assistantContent: content }),
-        })
-      }
+        })),
+      })
       return
     }
     if (content === undefined || content.length === 0) {

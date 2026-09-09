@@ -1,11 +1,5 @@
 import type { Plugin } from '../../journal.js'
-import { turnHasContent } from './content.js'
-import {
-  ASSISTANT_MESSAGE,
-  CONTENT_REQUEST,
-  TOOL_CALL,
-  type ContentRequest,
-} from './protocol.js'
+import { contentProviderPlugin } from './content.js'
 
 type ShortcutOutput =
   | { kind: 'message'; content: string }
@@ -34,27 +28,20 @@ export const androidCallRule: ShortcutRule = {
 
 export const shortcutPlugin = (rules: readonly ShortcutRule[]): Plugin => {
   const ordered = [...rules].sort((a, b) => b.priority - a.priority)
-  return journal => journal.subscribe(CONTENT_REQUEST, event => {
-    const request = event.data as ContentRequest
-    if (turnHasContent(journal.read(), request.turnId)) return
-
+  return contentProviderPlugin(request => {
     for (const rule of ordered) {
       const output = rule.match(request.query)
       if (output === undefined) continue
-      if (output.kind === 'message') {
-        journal.append(ASSISTANT_MESSAGE, {
-          turnId: request.turnId,
-          content: output.content,
-        })
-      } else {
-        journal.append(TOOL_CALL, {
-          turnId: request.turnId,
+      if (output.kind === 'message') return output
+      return {
+        kind: 'tools',
+        calls: [{
           callId: `shortcut-${request.turnId}`,
           name: output.name,
           arguments: output.arguments,
-        })
+        }],
       }
-      return
     }
+    return undefined
   })
 }

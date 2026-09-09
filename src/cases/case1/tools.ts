@@ -29,18 +29,23 @@ export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
       journal.append(TOOL_REGISTRY, { schemas: tools.map(tool => tool.schema) })
     })
 
+    // The batch arrives as one event, so this plugin owns the concurrency
+    // decision: the model asked for these calls in parallel and gets them in
+    // parallel. Promise.all keeps the results in the order of the calls.
     journal.subscribe(TOOL_CALL, async event => {
-      const call = event.data as ToolCall
-      const tool = byName.get(call.name)
-      if (tool === undefined) throw new Error(`unknown tool: ${call.name}`)
-      const result = await tool.execute(call.arguments)
-      journal.append(TOOL_RESULT, {
-        turnId: call.turnId,
-        callId: call.callId,
-        name: call.name,
-        content: result.content,
-        ...(result.state === undefined ? {} : { state: result.state }),
-      })
+      const batch = event.data as ToolCall
+      const results = await Promise.all(batch.calls.map(async call => {
+        const tool = byName.get(call.name)
+        if (tool === undefined) throw new Error(`unknown tool: ${call.name}`)
+        const result = await tool.execute(call.arguments)
+        return {
+          callId: call.callId,
+          name: call.name,
+          content: result.content,
+          ...(result.state === undefined ? {} : { state: result.state }),
+        }
+      }))
+      journal.append(TOOL_RESULT, { turnId: batch.turnId, results })
     })
   }
 }

@@ -23,10 +23,12 @@ function activeState(events: readonly Event[]): Record<string, unknown> {
   const state: Record<string, unknown> = {}
   for (const event of events) {
     if (event.type !== TOOL_RESULT) continue
-    const update = (event.data as ToolResult).state
-    if (update === undefined) continue
-    if (update.value === null) delete state[update.key]
-    else state[update.key] = update.value
+    for (const result of (event.data as ToolResult).results) {
+      const update = result.state
+      if (update === undefined) continue
+      if (update.value === null) delete state[update.key]
+      else state[update.key] = update.value
+    }
   }
   return state
 }
