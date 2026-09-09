@@ -1,3 +1,4 @@
+import type { CliCommand } from './cli.js'
 import type { AndroidDeviceSession, ToolDefinition, ToolExecution } from './tools.js'
 
 type JsonProperties = Record<string, Record<string, unknown>>
@@ -204,6 +205,142 @@ export function mockAndroidSystemTools(session: AndroidDeviceSession): readonly 
           '已写入剪贴板。一句话告知用户即可。',
           { key: 'device.clipboard', value: { charCount: session.clipboardText.length } },
         )
+      },
+    ),
+  ]
+}
+
+function one(arguments_: readonly string[], usage: string): string {
+  if (arguments_.length !== 1 || arguments_[0] === undefined) throw new Error(`usage: ${usage}`)
+  return arguments_[0]
+}
+
+function onOff(arguments_: readonly string[], usage: string): boolean {
+  const value = one(arguments_, usage)
+  if (value === 'on') return true
+  if (value === 'off') return false
+  throw new Error(`usage: ${usage}`)
+}
+
+function command(
+  name: string,
+  summary: string,
+  usage: string,
+  examples: readonly string[],
+  keywords: readonly string[],
+  tool: ToolDefinition,
+  parse: CliCommand['parse'],
+): CliCommand {
+  return { name, summary, usage, examples, keywords, tool, parse }
+}
+
+export function mockAndroidCliCommands(session: AndroidDeviceSession): readonly CliCommand[] {
+  const systemTools = new Map(mockAndroidSystemTools(session).map(item => [item.name, item]))
+  const get = (name: string): ToolDefinition => {
+    const found = systemTools.get(name)
+    if (found === undefined) throw new Error(`missing mock tool: ${name}`)
+    return found
+  }
+  const contact = tool('contact', 'Resolve a contact and initiate calling.', {}, [], arguments_ => {
+    const name = arguments_['name']
+    if (typeof name !== 'string' || name.length === 0) return err('invalid_name')
+    session.pendingContact = name
+    const value = {
+      source: 'contact',
+      candidates: [{ ordinal_1based: 1, display_name: name }],
+    }
+    return ok(
+      { action: 'candidates', candidates: value.candidates },
+      '当前只有一个联系人候选，请调用 bash 工具执行 select 1。',
+      { key: 'pending.selection', value },
+    )
+  })
+  const select = tool('select', 'Select from the active candidate list.', {}, [], arguments_ => {
+    const ordinal = arguments_['ordinal']
+    if (session.pendingContact === undefined) {
+      return err('no_active_list', '当前没有有效候选列表，请重新查询联系人。')
+    }
+    if (ordinal !== 1) return err('invalid_selection', '候选序号无效，请重新选择。')
+    const name = session.pendingContact
+    session.pendingContact = undefined
+    return ok(
+      { action: 'direct_dial', selected: 1, display_name: name },
+      `拨号已成功，请直接告诉用户已为其拨通${name}的电话。`,
+      { key: 'pending.selection', value: null },
+    )
+  })
+
+  return [
+    command(
+      'contact', '按姓名查找联系人并发起外呼。', 'contact call <name>',
+      ['contact call 李行素'], ['电话', '拨打', '联系人', '号码'], contact,
+      argv => {
+        if (argv[0] !== 'call' || argv.length < 2) throw new Error('usage: contact call <name>')
+        return { name: argv.slice(1).join(' ') }
+      },
+    ),
+    command(
+      'select', '选择当前候选列表中的一项。', 'select <N>',
+      ['select 1'], ['选择', '第一个', '候选', '电话', '拨打'], select,
+      argv => {
+        const value = Number(one(argv, 'select <N>'))
+        if (!Number.isInteger(value) || value < 1) throw new Error('usage: select <N>')
+        return { ordinal: value }
+      },
+    ),
+    command(
+      'flash', '打开或关闭手电筒。', 'flash <on|off>',
+      ['flash on', 'flash off'], ['手电筒', '闪光灯'], get('set_flashlight'),
+      argv => ({ on: onOff(argv, 'flash <on|off>') }),
+    ),
+    command(
+      'sys.ringer', '设置响铃、静音或振动模式。', 'sys.ringer <normal|silent|vibrate>',
+      ['sys.ringer silent'], ['铃声', '静音', '振动', '震动', '响铃'], get('set_ringer_mode'),
+      argv => ({ mode: one(argv, 'sys.ringer <normal|silent|vibrate>') }),
+    ),
+    command(
+      'sys.dnd', '打开或关闭勿扰模式。', 'sys.dnd <on|off>',
+      ['sys.dnd on'], ['勿扰', '免打扰'], get('set_do_not_disturb'),
+      argv => ({ enabled: onOff(argv, 'sys.dnd <on|off>') }),
+    ),
+    command(
+      'sys.volume', '按百分比设置或增减指定音频流音量。',
+      'sys.volume <percent|+N|-N> [--stream music|ring|alarm|notification]',
+      ['sys.volume 30 --stream music'], ['音量', '声音', '静音'], get('set_stream_volume'),
+      argv => {
+        const percent = argv[0]
+        if (percent === undefined) throw new Error('usage: sys.volume <percent> [--stream <stream>]')
+        if (argv.length === 1) return { percent }
+        if (argv.length === 3 && argv[1] === '--stream' && argv[2] !== undefined) {
+          return { percent, stream: argv[2] }
+        }
+        throw new Error('usage: sys.volume <percent> [--stream <stream>]')
+      },
+    ),
+    command(
+      'sys.wifi', '打开 WiFi 设置面板。', 'sys.wifi <on|off>',
+      ['sys.wifi on'], ['WiFi', 'Wi-Fi', '无线网络'], get('set_wifi_enabled'),
+      argv => ({ enabled: onOff(argv, 'sys.wifi <on|off>') }),
+    ),
+    command(
+      'sys.brightness', '按百分比设置或增减屏幕亮度。', 'sys.brightness <percent|+N|-N>',
+      ['sys.brightness 60'], ['亮度', '调亮', '调暗'], get('set_screen_brightness'),
+      argv => ({ percent: one(argv, 'sys.brightness <percent|+N|-N>') }),
+    ),
+    command(
+      'clip.read', '读取剪贴板文本。', 'clip.read',
+      ['clip.read'], ['剪贴板', '粘贴', '读取'], get('read_clipboard'),
+      argv => {
+        if (argv.length > 0) throw new Error('usage: clip.read')
+        return {}
+      },
+    ),
+    command(
+      'clip.write', '把文本写入剪贴板。', 'clip.write <text>',
+      ['clip.write "明天下午三点开会"'], ['剪贴板', '复制', '写入'], get('write_clipboard'),
+      argv => {
+        if (argv.length === 0) throw new Error('usage: clip.write <text>')
+        return { text: argv.join(' ') }
       },
     ),
   ]

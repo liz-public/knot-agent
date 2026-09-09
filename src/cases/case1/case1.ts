@@ -4,15 +4,15 @@ import { agentFlowPlugin } from './agent-flow.js'
 import { compressHistoryPlugin, type CompressHistoryOptions } from './compress-history.js'
 import { contentPlugin, llmContentSource, type ContentSource } from './content.js'
 import { contextAssemblerPlugin } from './context-assembler.js'
-import { mockAndroidSystemTools } from './mock-android-tools.js'
+import { createCliCatalog, type CliCatalog } from './cli.js'
+import { mockAndroidCliCommands } from './mock-android-tools.js'
 import { outputPlugin, type OutputSinks } from './output.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
-import { case1Commands, runtimeContextPlugin } from './runtime-context.js'
+import { runtimeContextPlugin } from './runtime-context.js'
 import { androidCallRule, androidFlashlightRule, shortcutSource } from './shortcuts.js'
 import { systemPromptPlugin } from './system-prompt.js'
 import {
   createAndroidDeviceSession,
-  mockAndroidBashTool,
   toolsPlugin,
   type ToolDefinition,
 } from './tools.js'
@@ -22,6 +22,7 @@ export interface Case1Options {
   /** Extra content sources, tried after the built-in shortcut rules. */
   readonly contentSources?: readonly ContentSource[]
   readonly tools?: readonly ToolDefinition[]
+  readonly cli?: CliCatalog
   readonly output?: OutputSinks
   readonly trace?: (event: Event) => void
   readonly compression?: CompressHistoryOptions
@@ -31,7 +32,10 @@ export interface Case1Options {
 export function createCase1Agent(options: Case1Options) {
   const { journal, runUntilIdle } = createJournal()
   const device = createAndroidDeviceSession()
-  const tools = options.tools ?? [mockAndroidBashTool(device), ...mockAndroidSystemTools(device)]
+  const cli = options.cli ?? (options.tools === undefined
+    ? createCliCatalog(mockAndroidCliCommands(device))
+    : undefined)
+  const tools = options.tools ?? [cli!.bash]
   let started = false
   let turnNumber = 0
 
@@ -41,7 +45,7 @@ export function createCase1Agent(options: Case1Options) {
     runtimeContextPlugin({
       now: options.now ?? (() => new Date()),
       packages: { 电话: 'com.samsung.android.dialer' },
-      commands: case1Commands,
+      cli,
     }),
     compressHistoryPlugin(options.compression),
     agentFlowPlugin(),

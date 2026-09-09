@@ -114,38 +114,35 @@ export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
 }
 
 function mockToolCall(query: string, sequence: number) {
-  const call = (name: string, arguments_: Record<string, unknown>) => ({
-    id: `mock-${name}-${sequence}`,
-    name,
-    arguments: arguments_,
+  const call = (command: string) => ({
+    id: `mock-bash-${sequence}`,
+    name: 'bash',
+    arguments: { command },
   })
   const percent = query.match(/([+-]?\d+)\s*%?/)?.[1]
   if (/音量/.test(query) && percent !== undefined) {
-    return call('set_stream_volume', {
-      percent,
-      stream: /铃声/.test(query) ? 'ring' : 'music',
-    })
+    return call(`sys.volume ${percent} --stream ${/铃声/.test(query) ? 'ring' : 'music'}`)
   }
   if (/亮度/.test(query) && percent !== undefined) {
-    return call('set_screen_brightness', { percent })
+    return call(`sys.brightness ${percent}`)
   }
   if (/读取?剪贴板|剪贴板.*(?:内容|有什么)/.test(query)) {
-    return call('read_clipboard', {})
+    return call('clip.read')
   }
   if (/剪贴板|复制/.test(query)) {
     const quoted = query.match(/[“「『"](.+?)[”」』"]/)?.[1]
     const text = quoted ?? query.replace(/^.*?(?:复制|写入)(?:到|进)?(?:剪贴板)?[：:，,\s]*/, '')
-    return call('write_clipboard', { text })
+    return call(`clip.write ${JSON.stringify(text)}`)
   }
   if (/Wi-?Fi|无线网络/i.test(query)) {
-    return call('set_wifi_enabled', { enabled: !/关|断/.test(query) })
+    return call(`sys.wifi ${/关|断/.test(query) ? 'off' : 'on'}`)
   }
   if (/勿扰|免打扰/.test(query)) {
-    return call('set_do_not_disturb', { enabled: !/关|取消/.test(query) })
+    return call(`sys.dnd ${/关|取消/.test(query) ? 'off' : 'on'}`)
   }
   if (/静音|振动|震动|响铃/.test(query)) {
     const mode = /静音/.test(query) ? 'silent' : /振动|震动/.test(query) ? 'vibrate' : 'normal'
-    return call('set_ringer_mode', { mode })
+    return call(`sys.ringer ${mode}`)
   }
   return undefined
 }

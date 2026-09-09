@@ -34,8 +34,8 @@ export const androidFlashlightRule: ShortcutRule = {
     if (matched === null) return undefined
     return {
       kind: 'tool',
-      name: 'set_flashlight',
-      arguments: { on: !/(?:关闭|关掉|关)/.test(query) },
+      name: 'bash',
+      arguments: { command: `flash ${/(?:关闭|关掉|关)/.test(query) ? 'off' : 'on'}` },
     }
   },
 }

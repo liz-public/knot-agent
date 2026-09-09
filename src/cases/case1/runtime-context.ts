@@ -1,4 +1,5 @@
 import type { Event, Plugin } from '../../journal.js'
+import type { CliCatalog } from './cli.js'
 import {
   CONTEXT_DYNAMIC,
   TOOL_RESULT,
@@ -7,16 +8,10 @@ import {
   type UserMessage,
 } from './protocol.js'
 
-export interface CommandDescription {
-  readonly name: string
-  readonly keywords: readonly string[]
-  readonly description: string
-}
-
 export interface RuntimeContextOptions {
   readonly now: () => Date
   readonly packages: Readonly<Record<string, string>>
-  readonly commands: readonly CommandDescription[]
+  readonly cli?: CliCatalog
 }
 
 function activeState(events: readonly Event[]): Record<string, unknown> {
@@ -39,18 +34,16 @@ export const runtimeContextPlugin = (options: RuntimeContextOptions): Plugin =>
     const matchedPackages = Object.entries(options.packages)
       .filter(([label]) => message.content.includes(label))
       .map(([label, packageName]) => `${label}: ${packageName}`)
-    const matched = options.commands.filter(command =>
-      command.keywords.some(keyword => message.content.includes(keyword)),
-    )
+    const matched = options.cli?.detailsFor(message.content) ?? { names: [], content: '' }
     const state = activeState(journal.read())
     const sections = [
       `当前时间: ${options.now().toISOString()}`,
       matchedPackages.length === 0
         ? ''
         : `相关应用包名:\n${matchedPackages.map(item => `- ${item}`).join('\n')}`,
-      matched.length === 0
+      matched.content.length === 0
         ? ''
-        : `本轮匹配命令:\n${matched.map(command => `- ${command.description}`).join('\n')}`,
+        : `本轮可用命令详细说明:\n${matched.content}`,
       Object.keys(state).length === 0
         ? ''
         : `当前有效工具状态:\n${JSON.stringify(state)}`,
@@ -60,50 +53,7 @@ export const runtimeContextPlugin = (options: RuntimeContextOptions): Plugin =>
       turnId: message.turnId,
       content: sections.join('\n\n'),
       matchedPackages,
-      matchedCommands: matched.map(command => command.name),
+      matchedCommands: matched.names,
       activeState: state,
     })
   })
-
-export const case1Commands: readonly CommandDescription[] = [
-  {
-    name: 'contact',
-    keywords: ['电话', '拨打', '联系人', '号码'],
-    description: 'contact <call|lookup> <name>：匹配联系人。候选不含号码；contact call 已负责外呼。',
-  },
-  {
-    name: 'select',
-    keywords: ['电话', '拨打', '选择', '第'],
-    description: 'select <N>：选择最近候选列表中的第 N 项，N 从 1 开始。',
-  },
-  {
-    name: 'set_flashlight',
-    keywords: ['手电筒', '闪光灯'],
-    description: 'set_flashlight(on)：打开或关闭手电筒。',
-  },
-  {
-    name: 'set_stream_volume',
-    keywords: ['音量', '声音', '静音'],
-    description: 'set_stream_volume(percent, stream)：按绝对值或增量调节音量。',
-  },
-  {
-    name: 'set_screen_brightness',
-    keywords: ['亮度', '调亮', '调暗'],
-    description: 'set_screen_brightness(percent)：按绝对值或增量调节屏幕亮度。',
-  },
-  {
-    name: 'set_wifi_enabled',
-    keywords: ['WiFi', 'Wi-Fi', '无线网络'],
-    description: 'set_wifi_enabled(enabled)：打开 WiFi 系统面板。',
-  },
-  {
-    name: 'set_do_not_disturb',
-    keywords: ['勿扰', '免打扰'],
-    description: 'set_do_not_disturb(enabled)：开关勿扰模式。',
-  },
-  {
-    name: 'write_clipboard/read_clipboard',
-    keywords: ['剪贴板', '复制'],
-    description: 'write_clipboard(text) 写入剪贴板；read_clipboard() 读取剪贴板。',
-  },
-]

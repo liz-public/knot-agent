@@ -2,8 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
+import { createCliCatalog } from '../src/cases/case1/cli.js'
 import type { ContentSource } from '../src/cases/case1/content.js'
-import { mockAndroidSystemTools } from '../src/cases/case1/mock-android-tools.js'
+import {
+  mockAndroidCliCommands,
+  mockAndroidSystemTools,
+} from '../src/cases/case1/mock-android-tools.js'
 import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
@@ -30,7 +34,6 @@ import {
 } from '../src/cases/case1/protocol.js'
 import {
   createAndroidDeviceSession,
-  mockAndroidBashTool,
   type ToolDefinition,
 } from '../src/cases/case1/tools.js'
 
@@ -104,7 +107,7 @@ test('CASE1 keeps one dynamic context through shortcut, tools, compression, and 
   assert.equal(runtimeContextMessages[0]?.length, 1)
   assert.equal(runtimeContextMessages[1]?.length, 1)
   assert.equal(runtimeContextMessages[0]?.[0]?.content, runtimeContextMessages[1]?.[0]?.content)
-  assert.equal(projectTools(agent.journal.read()).length, 9)
+  assert.equal(projectTools(agent.journal.read()).length, 1)
   assert.equal(invocations[1]?.manifest.kind, 'compress')
 
   const checkpointIndex = seen.findIndex(event => event.type === HISTORY_CHECKPOINT)
@@ -184,7 +187,7 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
     assert.equal(bodies[0]?.['model_provider'], 'maas')
     assert.equal(bodies[0]?.['_lingxi_maf_enabled'], false)
     assert.deepEqual(bodies[0]?.['reasoning'], { enabled: false })
-    assert.equal((bodies[0]?.['tools'] as unknown[]).length, 9)
+    assert.equal((bodies[0]?.['tools'] as unknown[]).length, 1)
     const secondMessages = bodies[1]?.['messages'] as Array<{ role: string }>
     assert.deepEqual(secondMessages.slice(-2).map(message => message.role), ['assistant', 'tool'])
   } finally {
@@ -413,7 +416,7 @@ test('the LLM source asks exactly once when every earlier source declines', asyn
 
 test('the mock device rejects a selection it never offered', async () => {
   const session = createAndroidDeviceSession()
-  const tool = mockAndroidBashTool(session)
+  const tool = createCliCatalog(mockAndroidCliCommands(session)).bash
 
   const orphan = await tool.execute({ command: 'select 1' })
   assert.match(orphan.content, /no_active_list/)
@@ -426,6 +429,7 @@ test('the mock device rejects a selection it never offered', async () => {
 
 test('the turn recovers when the device forgot what the journal remembers', async () => {
   const session = createAndroidDeviceSession()
+  const cli = createCliCatalog(mockAndroidCliCommands(session))
   const seen: Event[] = []
   const replies: string[] = []
   let callNumber = 0
@@ -458,7 +462,8 @@ test('the turn recovers when the device forgot what the journal remembers', asyn
 
   const agent = createCase1Agent({
     llm: llmPlugin(provider),
-    tools: [mockAndroidBashTool(session)],
+    cli,
+    tools: [cli.bash],
     output: { content: content => replies.push(content) },
     trace: event => {
       seen.push(event)
@@ -524,12 +529,13 @@ test('eight Android-shaped mock tools keep their input and result contracts', as
 
 test('CASE1 runs five user turns against the Android-shaped tool catalog', async () => {
   const device = createAndroidDeviceSession()
-  const tools = [mockAndroidBashTool(device), ...mockAndroidSystemTools(device)]
+  const cli = createCliCatalog(mockAndroidCliCommands(device))
   const replies: string[] = []
   const seen: Event[] = []
   const agent = createCase1Agent({
     llm: mockLlmPlugin(),
-    tools,
+    cli,
+    tools: [cli.bash],
     output: { content: content => replies.push(content) },
     trace: event => seen.push(event),
   })
@@ -546,12 +552,18 @@ test('CASE1 runs five user turns against the Android-shaped tool catalog', async
     seen
       .filter(event => event.type === TOOL_CALL)
       .flatMap(event => (event.data as ToolCall).calls.map(call => call.name)),
+    ['bash', 'bash', 'bash', 'bash', 'bash'],
+  )
+  assert.deepEqual(
+    seen
+      .filter(event => event.type === TOOL_CALL)
+      .flatMap(event => (event.data as ToolCall).calls.map(call => call.arguments['command'])),
     [
-      'set_flashlight',
-      'set_stream_volume',
-      'set_screen_brightness',
-      'write_clipboard',
-      'set_flashlight',
+      'flash on',
+      'sys.volume 30 --stream music',
+      'sys.brightness 60',
+      'clip.write "明天下午三点开会"',
+      'flash off',
     ],
   )
   assert.deepEqual(replies, [
@@ -566,4 +578,21 @@ test('CASE1 runs five user turns against the Android-shaped tool catalog', async
   assert.equal(device.volumes.music, 30)
   assert.equal(device.brightnessPercent, 60)
   assert.equal(device.clipboardText, '明天下午三点开会')
+
+  const contexts = seen
+    .filter(event => event.type === CONTEXT_DYNAMIC)
+    .map(event => event.data as DynamicContext)
+  assert.deepEqual(contexts.map(context => context.matchedCommands), [
+    ['flash'],
+    ['sys.volume'],
+    ['sys.brightness'],
+    ['clip.read', 'clip.write'],
+    ['flash'],
+  ])
+  assert.match(contexts[1]?.content ?? '', /usage: sys\.volume/)
+  assert.doesNotMatch(contexts[1]?.content ?? '', /usage: sys\.brightness/)
+
+  const schemas = projectTools(agent.journal.read())
+  assert.equal(schemas.length, 1)
+  assert.equal((schemas[0]?.['function'] as { name?: string })?.name, 'bash')
 })
