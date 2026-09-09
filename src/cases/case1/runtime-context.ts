@@ -76,4 +76,34 @@ export const case1Commands: readonly CommandDescription[] = [
     keywords: ['电话', '拨打', '选择', '第'],
     description: 'select <N>：选择最近候选列表中的第 N 项，N 从 1 开始。',
   },
+  {
+    name: 'set_flashlight',
+    keywords: ['手电筒', '闪光灯'],
+    description: 'set_flashlight(on)：打开或关闭手电筒。',
+  },
+  {
+    name: 'set_stream_volume',
+    keywords: ['音量', '声音', '静音'],
+    description: 'set_stream_volume(percent, stream)：按绝对值或增量调节音量。',
+  },
+  {
+    name: 'set_screen_brightness',
+    keywords: ['亮度', '调亮', '调暗'],
+    description: 'set_screen_brightness(percent)：按绝对值或增量调节屏幕亮度。',
+  },
+  {
+    name: 'set_wifi_enabled',
+    keywords: ['WiFi', 'Wi-Fi', '无线网络'],
+    description: 'set_wifi_enabled(enabled)：打开 WiFi 系统面板。',
+  },
+  {
+    name: 'set_do_not_disturb',
+    keywords: ['勿扰', '免打扰'],
+    description: 'set_do_not_disturb(enabled)：开关勿扰模式。',
+  },
+  {
+    name: 'write_clipboard/read_clipboard',
+    keywords: ['剪贴板', '复制'],
+    description: 'write_clipboard(text) 写入剪贴板；read_clipboard() 读取剪贴板。',
+  },
 ]

@@ -56,9 +56,21 @@ export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
 // diverge the tool reports it and the hint drives the model to recover.
 export interface AndroidDeviceSession {
   pendingContact?: string
+  flashlightOn: boolean
+  ringerMode: 'normal' | 'silent' | 'vibrate'
+  doNotDisturb: boolean
+  volumes: Record<'music' | 'ring' | 'alarm' | 'notification', number>
+  brightnessPercent: number
+  clipboardText?: string
 }
 
-export const createAndroidDeviceSession = (): AndroidDeviceSession => ({})
+export const createAndroidDeviceSession = (): AndroidDeviceSession => ({
+  flashlightOn: false,
+  ringerMode: 'normal',
+  doNotDisturb: false,
+  volumes: { music: 50, ring: 50, alarm: 50, notification: 50 },
+  brightnessPercent: 50,
+})
 
 export function mockAndroidBashTool(
   session: AndroidDeviceSession = createAndroidDeviceSession(),
@@ -94,6 +106,7 @@ export function mockAndroidBashTool(
         }
         return {
           content: JSON.stringify({
+            ok: true,
             action: 'candidates',
             candidates: value.candidates,
             hint: '当前只有一个联系人候选，请调用 bash 工具执行 select 1。',
@@ -107,6 +120,7 @@ export function mockAndroidBashTool(
         if (session.pendingContact === undefined) {
           return {
             content: JSON.stringify({
+              ok: false,
               error: 'no_active_list',
               hint: '当前没有有效候选列表，请重新查询联系人。',
             }),
@@ -115,6 +129,7 @@ export function mockAndroidBashTool(
         if (selection[1] !== '1') {
           return {
             content: JSON.stringify({
+              ok: false,
               error: 'invalid_selection',
               hint: '候选序号无效，请重新选择。',
             }),
@@ -124,6 +139,7 @@ export function mockAndroidBashTool(
         session.pendingContact = undefined
         return {
           content: JSON.stringify({
+            ok: true,
             action: 'direct_dial',
             selected: 1,
             display_name: name,

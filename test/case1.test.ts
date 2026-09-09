@@ -3,6 +3,7 @@ import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
 import type { ContentSource } from '../src/cases/case1/content.js'
+import { mockAndroidSystemTools } from '../src/cases/case1/mock-android-tools.js'
 import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
@@ -103,7 +104,7 @@ test('CASE1 keeps one dynamic context through shortcut, tools, compression, and 
   assert.equal(runtimeContextMessages[0]?.length, 1)
   assert.equal(runtimeContextMessages[1]?.length, 1)
   assert.equal(runtimeContextMessages[0]?.[0]?.content, runtimeContextMessages[1]?.[0]?.content)
-  assert.equal(projectTools(agent.journal.read()).length, 1)
+  assert.equal(projectTools(agent.journal.read()).length, 9)
   assert.equal(invocations[1]?.manifest.kind, 'compress')
 
   const checkpointIndex = seen.findIndex(event => event.type === HISTORY_CHECKPOINT)
@@ -183,7 +184,7 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
     assert.equal(bodies[0]?.['model_provider'], 'maas')
     assert.equal(bodies[0]?.['_lingxi_maf_enabled'], false)
     assert.deepEqual(bodies[0]?.['reasoning'], { enabled: false })
-    assert.equal((bodies[0]?.['tools'] as unknown[]).length, 1)
+    assert.equal((bodies[0]?.['tools'] as unknown[]).length, 9)
     const secondMessages = bodies[1]?.['messages'] as Array<{ role: string }>
     assert.deepEqual(secondMessages.slice(-2).map(message => message.role), ['assistant', 'tool'])
   } finally {
@@ -486,4 +487,83 @@ test('the turn recovers when the device forgot what the journal remembers', asyn
   assert.ok(observations.some(content => content.includes('no_active_list')))
   assert.deepEqual(replies.at(-1), '已为您拨通李行素的电话。')
   assert.equal(session.pendingContact, undefined)
+})
+
+test('eight Android-shaped mock tools keep their input and result contracts', async () => {
+  const device = createAndroidDeviceSession()
+  const byName = new Map(mockAndroidSystemTools(device).map(tool => [tool.name, tool]))
+  const execute = async (name: string, arguments_: Record<string, unknown>) => {
+    const result = await byName.get(name)!.execute(arguments_)
+    return JSON.parse(result.content) as Record<string, unknown>
+  }
+
+  assert.deepEqual([...byName.keys()], [
+    'set_flashlight',
+    'set_ringer_mode',
+    'set_do_not_disturb',
+    'set_stream_volume',
+    'set_wifi_enabled',
+    'set_screen_brightness',
+    'read_clipboard',
+    'write_clipboard',
+  ])
+  assert.deepEqual(await execute('set_flashlight', { on: true }), {
+    ok: true,
+    on: true,
+    camera_id: '0',
+    hint: '闪光灯已切换。一句话告知用户。若是周期闪烁任务，请在同一轮继续下发 flash + wait 组合。',
+  })
+  assert.equal((await execute('set_ringer_mode', { mode: 'silent' }))['actual_mode'], 'silent')
+  assert.equal((await execute('set_do_not_disturb', { enabled: true }))['dnd_active'], true)
+  assert.equal((await execute('set_stream_volume', { percent: '+20', stream: 'music' }))['percent'], 70)
+  assert.equal((await execute('set_wifi_enabled', { enabled: true }))['action'], 'opened_wifi_panel')
+  assert.equal((await execute('set_screen_brightness', { percent: '60' }))['brightness_raw_0_255'], 153)
+  assert.equal((await execute('write_clipboard', { text: '明天下午三点开会' }))['char_count'], 8)
+  assert.equal((await execute('read_clipboard', {}))['text'], '明天下午三点开会')
+})
+
+test('CASE1 runs five user turns against the Android-shaped tool catalog', async () => {
+  const device = createAndroidDeviceSession()
+  const tools = [mockAndroidBashTool(device), ...mockAndroidSystemTools(device)]
+  const replies: string[] = []
+  const seen: Event[] = []
+  const agent = createCase1Agent({
+    llm: mockLlmPlugin(),
+    tools,
+    output: { content: content => replies.push(content) },
+    trace: event => seen.push(event),
+  })
+
+  for (const query of [
+    '打开手电筒',
+    '把媒体音量调到30%',
+    '把屏幕亮度调到60%',
+    '把“明天下午三点开会”复制到剪贴板',
+    '关闭手电筒',
+  ]) await agent.submit(query)
+
+  assert.deepEqual(
+    seen
+      .filter(event => event.type === TOOL_CALL)
+      .flatMap(event => (event.data as ToolCall).calls.map(call => call.name)),
+    [
+      'set_flashlight',
+      'set_stream_volume',
+      'set_screen_brightness',
+      'write_clipboard',
+      'set_flashlight',
+    ],
+  )
+  assert.deepEqual(replies, [
+    '已打开手电筒。',
+    '已将媒体音量调到 30%。',
+    '已将屏幕亮度调到 60%。',
+    '已写入剪贴板。',
+    '已关闭手电筒。',
+  ])
+  assert.equal(seen.filter(event => event.type === LLM_INVOKE).length, 8)
+  assert.equal(device.flashlightOn, false)
+  assert.equal(device.volumes.music, 30)
+  assert.equal(device.brightnessPercent, 60)
+  assert.equal(device.clipboardText, '明天下午三点开会')
 })

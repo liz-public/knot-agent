@@ -25,6 +25,21 @@ export const androidCallRule: ShortcutRule = {
   },
 }
 
+export const androidFlashlightRule: ShortcutRule = {
+  priority: 120,
+  match(query) {
+    const matched = query.match(
+      /^(?:请|麻烦|帮我)?(?:把)?(?:打开|开启|开|关闭|关掉|关)(?:一下)?(?:手机的)?(?:手电筒|闪光灯)[。！？!?]?$/,
+    )
+    if (matched === null) return undefined
+    return {
+      kind: 'tool',
+      name: 'set_flashlight',
+      arguments: { on: !/(?:关闭|关掉|关)/.test(query) },
+    }
+  },
+}
+
 export const shortcutSource = (rules: readonly ShortcutRule[]): ContentSource => {
   const ordered = [...rules].sort((a, b) => b.priority - a.priority)
   return request => {

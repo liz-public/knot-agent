@@ -4,12 +4,18 @@ import { agentFlowPlugin } from './agent-flow.js'
 import { compressHistoryPlugin, type CompressHistoryOptions } from './compress-history.js'
 import { contentPlugin, llmContentSource, type ContentSource } from './content.js'
 import { contextAssemblerPlugin } from './context-assembler.js'
+import { mockAndroidSystemTools } from './mock-android-tools.js'
 import { outputPlugin, type OutputSinks } from './output.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
 import { case1Commands, runtimeContextPlugin } from './runtime-context.js'
-import { androidCallRule, shortcutSource } from './shortcuts.js'
+import { androidCallRule, androidFlashlightRule, shortcutSource } from './shortcuts.js'
 import { systemPromptPlugin } from './system-prompt.js'
-import { mockAndroidBashTool, toolsPlugin, type ToolDefinition } from './tools.js'
+import {
+  createAndroidDeviceSession,
+  mockAndroidBashTool,
+  toolsPlugin,
+  type ToolDefinition,
+} from './tools.js'
 
 export interface Case1Options {
   readonly llm: Plugin
@@ -24,7 +30,8 @@ export interface Case1Options {
 
 export function createCase1Agent(options: Case1Options) {
   const { journal, runUntilIdle } = createJournal()
-  const tools = options.tools ?? [mockAndroidBashTool()]
+  const device = createAndroidDeviceSession()
+  const tools = options.tools ?? [mockAndroidBashTool(device), ...mockAndroidSystemTools(device)]
   let started = false
   let turnNumber = 0
 
@@ -39,7 +46,7 @@ export function createCase1Agent(options: Case1Options) {
     compressHistoryPlugin(options.compression),
     agentFlowPlugin(),
     contentPlugin([
-      shortcutSource([androidCallRule]),
+      shortcutSource([androidCallRule, androidFlashlightRule]),
       ...(options.contentSources ?? []),
       llmContentSource,
     ]),

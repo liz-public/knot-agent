@@ -12,6 +12,11 @@ The isolated CASE1 assembly reproduces this path with standard function calling:
 
 `user.message -> shortcut -> bash(contact) -> LLM -> bash(select 1) -> LLM -> assistant.message`
 
+Its default mock catalog also mirrors eight Android SDK tools: flashlight,
+ringer mode, do-not-disturb, stream volume, WiFi panel, screen brightness, and
+clipboard read/write. The flashlight shortcut bypasses the first model call but
+rejoins the same `tool.call -> tool.result -> LLM` path.
+
 Run it with the deterministic mock provider:
 
 ```sh
