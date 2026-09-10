@@ -8,6 +8,7 @@ import {
   type ContextManifest,
   type HistoryCheckpoint,
   type HistoryCompactionRequired,
+  type LlmInvoke,
   type LlmRequest,
 } from './protocol.js'
 
@@ -37,6 +38,9 @@ function latestCheckpoint(events: readonly Event[]): HistoryCheckpoint | undefin
 // request into compression first.
 export const contextAssemblerPlugin = (): Plugin => journal => {
   let requestNumber = 0
+  const requestIds = new Set(journal.read()
+    .filter(event => event.type === LLM_INVOKE)
+    .map(event => (event.data as LlmInvoke).requestId))
 
   journal.subscribe(LLM_REQUEST, event => {
     const request = event.data as LlmRequest
@@ -72,9 +76,14 @@ export const contextAssemblerPlugin = (): Plugin => journal => {
         ...(checkpoint === undefined ? {} : { summaryOfRequirementId: checkpoint.requirementId }),
       }
 
-    requestNumber += 1
+    let requestId: string
+    do {
+      requestNumber += 1
+      requestId = `${request.purpose}-${requestNumber}`
+    } while (requestIds.has(requestId))
+    requestIds.add(requestId)
     journal.append(LLM_INVOKE, {
-      requestId: `${request.purpose}-${requestNumber}`,
+      requestId,
       request,
       manifest,
     })

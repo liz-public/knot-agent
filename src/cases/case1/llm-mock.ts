@@ -98,7 +98,7 @@ export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
         }
       }
 
-      const toolCall = mockToolCall(query, agentCalls)
+      const toolCall = mockToolCall(query, `${call.request.turnId}-${agentCalls}`)
       if (toolCall !== undefined) {
         return {
           generated: { reasoning: '需要调用设备工具完成用户请求。', toolCalls: [toolCall] },
@@ -113,7 +113,7 @@ export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
   }
 }
 
-function mockToolCall(query: string, sequence: number) {
+function mockToolCall(query: string, sequence: string) {
   const call = (command: string) => ({
     id: `mock-bash-${sequence}`,
     name: 'bash',
