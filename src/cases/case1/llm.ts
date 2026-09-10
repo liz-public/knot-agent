@@ -18,19 +18,70 @@ export interface LlmCall {
   readonly tools: readonly Record<string, unknown>[]
 }
 
-export interface LlmProvider {
-  generate(call: LlmCall): Promise<Pick<LlmGenerated, 'generated' | 'usage'>>
+export type GenerationUpdate =
+  | { readonly kind: 'content'; readonly text: string }
+  | { readonly kind: 'reasoning'; readonly text: string }
+
+export interface LiveOutputMeta {
+  readonly requestId: string
+  readonly turnId: string
+  readonly purpose: LlmRequest['purpose']
 }
 
-export const llmPlugin = (provider: LlmProvider): Plugin =>
+export interface LiveChannel {
+  write(update: GenerationUpdate): void | Promise<void>
+  close(): void | Promise<void>
+}
+
+/** Optional, non-authoritative presentation port. It cannot advance the journal. */
+export interface LiveOutput {
+  open(meta: LiveOutputMeta): LiveChannel | undefined
+}
+
+export interface LlmProvider {
+  generate(
+    call: LlmCall,
+    onUpdate?: (update: GenerationUpdate) => void | Promise<void>,
+  ): Promise<Pick<LlmGenerated, 'generated' | 'usage'>>
+}
+
+export const llmPlugin = (provider: LlmProvider, liveOutput?: LiveOutput): Plugin =>
   journal => journal.subscribe(LLM_INVOKE, async event => {
     const invoke = event.data as LlmInvoke
     const events = journal.read()
-    const result = await provider.generate({
-      request: invoke.request,
-      messages: projectMessages(events, invoke),
-      tools: invoke.manifest.kind === 'agent' ? projectTools(events) : [],
-    })
+    let channel: LiveChannel | undefined
+    try {
+      channel = liveOutput?.open({
+        requestId: invoke.requestId,
+        turnId: invoke.request.turnId,
+        purpose: invoke.request.purpose,
+      })
+    } catch {
+      // Opening a presentation surface is best-effort too.
+    }
+    let result: Pick<LlmGenerated, 'generated' | 'usage'>
+    try {
+      result = await provider.generate(
+        {
+          request: invoke.request,
+          messages: projectMessages(events, invoke),
+          tools: invoke.manifest.kind === 'agent' ? projectTools(events) : [],
+        },
+        channel === undefined ? undefined : async update => {
+          try {
+            await channel.write(update)
+          } catch {
+            // Presentation is best-effort and cannot change agent semantics.
+          }
+        },
+      )
+    } finally {
+      try {
+        await channel?.close()
+      } catch {
+        // A disconnected UI must not turn a completed generation into failure.
+      }
+    }
     journal.append(LLM_GENERATED, {
       requestId: invoke.requestId,
       request: invoke.request,
@@ -49,6 +100,7 @@ export const llmPlugin = (provider: LlmProvider): Plugin =>
     if (toolCalls.length > 0) {
       journal.append(TOOL_CALL, {
         turnId: invoke.request.turnId,
+        sourceRequestId: invoke.requestId,
         ...(content === undefined ? {} : { assistantContent: content }),
         calls: toolCalls.map(call => ({
           callId: call.id,

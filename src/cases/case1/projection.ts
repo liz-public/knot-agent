@@ -67,6 +67,15 @@ function dynamicMessage(context: DynamicContext): ChatMessage {
   return { role: 'user', content: `${dynamicContextPrefix}\n${context.content}` }
 }
 
+function generatedReasoning(events: readonly Event[], requestId: string): string | undefined {
+  for (const event of events) {
+    if (event.type !== LLM_GENERATED) continue
+    const generation = event.data as LlmGenerated
+    if (generation.requestId === requestId) return generation.generated.reasoning
+  }
+  throw new Error(`no generation recorded for requestId ${requestId}`)
+}
+
 export function isDynamicContextMessage(message: ChatMessage): boolean {
   return message.content?.startsWith(dynamicContextPrefix) ?? false
 }
@@ -89,9 +98,13 @@ function semanticMessages(
       // One assistant message carrying every call of the batch, immediately
       // followed by one tool message per result: the shape the API requires.
       const batch = event.data as ToolCall
+      const reasoning = batch.sourceRequestId === undefined
+        ? undefined
+        : generatedReasoning(events, batch.sourceRequestId)
       messages.push({
         role: 'assistant',
         content: batch.assistantContent ?? null,
+        ...(reasoning === undefined ? {} : { reasoning }),
         tool_calls: batch.calls.map(call => ({
           id: call.callId,
           type: 'function' as const,

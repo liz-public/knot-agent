@@ -54,6 +54,8 @@ export interface ToolCallRequest {
 // one carrying every call), and duplicate assistantContent onto each of them.
 export interface ToolCall {
   turnId: string
+  /** The generation whose reasoning must accompany this assistant tool-call message. */
+  sourceRequestId?: string
   assistantContent?: string
   calls: readonly ToolCallRequest[]
 }
@@ -102,6 +104,8 @@ export type LlmRequest = AgentLlmRequest | CompressionLlmRequest
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | null
+  /** Canonical reasoning; an API adapter maps it to its vendor field. */
+  reasoning?: string
   tool_call_id?: string
   tool_calls?: Array<{
     id: string

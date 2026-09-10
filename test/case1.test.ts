@@ -8,7 +8,12 @@ import {
   mockAndroidCliCommands,
   mockAndroidSystemTools,
 } from '../src/cases/case1/mock-android-tools.js'
-import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
+import {
+  llmPlugin,
+  type GenerationUpdate,
+  type LiveOutput,
+  type LlmProvider,
+} from '../src/cases/case1/llm.js'
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
 import {
@@ -141,6 +146,64 @@ test('CASE1 creates a fresh dynamic context for the next user query', async () =
   assert.doesNotMatch(visibleDynamic[0]?.content ?? '', /contact|select|dialer/)
 })
 
+test('live output is visible before completion but does not change the journal', async () => {
+  const now = () => new Date('2026-07-07T06:56:27.000Z')
+  const withoutLive = createCase1Agent({
+    llm: mockLlmPlugin({ streamDelayMs: 0 }),
+    now,
+  })
+  await withoutLive.submit('你好')
+
+  const updates: GenerationUpdate[] = []
+  let withLive: ReturnType<typeof createCase1Agent>
+  const live: LiveOutput = {
+    open() {
+      return {
+        write(update) {
+          assert.equal(
+            withLive.journal.read().some(event => event.type === ASSISTANT_MESSAGE),
+            false,
+          )
+          updates.push(update)
+        },
+        close() {},
+      }
+    },
+  }
+  withLive = createCase1Agent({
+    llm: mockLlmPlugin({ streamDelayMs: 0 }, live),
+    now,
+  })
+  await withLive.submit('你好')
+
+  assert.equal(
+    updates.filter(update => update.kind === 'content').map(update => update.text).join(''),
+    '我暂时无法处理这个请求。',
+  )
+  assert.deepEqual(withLive.journal.read(), withoutLive.journal.read())
+  assert.equal(withLive.journal.read().some(event => event.type.includes('delta')), false)
+})
+
+test('a broken live surface cannot change agent completion', async () => {
+  const replies: string[] = []
+  const brokenLive: LiveOutput = {
+    open() {
+      return {
+        write() { throw new Error('display disconnected') },
+        close() { throw new Error('display disconnected') },
+      }
+    },
+  }
+  const agent = createCase1Agent({
+    llm: mockLlmPlugin({ streamDelayMs: 0 }, brokenLive),
+    output: { content: content => replies.push(content) },
+  })
+
+  await agent.submit('你好')
+
+  assert.deepEqual(replies, ['我暂时无法处理这个请求。'])
+})
+
 test('CASE1 OpenAI provider preserves vendor fields and maps function calls', async () => {
   const originalFetch = globalThis.fetch
   const bodies: Array<Record<string, unknown>> = []
@@ -188,8 +251,69 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
     assert.equal(bodies[0]?.['_lingxi_maf_enabled'], false)
     assert.deepEqual(bodies[0]?.['reasoning'], { enabled: false })
     assert.equal((bodies[0]?.['tools'] as unknown[]).length, 1)
-    const secondMessages = bodies[1]?.['messages'] as Array<{ role: string }>
+    const secondMessages = bodies[1]?.['messages'] as Array<{
+      role: string
+      reasoning_content?: string
+    }>
     assert.deepEqual(secondMessages.slice(-2).map(message => message.role), ['assistant', 'tool'])
+    assert.equal(secondMessages.at(-2)?.reasoning_content, '选择唯一候选。')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('CASE1 OpenAI provider streams through the live port and commits one final fact', async () => {
+  const originalFetch = globalThis.fetch
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    const sse = [
+      'data: {"choices":[{"delta":{"reasoning_content":"正在"}}]}',
+      'data: {"choices":[{"delta":{"reasoning_content":"判断"}}]}',
+      'data: {"choices":[{"delta":{"content":"已经"}}]}',
+      'data: {"choices":[{"delta":{"content":"完成。"}}]}',
+      'data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}}',
+      'data: [DONE]',
+      '',
+    ].join('\n\n')
+    return new Response(sse, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    })
+  }
+
+  try {
+    const updates: GenerationUpdate[] = []
+    const replies: string[] = []
+    const events: Event[] = []
+    const live: LiveOutput = {
+      open: () => ({
+        write: update => { updates.push(update) },
+        close: () => undefined,
+      }),
+    }
+    const agent = createCase1Agent({
+      llm: openAiLlmPlugin({
+        baseUrl: 'https://llm.invalid/chat/completions',
+        model: 'streaming-model',
+        contextWindow: 32768,
+      }, live),
+      output: { content: content => replies.push(content) },
+      trace: event => events.push(event),
+    })
+
+    await agent.submit('你好')
+
+    assert.equal(requestBody?.['stream'], true)
+    assert.deepEqual(updates, [
+      { kind: 'reasoning', text: '正在' },
+      { kind: 'reasoning', text: '判断' },
+      { kind: 'content', text: '已经' },
+      { kind: 'content', text: '完成。' },
+    ])
+    assert.deepEqual(replies, ['已经完成。'])
+    assert.equal(events.filter(event => event.type === ASSISTANT_MESSAGE).length, 1)
+    assert.equal(events.some(event => event.type.includes('delta')), false)
   } finally {
     globalThis.fetch = originalFetch
   }

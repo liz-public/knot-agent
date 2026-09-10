@@ -17,16 +17,35 @@ ringer mode, do-not-disturb, stream volume, WiFi panel, screen brightness, and
 clipboard read/write. The flashlight shortcut bypasses the first model call but
 rejoins the same `tool.call -> tool.result -> LLM` path.
 
-Run it with the deterministic mock provider:
+Run it as an interactive CLI with the deterministic mock provider and mock
+Android tools:
+
+```sh
+npm run case1
+```
+
+Each non-empty input line becomes exactly one `user.message`. Type `/exit` or
+`/quit` to leave. The CLI only knows `agent.submit()` and the output sinks; it
+does not know the content, LLM, or tool flow.
+
+The original one-shot mode remains available:
 
 ```sh
 npm run case1 -- '给李行素打电话'
 ```
 
 The answer is written to stdout; the complete event trace and elapsed time are
-written to stderr. To select the OpenAI-compatible provider, set
+written to stderr. Set `KNOT_TRACE=0` for a quiet UI, and optionally set
+`KNOT_JOURNAL_PATH` to continue a JSONL session across processes. To select the
+OpenAI-compatible provider, set
 `KNOT_BASE_URL`, `KNOT_MODEL`, and optionally `KNOT_API_KEY`,
 `KNOT_CONTEXT_WINDOW`, and `KNOT_REQUEST_EXTRA_JSON`.
+
+The CLI renders mock and OpenAI-compatible generation incrementally through an
+optional live-output callback. Deltas never enter the journal; the completed
+generation still commits the same final events as non-streaming mode. The
+boundary and its invariants are recorded in
+[docs/reviews/case1-live-output.md](docs/reviews/case1-live-output.md).
 
 A minimal experiment: can an agent be driven only by an append-only journal and
 plugins reacting to events?

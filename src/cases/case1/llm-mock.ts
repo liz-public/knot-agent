@@ -1,29 +1,41 @@
 import type { Plugin } from '../../journal.js'
-import { llmPlugin, type LlmCall, type LlmProvider } from './llm.js'
-import type { LlmUsage } from './protocol.js'
+import {
+  llmPlugin,
+  type GenerationUpdate,
+  type LiveOutput,
+  type LlmCall,
+  type LlmProvider,
+} from './llm.js'
+import type { LlmGenerated, LlmUsage } from './protocol.js'
 
 export interface MockLlmOptions {
   readonly contextWindow?: number
   readonly firstAgentInputTokens?: number
+  readonly streamDelayMs?: number
 }
 
-export const mockLlmPlugin = (options: MockLlmOptions = {}): Plugin =>
-  llmPlugin(mockLlmProvider(options))
+export const mockLlmPlugin = (
+  options: MockLlmOptions = {},
+  liveOutput?: LiveOutput,
+): Plugin => llmPlugin(mockLlmProvider(options), liveOutput)
 
 export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
   const contextWindow = options.contextWindow ?? 1000
   let agentCalls = 0
 
   return {
-    async generate(call: LlmCall) {
+    async generate(call: LlmCall, onUpdate) {
+      const respond = (result: Pick<LlmGenerated, 'generated' | 'usage'>) =>
+        streamMockResult(result, onUpdate, options.streamDelayMs ?? 20)
+
       if (call.request.purpose === 'history.compress') {
-        return {
+        return respond({
           generated: {
             content: '用户要求给李行素打电话；联系人查询得到唯一候选李行素。',
             toolCalls: [],
           },
           usage: usage(80, 24, contextWindow),
-        }
+        })
       }
 
       agentCalls += 1
@@ -44,7 +56,7 @@ export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
         : 120
 
       if (latestTool?.content?.includes('"action":"candidates"')) {
-        return {
+        return respond({
           generated: {
             reasoning: '联系人只有一个候选，按工具提示选择第 1 项。',
             toolCalls: [{
@@ -54,17 +66,17 @@ export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
             }],
           },
           usage: usage(inputTokens, 32, contextWindow),
-        }
+        })
       }
       if (latestTool?.content?.includes('"action":"direct_dial"')) {
-        return {
+        return respond({
           generated: {
             reasoning: '工具已经确认拨号成功，应直接告知用户结果。',
             content: '已为您拨通李行素的电话。',
             toolCalls: [],
           },
           usage: usage(inputTokens, 20, contextWindow),
-        }
+        })
       }
       if (latestTool !== undefined) {
         const result = JSON.parse(latestTool.content ?? '{}') as Record<string, unknown>
@@ -92,25 +104,44 @@ export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
         } else {
           content = hint.length > 0 ? hint : '操作已完成。'
         }
-        return {
+        return respond({
           generated: { reasoning: '根据工具返回结果向用户确认。', content, toolCalls: [] },
           usage: usage(inputTokens, 20, contextWindow),
-        }
+        })
       }
 
       const toolCall = mockToolCall(query, `${call.request.turnId}-${agentCalls}`)
       if (toolCall !== undefined) {
-        return {
+        return respond({
           generated: { reasoning: '需要调用设备工具完成用户请求。', toolCalls: [toolCall] },
           usage: usage(inputTokens, 24, contextWindow),
-        }
+        })
       }
-      return {
+      return respond({
         generated: { content: '我暂时无法处理这个请求。', toolCalls: [] },
         usage: usage(inputTokens, 16, contextWindow),
-      }
+      })
     },
   }
+}
+
+async function streamMockResult(
+  result: Pick<LlmGenerated, 'generated' | 'usage'>,
+  onUpdate: ((update: GenerationUpdate) => void | Promise<void>) | undefined,
+  delayMs: number,
+): Promise<Pick<LlmGenerated, 'generated' | 'usage'>> {
+  if (onUpdate === undefined) return result
+  for (const [kind, text] of [
+    ['reasoning', result.generated.reasoning],
+    ['content', result.generated.content],
+  ] as const) {
+    if (text === undefined) continue
+    for (const chunk of text.match(/.{1,4}/gu) ?? []) {
+      if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs))
+      await onUpdate({ kind, text: chunk })
+    }
+  }
+  return result
 }
 
 function mockToolCall(query: string, sequence: string) {
