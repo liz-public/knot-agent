@@ -108,7 +108,7 @@ tool.call
 tool.result.state = { key: 'todo', value: [...] }
 ```
 
-ContextAssembler 在每次调用前从 Journal 折叠最新 todo 并投影。首版不让 todo 阻止最终回复，不增加 reminder 或完成状态机；先验证模型能持续看到并更新它。
+`tool.result.content` 已经位于后续模型历史中，因此首版不再复制一份 todo 动态上下文；`state` 保留给 Trace、UI 和未来真实折叠需求。首版不让 todo 阻止最终回复，不增加 reminder 或完成状态机。
 
 ## 6. CASE2.3：Steering 与暂停
 

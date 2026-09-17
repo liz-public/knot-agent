@@ -36,7 +36,7 @@ test('CASE2.0 edits and verifies a real workspace through the four coding tools'
         assert.match(call.messages.at(-1)?.content ?? '', /Current workspace:/)
         assert.deepEqual(
           call.tools.map(schema => (schema['function'] as { name: string }).name),
-          ['read', 'write', 'edit', 'bash'],
+          ['read', 'write', 'edit', 'bash', 'todo.write'],
         )
         return {
           generated: { toolCalls: [{ id: 'read-1', name: 'read', arguments: { path: 'math.js' } }] },
@@ -173,4 +173,56 @@ test('CASE2.1 keeps approval and ask inside the tool call lifecycle', async t =>
   assert.match(toolResults[0]!, /permission_denied/)
   assert.match(toolResults[1]!, /"ok":true/)
   assert.match(toolResults[2]!, /"answer":"yes"/)
+})
+
+test('CASE2.2 keeps todo state as a tool fact visible to later generations', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-todo-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  let generation = 0
+  const provider: LlmProvider = {
+    async generate(call) {
+      generation += 1
+      if (generation === 1) {
+        return {
+          generated: {
+            toolCalls: [{
+              id: 'todo-1',
+              name: 'todo.write',
+              arguments: {
+                todos: [
+                  { id: 'inspect', content: 'Inspect the code', status: 'completed' },
+                  { id: 'verify', content: 'Run tests', status: 'in_progress' },
+                ],
+              },
+            }],
+          },
+          usage,
+        }
+      }
+      const todoMessage = call.messages.find(message =>
+        message.role === 'tool' && message.content?.includes('Run tests'),
+      )
+      assert.ok(todoMessage, 'the authoritative todo tool result remains in model context')
+      return {
+        generated: { content: generation === 2 ? 'Todo state recorded.' : 'I still have the todo state.', toolCalls: [] },
+        usage,
+      }
+    },
+  }
+  const events: Event[] = []
+  const agent = createCase2Agent({
+    cwd,
+    llm: llmPlugin(provider),
+    trace: event => events.push(event),
+  })
+
+  await agent.submit('Track the remaining work.')
+  await agent.submit('What remains?')
+
+  const todoResult = events
+    .filter(event => event.type === TOOL_RESULT)
+    .flatMap(event => (event.data as ToolResult).results)
+    .find(result => result.name === 'todo.write')
+  assert.equal(todoResult?.state?.key, 'todo')
+  assert.equal(generation, 3)
 })

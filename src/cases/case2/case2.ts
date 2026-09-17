@@ -9,6 +9,7 @@ import { tracePlugin } from '../../plugins/trace.js'
 import { codingTools } from './coding-tools.js'
 import { codingSystemPromptPlugin } from './system-prompt.js'
 import { workspaceContextPlugin } from './workspace-context.js'
+import { todoTool } from './todo-tool.js'
 import {
   askTool,
   permissionTools,
@@ -29,7 +30,7 @@ export interface Case2Options {
 
 export function createCase2Agent(options: Case2Options) {
   const { journal, runUntilIdle } = createJournal()
-  const baseTools = codingTools(options.cwd)
+  const baseTools = [...codingTools(options.cwd), todoTool()]
   const tools = permissionTools(
     [...baseTools, ...(options.askPort === undefined ? [] : [askTool(options.askPort)])],
     options.permissionPolicy,
