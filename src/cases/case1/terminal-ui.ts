@@ -6,17 +6,27 @@ import type { OutputSinks } from './output.js'
  * final-event sinks. Preview text never enters the journal; the final sink
  * suppresses a byte-identical answer that was already rendered live.
  */
-export function createTerminalUi(interactive: boolean): {
+export function createTerminalUi(
+  interactive: boolean,
+  streams: {
+    stdout: { write(text: string): unknown }
+    stderr: { write(text: string): unknown }
+  } = process,
+): {
   readonly live: LiveOutput
   readonly output: OutputSinks
 } {
-  const renderedContent: string[] = []
-  const renderedReasoning: string[] = []
+  let renderedContent: string | undefined
+  let renderedReasoning: string | undefined
 
-  function consumeRendered(rendered: string[], content: string): boolean {
-    const index = rendered.indexOf(content)
-    if (index < 0) return false
-    rendered.splice(index, 1)
+  function consumeRendered(kind: 'content' | 'reasoning', content: string): boolean {
+    if (kind === 'content') {
+      if (renderedContent !== content) return false
+      renderedContent = undefined
+      return true
+    }
+    if (renderedReasoning !== content) return false
+    renderedReasoning = undefined
     return true
   }
 
@@ -24,28 +34,33 @@ export function createTerminalUi(interactive: boolean): {
     live: {
       open(meta) {
         if (meta.purpose !== 'agent') return undefined
+        // Only the current generation can later commit a matching semantic
+        // event. Tool-call preambles from older generations are already shown
+        // but must not accumulate or suppress an unrelated future answer.
+        renderedContent = undefined
+        renderedReasoning = undefined
         let content = ''
         let reasoning = ''
         return {
           write(update) {
             if (update.kind === 'content') {
-              if (content.length === 0) process.stdout.write(interactive ? 'assistant> ' : '')
+              if (content.length === 0) streams.stdout.write(interactive ? 'assistant> ' : '')
               content += update.text
-              process.stdout.write(update.text)
+              streams.stdout.write(update.text)
             } else {
-              if (reasoning.length === 0) process.stderr.write('[reasoning] ')
+              if (reasoning.length === 0) streams.stderr.write('[reasoning] ')
               reasoning += update.text
-              process.stderr.write(update.text)
+              streams.stderr.write(update.text)
             }
           },
           close() {
             if (content.length > 0) {
-              process.stdout.write('\n')
-              renderedContent.push(content)
+              streams.stdout.write('\n')
+              renderedContent = content
             }
             if (reasoning.length > 0) {
-              process.stderr.write('\n')
-              renderedReasoning.push(reasoning)
+              streams.stderr.write('\n')
+              renderedReasoning = reasoning
             }
           },
         }
@@ -53,13 +68,13 @@ export function createTerminalUi(interactive: boolean): {
     },
     output: {
       reasoning(content) {
-        if (!consumeRendered(renderedReasoning, content)) {
-          process.stderr.write(`[reasoning] ${content}\n`)
+        if (!consumeRendered('reasoning', content)) {
+          streams.stderr.write(`[reasoning] ${content}\n`)
         }
       },
       content(content) {
-        if (!consumeRendered(renderedContent, content)) {
-          process.stdout.write(`${interactive ? 'assistant> ' : ''}${content}\n`)
+        if (!consumeRendered('content', content)) {
+          streams.stdout.write(`${interactive ? 'assistant> ' : ''}${content}\n`)
         }
       },
     },

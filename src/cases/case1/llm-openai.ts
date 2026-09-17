@@ -18,12 +18,14 @@ export interface OpenAiLlmOptions {
 export const openAiLlmPlugin = (
   options: OpenAiLlmOptions,
   liveOutput?: LiveOutput,
-): Plugin => {
+): Plugin => llmPlugin(openAiLlmProvider(options), liveOutput)
+
+export const openAiLlmProvider = (options: OpenAiLlmOptions): LlmProvider => {
   const url = options.baseUrl.endsWith('/chat/completions')
     ? options.baseUrl
     : `${options.baseUrl.replace(/\/$/, '')}/chat/completions`
 
-  const provider: LlmProvider = {
+  return {
     async generate(call: LlmCall, onUpdate) {
       const response = await fetch(url, {
         method: 'POST',
@@ -59,7 +61,6 @@ export const openAiLlmPlugin = (
     },
   }
 
-  return llmPlugin(provider, liveOutput)
 }
 
 async function readOpenAiStream(
