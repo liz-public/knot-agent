@@ -87,13 +87,19 @@ function semanticMessages(
   dynamic?: DynamicContext,
 ): ChatMessage[] {
   const messages: ChatMessage[] = []
+  const deferredUsers: UserMessage[] = []
+  let awaitingToolResult = false
+  const appendUser = (message: UserMessage) => {
+    messages.push({ role: 'user', content: message.content })
+    if (dynamic?.turnId === message.turnId) messages.push(dynamicMessage(dynamic))
+  }
   for (let index = startIndex; index <= endIndex; index += 1) {
     const event = events[index]
     if (event === undefined) continue
     if (event.type === USER_MESSAGE) {
       const message = event.data as UserMessage
-      messages.push({ role: 'user', content: message.content })
-      if (dynamic?.turnId === message.turnId) messages.push(dynamicMessage(dynamic))
+      if (awaitingToolResult) deferredUsers.push(message)
+      else appendUser(message)
     } else if (event.type === TOOL_CALL) {
       // One assistant message carrying every call of the batch, immediately
       // followed by one tool message per result: the shape the API requires.
@@ -111,14 +117,18 @@ function semanticMessages(
           function: { name: call.name, arguments: JSON.stringify(call.arguments) },
         })),
       })
+      awaitingToolResult = true
     } else if (event.type === TOOL_RESULT) {
       for (const result of (event.data as ToolResult).results) {
         messages.push({ role: 'tool', tool_call_id: result.callId, content: result.content })
       }
+      awaitingToolResult = false
+      for (const message of deferredUsers.splice(0)) appendUser(message)
     } else if (event.type === ASSISTANT_MESSAGE) {
       messages.push({ role: 'assistant', content: (event.data as AssistantMessage).content })
     }
   }
+  for (const message of deferredUsers) appendUser(message)
   return messages
 }
 

@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createCase2Agent } from '../src/cases/case2/case2.js'
-import { llmPlugin, type LlmProvider } from '../src/cases/case1/llm.js'
+import type { LlmProvider } from '../src/cases/case1/llm.js'
+import type { ToolDefinition } from '../src/cases/case1/tools.js'
 import {
   ASSISTANT_MESSAGE,
   LLM_INVOKE,
@@ -15,6 +16,27 @@ import {
 } from '../src/cases/case1/protocol.js'
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
+}
+
+function waitingTool(started: ReturnType<typeof deferred>, release: ReturnType<typeof deferred>): ToolDefinition {
+  return {
+    name: 'wait_for_test',
+    schema: {
+      type: 'function',
+      function: { name: 'wait_for_test', parameters: { type: 'object' } },
+    },
+    async execute() {
+      started.resolve()
+      await release.promise
+      return { content: JSON.stringify({ ok: true }) }
+    },
+  }
+}
 
 test('CASE2.0 edits and verifies a real workspace through the four coding tools', async t => {
   const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-'))
@@ -84,7 +106,7 @@ test('CASE2.0 edits and verifies a real workspace through the four coding tools'
   const replies: string[] = []
   const agent = createCase2Agent({
     cwd,
-    llm: llmPlugin(provider),
+    llm: provider,
     trace: event => events.push(event),
     output: { content: content => replies.push(content) },
   })
@@ -143,7 +165,7 @@ test('CASE2.1 keeps approval and ask inside the tool call lifecycle', async t =>
   const results: Event[] = []
   const agent = createCase2Agent({
     cwd,
-    llm: llmPlugin(provider),
+    llm: provider,
     permissionPolicy: {
       evaluate: ({ toolName }) => toolName === 'write' ? 'ask' : 'allow',
     },
@@ -212,7 +234,7 @@ test('CASE2.2 keeps todo state as a tool fact visible to later generations', asy
   const events: Event[] = []
   const agent = createCase2Agent({
     cwd,
-    llm: llmPlugin(provider),
+    llm: provider,
     trace: event => events.push(event),
   })
 
@@ -225,4 +247,122 @@ test('CASE2.2 keeps todo state as a tool fact visible to later generations', asy
     .find(result => result.name === 'todo.write')
   assert.equal(todoResult?.state?.key, 'todo')
   assert.equal(generation, 3)
+})
+
+test('CASE2.3 folds steering after an in-flight tool result into one legal model request', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-steer-tool-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const started = deferred()
+  const release = deferred()
+  let generation = 0
+  const provider: LlmProvider = {
+    async generate(call) {
+      generation += 1
+      if (generation === 1) {
+        return {
+          generated: { toolCalls: [{ id: 'wait-1', name: 'wait_for_test', arguments: {} }] },
+          usage,
+        }
+      }
+      assert.deepEqual(call.messages.slice(-3).map(message => message.role), [
+        'assistant', 'tool', 'user',
+      ])
+      assert.equal(call.messages.at(-1)?.content, 'Also explain the result.')
+      return {
+        generated: { content: 'Finished and explained.', toolCalls: [] },
+        usage,
+      }
+    },
+  }
+  const replies: string[] = []
+  const agent = createCase2Agent({
+    cwd,
+    llm: provider,
+    extraTools: [waitingTool(started, release)],
+    output: { content: content => replies.push(content) },
+  })
+
+  const running = agent.submit('Wait for the tool.')
+  await started.promise
+  agent.steer('Also explain the result.')
+  release.resolve()
+  await running
+
+  assert.equal(generation, 2)
+  assert.deepEqual(replies, ['Finished and explained.'])
+})
+
+test('CASE2.3 discards a stale completion when steering arrives during generation', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-steer-llm-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const started = deferred()
+  const release = deferred()
+  let generation = 0
+  const provider: LlmProvider = {
+    async generate(call) {
+      generation += 1
+      if (generation === 1) {
+        started.resolve()
+        await release.promise
+        return { generated: { content: 'Stale answer.', toolCalls: [] }, usage }
+      }
+      assert.ok(call.messages.some(message => message.content === 'Use the new requirement.'))
+      return { generated: { content: 'Current answer.', toolCalls: [] }, usage }
+    },
+  }
+  const replies: string[] = []
+  const agent = createCase2Agent({
+    cwd,
+    llm: provider,
+    output: { content: content => replies.push(content) },
+  })
+
+  const running = agent.submit('Start the task.')
+  await started.promise
+  agent.steer('Use the new requirement.')
+  release.resolve()
+  await running
+
+  assert.equal(generation, 2)
+  assert.deepEqual(replies, ['Current answer.'])
+})
+
+test('CASE2.3 pauses only at the next complete event boundary', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-pause-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const started = deferred()
+  const release = deferred()
+  let generation = 0
+  const provider: LlmProvider = {
+    async generate() {
+      generation += 1
+      if (generation === 1) {
+        return {
+          generated: { toolCalls: [{ id: 'wait-1', name: 'wait_for_test', arguments: {} }] },
+          usage,
+        }
+      }
+      return { generated: { content: 'Resumed.', toolCalls: [] }, usage }
+    },
+  }
+  const agent = createCase2Agent({
+    cwd,
+    llm: provider,
+    extraTools: [waitingTool(started, release)],
+  })
+
+  const running = agent.submit('Pause after this tool event.')
+  await started.promise
+  agent.pause()
+  release.resolve()
+  for (let attempt = 0; attempt < 20 && agent.status() !== 'paused'; attempt += 1) {
+    await new Promise<void>(resolve => setImmediate(resolve))
+  }
+  assert.equal(agent.status(), 'paused')
+  assert.equal(generation, 1)
+
+  agent.resume()
+  await running
+  assert.equal(agent.status(), 'idle')
+  assert.equal(generation, 2)
 })

@@ -45,7 +45,16 @@ export interface LlmProvider {
   ): Promise<Pick<LlmGenerated, 'generated' | 'usage'>>
 }
 
-export const llmPlugin = (provider: LlmProvider, liveOutput?: LiveOutput): Plugin =>
+export interface LlmPluginOptions {
+  /** A workflow plugin may validate a candidate before committing it. */
+  readonly commitAssistantMessage?: boolean
+}
+
+export const llmPlugin = (
+  provider: LlmProvider,
+  liveOutput?: LiveOutput,
+  options: LlmPluginOptions = {},
+): Plugin =>
   journal => journal.subscribe(LLM_INVOKE, async event => {
     const invoke = event.data as LlmInvoke
     const events = journal.read()
@@ -113,8 +122,10 @@ export const llmPlugin = (provider: LlmProvider, liveOutput?: LiveOutput): Plugi
     if (content === undefined || content.length === 0) {
       throw new Error('LLM response has neither a tool call nor text')
     }
-    journal.append(ASSISTANT_MESSAGE, {
-      turnId: invoke.request.turnId,
-      content,
-    })
+    if (options.commitAssistantMessage !== false) {
+      journal.append(ASSISTANT_MESSAGE, {
+        turnId: invoke.request.turnId,
+        content,
+      })
+    }
   })
