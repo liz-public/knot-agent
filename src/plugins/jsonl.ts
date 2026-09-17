@@ -41,6 +41,7 @@ export const jsonlStorePlugin = (path: string): Plugin => journal =>
     if (data === undefined) {
       throw new TypeError(`event ${event.type} is not JSONL serializable`)
     }
-    const line = `{"type":${JSON.stringify(event.type)},"data":${data}}`
+    const meta = JSON.stringify({ observedAt: new Date().toISOString() })
+    const line = `{"type":${JSON.stringify(event.type)},"data":${data},"meta":${meta}}`
     await appendFile(path, `${line}\n`, 'utf8')
   })

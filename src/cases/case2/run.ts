@@ -8,7 +8,7 @@ import {
   type ToolCall,
   type ToolResult,
 } from '../case1/protocol.js'
-import { createCase2Agent } from './case2.js'
+import { createCase2Agent, createPersistentCase2Agent, type Case2Options } from './case2.js'
 
 function required(name: string): string {
   const value = process.env[name]
@@ -47,7 +47,7 @@ const contextWindow = process.env['KNOT_CONTEXT_WINDOW']
 const ui = createTerminalUi(false)
 const startedAt = performance.now()
 let eventNumber = 0
-const agent = createCase2Agent({
+const options = {
   cwd: process.env['KNOT_CWD'] ?? process.cwd(),
   llm: openAiLlmProvider({
     baseUrl: required('KNOT_BASE_URL'),
@@ -64,7 +64,11 @@ const agent = createCase2Agent({
       `${String(eventNumber).padStart(3, '0')} +${(performance.now() - startedAt).toFixed(1).padStart(8)}ms ${event.type}${describe(event)}\n`,
     )
   },
-})
+} satisfies Case2Options
+const journalPath = process.env['KNOT_JOURNAL_PATH']
+const agent = journalPath === undefined
+  ? createCase2Agent(options)
+  : await createPersistentCase2Agent({ ...options, journalPath })
 
 await agent.submit(query)
 process.stderr.write(

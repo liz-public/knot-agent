@@ -54,6 +54,7 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(105, 87, 
 .session-row strong { overflow: hidden; font-size: 11px; font-weight: 580; text-overflow: ellipsis; white-space: nowrap; }
 .session-row small { color: var(--muted); font-size: 9px; }
 .session-row i { width: 6px; height: 6px; margin-top: 4px; border-radius: 50%; background: #51a47e; box-shadow: 0 0 0 3px #dff1e8; }
+.empty-sessions { display: block; padding: 10px 8px; color: var(--faint); font-size: 9px; }
 .cases-heading { margin-top: 17px; }
 .nav-row { width: 100%; padding: 8px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 8px; color: #656770; background: transparent; font-size: 11px; text-align: left; cursor: pointer; }
 .nav-row:hover { background: rgba(255,255,255,.55); }
@@ -184,6 +185,7 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(105, 87, 
 .inspector-tabs { height: 39px; padding: 6px 9px 0; display: grid; grid-template-columns: repeat(4,1fr); border-bottom: .5px solid var(--line); }
 .inspector-tabs button { position: relative; border: 0; color: var(--muted); background: transparent; font-size: 9px; text-transform: capitalize; cursor: pointer; }
 .inspector-tabs button.active { color: var(--ink); font-weight: 650; }
+.inspector-tabs button:disabled { color: #b5b6bc; cursor: not-allowed; }
 .inspector-tabs button.active::after { position: absolute; right: 8px; bottom: -1px; left: 8px; height: 2px; border-radius: 2px 2px 0 0; background: var(--violet); content: ""; }
 .inspector-content { min-height: 0; flex: 1; overflow-y: auto; }
 .inspector-footer { height: 31px; padding: 0 13px; display: flex; align-items: center; justify-content: space-between; border-top: .5px solid var(--line); color: var(--faint); font-size: 8px; }
@@ -213,12 +215,23 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(105, 87, 
 .context-message header code { color: var(--faint); font-size: 8px; }
 .context-message p { margin: 8px 0 0; color: #5e6068; font: 8px/1.55 ui-monospace, monospace; white-space: pre-wrap; }
 .context-tool { display: inline-block; margin-top: 7px; color: var(--amber); font: 8px ui-monospace, monospace; }
-.journal-search { height: 29px; margin-bottom: 8px; padding: 0 8px; display: flex; align-items: center; gap: 6px; border: .5px solid var(--line); border-radius: 7px; color: var(--faint); background: white; font-size: 8px; }
+.journal-toolbar { margin-bottom: 8px; display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.journal-search { height: 29px; padding: 0 8px; display: flex; align-items: center; gap: 6px; border: .5px solid var(--line); border-radius: 7px; color: var(--faint); background: white; font-size: 8px; }
+.journal-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--ink); background: transparent; font: 8px ui-monospace, monospace; }
+.journal-search input::placeholder { color: var(--faint); }
+.journal-toolbar > button, .journal-state button { padding: 0 9px; border: .5px solid var(--line); border-radius: 7px; color: var(--muted); background: white; font-size: 8px; cursor: pointer; }
 .journal-event { border-bottom: .5px solid var(--line); }
-.journal-event summary { min-height: 36px; display: grid; grid-template-columns: 24px 1fr auto; align-items: center; cursor: pointer; }
+.journal-event summary { min-height: 36px; display: grid; grid-template-columns: 30px 1fr; align-items: center; cursor: pointer; }
 .journal-event summary > span, .journal-event time { color: var(--faint); font: 8px ui-monospace, monospace; }
 .journal-event summary code { font-size: 8px; }
 .journal-event pre { margin: 0 0 8px; padding: 8px; overflow-x: auto; border-radius: 6px; color: #686a72; background: #eeeeef; font: 8px/1.5 ui-monospace, monospace; }
+.journal-state { min-height: 180px; padding: 28px 18px; display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 7px; color: var(--muted); text-align: center; }
+.journal-state strong { color: var(--ink); font-size: 10px; }
+.journal-state span { max-width: 230px; font-size: 8px; line-height: 1.5; }
+.journal-state button { min-height: 28px; margin-top: 5px; }
+.loading-dot { width: 8px; height: 8px; border: 2px solid #d8d3f3; border-top-color: var(--violet); border-radius: 50%; animation: journal-spin .8s linear infinite; }
+.error-state strong { color: #9d493e; }
+@keyframes journal-spin { to { transform: rotate(360deg); } }
 .inventory-note { margin-bottom: 10px; padding: 10px; display: flex; gap: 8px; border: .5px solid #dcd6f6; border-radius: 8px; color: #5949ae; background: #f5f3fd; }
 .inventory-note div { display: flex; flex-direction: column; gap: 2px; }
 .inventory-note strong { font-size: 9px; }

@@ -1,8 +1,19 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { assemblyStages, contextMessages, plugins, sessions, trace } from './fixtures'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { assemblyStages, contextMessages, plugins } from './fixtures'
+import {
+  listSessions,
+  loadJournalSnapshot,
+  type JournalSnapshot,
+  type ReadEvent,
+  type SessionSummary,
+} from './journal-api'
 
 type Mode = 'run' | 'studio'
 type InspectorTab = 'trace' | 'context' | 'journal' | 'plugins'
+type JournalState =
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready'; readonly snapshot: JournalSnapshot }
+  | { readonly status: 'error'; readonly message: string }
 
 function Icon({ name, size = 16 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
@@ -35,8 +46,19 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
   )
 }
 
-function ProjectRail({ mode, onMode }: { mode: Mode; onMode: (mode: Mode) => void }) {
-  const [selected, setSelected] = useState('active')
+function ProjectRail({
+  mode,
+  onMode,
+  sessions,
+  selected,
+  onSelect,
+}: {
+  mode: Mode
+  onMode: (mode: Mode) => void
+  sessions: readonly SessionSummary[]
+  selected?: string
+  onSelect: (sessionId: string) => void
+}) {
   return (
     <aside className="project-rail">
       <div className="brand"><span className="brand-mark"><Icon name="knot" size={22}/></span><span>Knot</span><span className="alpha">alpha</span></div>
@@ -50,10 +72,11 @@ function ProjectRail({ mode, onMode }: { mode: Mode; onMode: (mode: Mode) => voi
         <div className="section-heading"><span>Sessions</span><button aria-label="New session"><Icon name="plus" size={15}/></button></div>
         <div className="session-list">
           {sessions.map(session => (
-            <button key={session.id} className={`session-row ${selected === session.id ? 'active' : ''}`} onClick={() => setSelected(session.id)}>
-              <Icon name="message" size={15}/><span><strong>{session.title}</strong><small>{session.meta}</small></span>{session.active && <i/>}
+            <button key={session.id} className={`session-row ${selected === session.id ? 'active' : ''}`} onClick={() => onSelect(session.id)}>
+              <Icon name="message" size={15}/><span><strong>{session.title}</strong><small>{session.assembly.toUpperCase()} · {session.runState} · {session.eventCount} facts</small></span>{session.runState === 'running' && <i/>}
             </button>
           ))}
+          {sessions.length === 0 && <span className="empty-sessions">No configured sessions</span>}
         </div>
         <div className="section-heading cases-heading"><span>Cases</span><button aria-label="New case"><Icon name="plus" size={15}/></button></div>
         <button className="nav-row"><Icon name="case" size={15}/><span>CASE2 coding task</span><b>8</b></button>
@@ -64,10 +87,10 @@ function ProjectRail({ mode, onMode }: { mode: Mode; onMode: (mode: Mode) => voi
   )
 }
 
-function WorkbenchHeader({ mode }: { mode: Mode }) {
+function WorkbenchHeader({ mode, session }: { mode: Mode; session?: SessionSummary }) {
   return (
     <header className="workbench-header">
-      <div className="breadcrumb"><span>knot-agent</span><b>/</b><strong>{mode === 'run' ? 'Refactor auth boundary' : 'CASE2 assembly'}</strong></div>
+      <div className="breadcrumb"><span>knot-agent</span><b>/</b><strong>{mode === 'run' ? session?.title ?? 'No session' : 'CASE2 assembly'}</strong></div>
       <div className="header-actions">
         <span className="branch"><Icon name="branch" size={14}/>main</span>
         <button className="model-button"><span className="model-dot"/>qwen3-coder <Icon name="chevron" size={13}/></button>
@@ -91,7 +114,7 @@ function RunView() {
   return (
     <main className="run-view">
       <div className="conversation-scroll">
-        <div className="run-intro"><span className="eyebrow">CASE2 · LIVE ASSEMBLY</span><h1>Refactor auth boundary</h1><p>A fixture-backed preview of the coding-agent runtime. Runtime wiring arrives in Phase 2.</p></div>
+        <div className="run-intro"><span className="eyebrow">CASE2 · READ-ONLY WORKBENCH</span><h1>Refactor auth boundary</h1><p>A fixture-backed run surface beside a real CASE2 Journal snapshot.</p></div>
         <section className="turn user-turn"><div className="avatar user">L</div><div><div className="message-meta"><strong>You</strong><time>10:42</time></div><p>Run the tests, identify the failure, and make the smallest safe correction.</p></div></section>
         <section className="turn assistant-turn"><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><time>10:42</time><span className="working"><i/>worked for 2.1s</span></div><details className="reasoning"><summary>Reasoning <span>3 steps</span></summary><p>I will inspect the failing assertion, compare it with the Journal delivery contract, and avoid changing unrelated runtime code.</p></details><p>I found that the fixture expected the pre-guard event count. The runtime behavior is correct; I updated only the case assertion and reran the suite.</p><ToolCard/><div className="result-note"><Icon name="check" size={15}/><span>All 48 tests pass. No runtime files changed.</span></div></div></section>
       </div>
@@ -101,7 +124,7 @@ function RunView() {
           <textarea value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask Knot to inspect or change the workspace…" rows={3}/>
           <div className="composer-actions"><div><button className="small-action">+ Context</button><button className="small-action">@ Files</button></div><div><button className="pause-button"><Icon name="pause" size={14}/>Pause</button><button className="send-button" disabled={draft.trim().length === 0} title="Runtime connection is not part of Phase 1"><Icon name="send" size={15}/></button></div></div>
         </div>
-        <div className="fixture-note">Static workbench fixture · no runtime command will be sent</div>
+        <div className="fixture-note">Run surface is static · Journal inspector is connected read-only</div>
       </div>
     </main>
   )
@@ -122,8 +145,20 @@ function StudioView() {
   )
 }
 
-function TracePanel() {
-  return <div className="trace-list">{trace.map(event => <button className="trace-row" key={event.id}><span className="trace-number">{String(event.id).padStart(3, '0')}</span><i className={event.tone}/><span><strong>{event.type}</strong><small>{event.owner}</small></span><time>{event.elapsed}</time></button>)}</div>
+function eventTone(type: string): 'neutral' | 'model' | 'tool' | 'success' {
+  if (type.startsWith('llm.') || type === 'assistant.reasoning') return 'model'
+  if (type.startsWith('tool.')) return 'tool'
+  if (type === 'assistant.message') return 'success'
+  return 'neutral'
+}
+
+function formatElapsed(value?: number): string {
+  if (value === undefined) return '—'
+  return value < 1_000 ? `+${value}ms` : `+${(value / 1_000).toFixed(2)}s`
+}
+
+function TracePanel({ events }: { events: readonly ReadEvent[] }) {
+  return <div className="trace-list">{events.map(event => <button className="trace-row" key={event.position}><span className="trace-number">{String(event.position).padStart(3, '0')}</span><i className={eventTone(event.type)}/><span><strong>{event.type}</strong><small>{event.observedAt === undefined ? 'legacy event · no timestamp' : new Date(event.observedAt).toLocaleTimeString()}</small></span><time>{formatElapsed(event.elapsedMs)}</time></button>)}</div>
 }
 
 function ContextPanel() {
@@ -131,23 +166,88 @@ function ContextPanel() {
   return <div className="context-panel"><div className="context-summary"><span>Projected request</span><strong>{total} tokens</strong></div>{contextMessages.map((message, index) => <article className="context-message" key={`${message.role}-${index}`}><header><span className={`role ${message.role}`}>{message.role}</span><code>{message.tokens} tk</code></header><p>{message.text}</p>{message.tool && <span className="context-tool">tool: {message.tool}</span>}</article>)}</div>
 }
 
-function JournalPanel() {
-  return <div className="journal-panel"><div className="journal-search"><Icon name="search" size={14}/><span>Filter event type or payload</span></div>{trace.slice(0, 7).map(event => <details className="journal-event" key={event.id}><summary><span>{event.id}</span><code>{event.type}</code><time>{event.elapsed}</time></summary><pre>{JSON.stringify({ type: event.type, data: { turnId: 'turn_01', owner: event.owner } }, null, 2)}</pre></details>)}</div>
+function JournalPanel({ state, onRefresh }: { state: JournalState; onRefresh: () => void }) {
+  const [filter, setFilter] = useState('')
+  if (state.status === 'loading') {
+    return <div className="journal-state"><i className="loading-dot"/><strong>Reading Journal…</strong><span>The workbench has read-only access.</span></div>
+  }
+  if (state.status === 'error') {
+    return <div className="journal-state error-state"><strong>Journal unavailable</strong><span>{state.message}</span><button onClick={onRefresh}>Try again</button></div>
+  }
+
+  const needle = filter.trim().toLowerCase()
+  const events = needle.length === 0
+    ? state.snapshot.events
+    : state.snapshot.events.filter(event =>
+      event.type.toLowerCase().includes(needle)
+      || JSON.stringify(event.data).toLowerCase().includes(needle),
+    )
+  return <div className="journal-panel">
+    <div className="journal-toolbar">
+      <label className="journal-search"><Icon name="search" size={14}/><input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter type or payload"/></label>
+      <button onClick={onRefresh}>Refresh</button>
+    </div>
+    {state.snapshot.session.eventCount === 0
+      ? <div className="journal-state"><strong>Empty Journal</strong><span>The configured source contains no events.</span></div>
+      : events.length === 0
+        ? <div className="journal-state"><strong>No matching events</strong><span>Clear the filter to show all facts.</span></div>
+        : events.map(event => <details className="journal-event" key={event.position}><summary><span>{String(event.position).padStart(3, '0')}</span><code>{event.type}</code></summary><pre>{JSON.stringify({ type: event.type, data: event.data }, null, 2)}</pre></details>)}
+  </div>
 }
 
 function PluginsPanel() {
   return <div className="plugins-panel"><div className="inventory-note"><Icon name="code" size={17}/><div><strong>Runtime inventory</strong><span>Observed from the CASE2 assembly fixture.</span></div></div>{plugins.map(plugin => <article className="plugin-card" key={plugin.name}><header><span><i className={plugin.state}/><strong>{plugin.name}</strong></span><button><Icon name="chevron" size={14}/></button></header><p>{plugin.responsibility}</p><dl><div><dt>listens</dt><dd>{plugin.listens}</dd></div><div><dt>emits</dt><dd>{plugin.emits}</dd></div></dl></article>)}</div>
 }
 
-function Inspector() {
+function Inspector({ journal, onRefresh }: { journal: JournalState; onRefresh: () => void }) {
   const [tab, setTab] = useState<InspectorTab>('trace')
-  const content = tab === 'trace' ? <TracePanel/> : tab === 'context' ? <ContextPanel/> : tab === 'journal' ? <JournalPanel/> : <PluginsPanel/>
+  const snapshot = journal.status === 'ready' ? journal.snapshot : undefined
+  const content = tab === 'trace' && snapshot !== undefined
+    ? <TracePanel events={snapshot.events}/>
+    : tab === 'journal' ? <JournalPanel state={journal} onRefresh={onRefresh}/> : null
   return (
-    <aside className="inspector"><div className="inspector-heading"><div><strong>Inspector</strong><span>turn_01</span></div><button className="icon-button" aria-label="Inspector options"><Icon name="more" size={16}/></button></div><div className="inspector-tabs">{(['trace', 'context', 'journal', 'plugins'] as const).map(item => <button key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div><div className="inspector-content">{content}</div><footer className="inspector-footer"><span><i/>9 facts</span><span>2.12s total</span></footer></aside>
+    <aside className="inspector"><div className="inspector-heading"><div><strong>Inspector</strong><span>{snapshot?.session.title ?? 'read-only Journal'}</span></div><button className="icon-button" aria-label="Inspector options"><Icon name="more" size={16}/></button></div><div className="inspector-tabs">{(['trace', 'context', 'journal', 'plugins'] as const).map(item => <button key={item} disabled={item === 'context' || item === 'plugins'} title={item === 'context' || item === 'plugins' ? 'Deferred until a real read model exists' : `Real ${item} data`} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div><div className="inspector-content">{content}</div><footer className="inspector-footer"><span><i/>{snapshot?.session.eventCount ?? 0} facts</span><span>{snapshot?.session.runState ?? 'offline'}</span></footer></aside>
   )
 }
 
 export function App() {
   const [mode, setMode] = useState<Mode>('run')
-  return <div className="app-shell"><ProjectRail mode={mode} onMode={setMode}/><section className="center-column"><WorkbenchHeader mode={mode}/>{mode === 'run' ? <RunView/> : <StudioView/>}</section><Inspector/></div>
+  const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
+  const [selected, setSelected] = useState<string>()
+  const [journal, setJournal] = useState<JournalState>({ status: 'loading' })
+  const [reload, setReload] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    void listSessions(controller.signal).then(
+      next => {
+        setSessions(next)
+        setSelected(current => current !== undefined && next.some(session => session.id === current)
+          ? current
+          : next[0]?.id)
+      },
+      error => {
+        if (controller.signal.aborted) return
+        setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+      },
+    )
+    return () => controller.abort()
+  }, [reload])
+  useEffect(() => {
+    if (selected === undefined) return
+    const controller = new AbortController()
+    setJournal({ status: 'loading' })
+    void loadJournalSnapshot(selected, controller.signal).then(
+      snapshot => {
+        setJournal({ status: 'ready', snapshot })
+        setSessions(current => current.map(session => session.id === snapshot.session.id ? snapshot.session : session))
+      },
+      error => {
+        if (controller.signal.aborted) return
+        setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+      },
+    )
+    return () => controller.abort()
+  }, [selected, reload])
+  const activeSession = sessions.find(session => session.id === selected)
+  return <div className="app-shell"><ProjectRail mode={mode} onMode={setMode} sessions={sessions} selected={selected} onSelect={setSelected}/><section className="center-column"><WorkbenchHeader mode={mode} session={activeSession}/>{mode === 'run' ? <RunView/> : <StudioView/>}</section><Inspector journal={journal} onRefresh={() => setReload(value => value + 1)}/></div>
 }

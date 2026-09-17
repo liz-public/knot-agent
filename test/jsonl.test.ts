@@ -37,5 +37,9 @@ test('JSONL storage restores history without replaying it to later subscribers',
     'three',
   ])
   assert.equal(handled, 1)
-  assert.equal((await readFile(path, 'utf8')).trim().split('\n').length, 3)
+  const records = (await readFile(path, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as {
+    meta?: { observedAt?: unknown }
+  })
+  assert.equal(records.length, 3)
+  assert.ok(records.every(record => typeof record.meta?.observedAt === 'string'))
 })
