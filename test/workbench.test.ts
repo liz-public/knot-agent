@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import { JournalReadError, readJournalSnapshot } from '../src/workbench/read-journal.js'
+import { storedSession } from '../src/workbench/stored-session.js'
 
 test('workbench reader returns ordered detached Journal events without changing the source', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-'))
@@ -54,12 +55,12 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
   await writeFile(path, '{"type":"session.start","data":{}}\n', 'utf8')
   t.after(() => rm(directory, { recursive: true, force: true }))
 
-  const server = createWorkbenchServer({ sessions: [{
+  const server = createWorkbenchServer({ sessions: [storedSession({
     id: 'case2-main',
     title: 'CASE2 session',
     assembly: 'case2',
     journalPath: path,
-  }] })
+  })] })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(0, '127.0.0.1', resolve)
@@ -80,6 +81,7 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
     assembly: 'case2',
     runState: 'completed',
     eventCount: 1,
+    writable: false,
   }] })
 
   const response = await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions/case2-main`)
@@ -92,6 +94,7 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
       assembly: 'case2',
       runState: 'completed',
       eventCount: 1,
+      writable: false,
     },
     events: [{ position: 0, type: 'session.start', data: {} }],
   })

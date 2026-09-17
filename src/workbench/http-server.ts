@@ -1,15 +1,10 @@
-import { createServer, type Server, type ServerResponse } from 'node:http'
-import { JournalReadError, readJournalSnapshot, type JournalReadLimits } from './read-journal.js'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { JournalReadError } from './read-journal.js'
+import type { WorkbenchSession } from './session.js'
 
-export interface StoredSessionConfig {
-  readonly id: string
-  readonly title: string
-  readonly assembly: string
-  readonly journalPath: string
-}
-
-export interface WorkbenchServerOptions extends JournalReadLimits {
-  readonly sessions: readonly StoredSessionConfig[]
+export interface WorkbenchServerOptions {
+  readonly sessions: readonly WorkbenchSession[]
+  readonly createSession?: (input: { title?: string; cwd?: string }) => Promise<WorkbenchSession>
 }
 
 function sendJson(response: ServerResponse, status: number, data: unknown): void {
@@ -22,8 +17,24 @@ function sendJson(response: ServerResponse, status: number, data: unknown): void
   response.end(body)
 }
 
-function errorStatus(error: JournalReadError): number {
-  return error.code === 'source_not_found' ? 404 : error.code === 'read_failed' ? 500 : 422
+async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  let text = ''
+  for await (const chunk of request) {
+    text += String(chunk)
+    if (Buffer.byteLength(text) > 64 * 1024) throw new Error('request body is too large')
+  }
+  if (text.length === 0) return {}
+  const value = JSON.parse(text) as unknown
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('request body must be a JSON object')
+  }
+  return value as Record<string, unknown>
+}
+
+function pathMatch(pathname: string, suffix: string): string | undefined {
+  const expression = new RegExp(`^/api/workbench/sessions/([^/]+)${suffix}$`)
+  const match = expression.exec(pathname)
+  return match === null ? undefined : decodeURIComponent(match[1]!)
 }
 
 export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
@@ -31,67 +42,139 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
   if (byId.size !== options.sessions.length) throw new Error('duplicate workbench session id')
 
   return createServer(async (request, response) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1')
-    if (request.method === 'GET' && url.pathname === '/api/workbench/sessions') {
-      const sessions = await Promise.all(options.sessions.map(async session => {
-        try {
-          const snapshot = await readJournalSnapshot(session.journalPath, options)
-          const updatedAt = snapshot.events.at(-1)?.observedAt
-          return {
-            id: session.id,
-            title: session.title,
-            assembly: session.assembly,
-            runState: 'completed' as const,
-            eventCount: snapshot.eventCount,
-            ...(updatedAt === undefined ? {} : { updatedAt }),
-          }
-        } catch {
-          return {
-            id: session.id,
-            title: session.title,
-            assembly: session.assembly,
-            runState: 'completed' as const,
-            eventCount: 0,
-          }
-        }
-      }))
-      sendJson(response, 200, { sessions })
-      return
-    }
-
-    const match = /^\/api\/workbench\/sessions\/([^/]+)$/.exec(url.pathname)
-    if (request.method !== 'GET' || match === null) {
-      sendJson(response, 404, { error: { code: 'not_found', message: 'Route was not found' } })
-      return
-    }
-    const sessionId = decodeURIComponent(match[1]!)
-    const session = byId.get(sessionId)
-    if (session === undefined) {
-      sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
-      return
-    }
-
     try {
-      const snapshot = await readJournalSnapshot(session.journalPath, options)
-      const updatedAt = snapshot.events.at(-1)?.observedAt
-      sendJson(response, 200, {
-        session: {
-          id: session.id,
-          title: session.title,
-          assembly: session.assembly,
-          runState: 'completed',
-          eventCount: snapshot.eventCount,
-          ...(updatedAt === undefined ? {} : { updatedAt }),
-        },
-        events: snapshot.events,
-      })
-    } catch (error) {
-      if (error instanceof JournalReadError) {
-        sendJson(response, errorStatus(error), { error: { code: error.code, message: error.message } })
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+
+      if (request.method === 'GET' && url.pathname === '/api/workbench/sessions') {
+        sendJson(response, 200, { sessions: await Promise.all([...byId.values()].map(session => session.summary())) })
         return
       }
-      sendJson(response, 500, {
-        error: { code: 'read_failed', message: 'Journal source could not be read' },
+
+      if (request.method === 'POST' && url.pathname === '/api/workbench/sessions') {
+        if (options.createSession === undefined) {
+          sendJson(response, 405, { error: { code: 'read_only', message: 'Session creation is unavailable' } })
+          return
+        }
+        const body = await readBody(request)
+        const session = await options.createSession({
+          ...(typeof body['title'] === 'string' ? { title: body['title'] } : {}),
+          ...(typeof body['cwd'] === 'string' ? { cwd: body['cwd'] } : {}),
+        })
+        if (byId.has(session.id)) throw new Error(`duplicate workbench session id ${session.id}`)
+        byId.set(session.id, session)
+        sendJson(response, 201, { session: await session.summary() })
+        return
+      }
+
+      const snapshotId = pathMatch(url.pathname, '')
+      if (request.method === 'GET' && snapshotId !== undefined) {
+        const session = byId.get(snapshotId)
+        if (session === undefined) {
+          sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
+          return
+        }
+        sendJson(response, 200, await session.snapshot())
+        return
+      }
+
+      const streamId = pathMatch(url.pathname, '/stream')
+      if (request.method === 'GET' && streamId !== undefined) {
+        const session = byId.get(streamId)
+        if (session?.subscribe === undefined) {
+          sendJson(response, session === undefined ? 404 : 405, {
+            error: {
+              code: session === undefined ? 'session_not_found' : 'session_not_live',
+              message: session === undefined ? 'Session was not found' : 'Session has no live stream',
+            },
+          })
+          return
+        }
+        response.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-store',
+          connection: 'keep-alive',
+        })
+        response.write(': connected\n\n')
+        const unsubscribe = session.subscribe(event => {
+          response.write(`event: session\ndata: ${JSON.stringify({ ...event, emittedAt: new Date().toISOString() })}\n\n`)
+        })
+        const heartbeat = setInterval(() => response.write(': keepalive\n\n'), 15_000)
+        request.once('close', () => {
+          clearInterval(heartbeat)
+          unsubscribe()
+        })
+        return
+      }
+
+      const messageId = pathMatch(url.pathname, '/messages')
+      if (request.method === 'POST' && messageId !== undefined) {
+        const session = byId.get(messageId)
+        if (session?.submit === undefined) {
+          sendJson(response, session === undefined ? 404 : 405, { error: { code: 'session_not_writable', message: 'Session is not writable' } })
+          return
+        }
+        const body = await readBody(request)
+        const content = body['content']
+        if (typeof content !== 'string' || content.trim().length === 0) {
+          sendJson(response, 400, { error: { code: 'invalid_message', message: 'content must be a non-empty string' } })
+          return
+        }
+        session.submit(content)
+        sendJson(response, 202, { accepted: true })
+        return
+      }
+
+      const pauseId = pathMatch(url.pathname, '/pause')
+      if (request.method === 'POST' && pauseId !== undefined) {
+        const session = byId.get(pauseId)
+        if (session?.pause === undefined) {
+          sendJson(response, 405, { error: { code: 'session_not_controllable', message: 'Session cannot pause' } })
+          return
+        }
+        session.pause()
+        sendJson(response, 202, { accepted: true })
+        return
+      }
+
+      const resumeId = pathMatch(url.pathname, '/resume')
+      if (request.method === 'POST' && resumeId !== undefined) {
+        const session = byId.get(resumeId)
+        if (session?.resume === undefined) {
+          sendJson(response, 405, { error: { code: 'session_not_controllable', message: 'Session cannot resume' } })
+          return
+        }
+        session.resume()
+        sendJson(response, 202, { accepted: true })
+        return
+      }
+
+      const interactionId = pathMatch(url.pathname, '/interactions')
+      if (request.method === 'POST' && interactionId !== undefined) {
+        const session = byId.get(interactionId)
+        if (session?.respond === undefined) {
+          sendJson(response, 405, { error: { code: 'session_not_interactive', message: 'Session has no interactions' } })
+          return
+        }
+        const body = await readBody(request)
+        const id = body['id']
+        const value = body['value']
+        if (typeof id !== 'string' || typeof value !== 'string' || !session.respond(id, value)) {
+          sendJson(response, 404, { error: { code: 'interaction_not_found', message: 'Interaction was not found' } })
+          return
+        }
+        sendJson(response, 200, { resolved: true })
+        return
+      }
+
+      sendJson(response, 404, { error: { code: 'not_found', message: 'Route was not found' } })
+    } catch (error) {
+      if (error instanceof JournalReadError) {
+        const status = error.code === 'source_not_found' ? 404 : error.code === 'read_failed' ? 500 : 422
+        sendJson(response, status, { error: { code: error.code, message: error.message } })
+        return
+      }
+      sendJson(response, 400, {
+        error: { code: 'bad_request', message: error instanceof Error ? error.message : String(error) },
       })
     }
   })

@@ -36,6 +36,8 @@ export interface Case2Options {
   readonly extraTools?: readonly ToolDefinition[]
   readonly subagentFactory?: SubagentFactory
   readonly compression?: CompressHistoryOptions
+  /** Optional outward observers assembled before business plugins. */
+  readonly platformPlugins?: readonly Plugin[]
 }
 
 export interface PersistentCase2Options extends Case2Options {
@@ -137,7 +139,7 @@ function assembleCase2Agent(
 }
 
 export function createCase2Agent(options: Case2Options) {
-  return assembleCase2Agent(options, createJournal(), false)
+  return assembleCase2Agent(options, createJournal(), false, options.platformPlugins)
 }
 
 export async function createPersistentCase2Agent(options: PersistentCase2Options) {
@@ -154,6 +156,6 @@ export async function createPersistentCase2Agent(options: PersistentCase2Options
     caseOptions,
     runtime,
     restored,
-    [jsonlStorePlugin(journalPath)],
+    [jsonlStorePlugin(journalPath), ...(caseOptions.platformPlugins ?? [])],
   )
 }
