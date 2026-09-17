@@ -1,16 +1,17 @@
 import { createJournal, type Event, type Plugin } from '../../journal.js'
-import { contentPlugin, llmContentSource } from '../case1/content.js'
+import { JSONL_LOAD, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
+import { tracePlugin } from '../../plugins/trace.js'
+import { compressHistoryPlugin, type CompressHistoryOptions } from '../case1/compress-history.js'
 import { contextAssemblerPlugin } from '../case1/context-assembler.js'
 import { llmPlugin, type LiveOutput, type LlmProvider } from '../case1/llm.js'
 import { outputPlugin, type OutputSinks } from '../case1/output.js'
 import { SESSION_START, USER_MESSAGE } from '../case1/protocol.js'
-import { toolsPlugin } from '../case1/tools.js'
-import { tracePlugin } from '../../plugins/trace.js'
+import { toolsPlugin, type ToolDefinition } from '../case1/tools.js'
 import { codingTools } from './coding-tools.js'
 import { codingSystemPromptPlugin } from './system-prompt.js'
 import { workspaceContextPlugin } from './workspace-context.js'
 import { todoTool } from './todo-tool.js'
-import { codingFlowPlugin } from './coding-flow.js'
+import { codingWorkflowPlugin } from './coding-flow.js'
 import { controlledEventBoundary } from './controlled-boundary.js'
 import { spawnAgentTool, type SubagentFactory } from './subagent-tool.js'
 import {
@@ -20,7 +21,6 @@ import {
   type AskPort,
   type PermissionPolicy,
 } from './tool-interaction.js'
-import type { ToolDefinition } from '../case1/tools.js'
 
 export interface Case2Options {
   readonly cwd: string
@@ -33,10 +33,22 @@ export interface Case2Options {
   readonly askPort?: AskPort
   readonly extraTools?: readonly ToolDefinition[]
   readonly subagentFactory?: SubagentFactory
+  readonly compression?: CompressHistoryOptions
 }
 
-export function createCase2Agent(options: Case2Options) {
-  const { journal, runUntilIdle } = createJournal()
+export interface PersistentCase2Options extends Case2Options {
+  readonly journalPath: string
+}
+
+type JournalRuntime = ReturnType<typeof createJournal>
+
+function assembleCase2Agent(
+  options: Case2Options,
+  runtime: JournalRuntime,
+  restored: boolean,
+  platformPlugins: readonly Plugin[] = [],
+) {
+  const { journal, runUntilIdle } = runtime
   const boundary = controlledEventBoundary()
   const baseTools = [
     ...codingTools(options.cwd),
@@ -53,11 +65,12 @@ export function createCase2Agent(options: Case2Options) {
   )
   const plugins: Plugin[] = [
     boundary.plugin,
+    ...platformPlugins,
     ...(options.trace === undefined ? [] : [tracePlugin(options.trace)]),
     codingSystemPromptPlugin(),
     workspaceContextPlugin(options.cwd),
-    codingFlowPlugin(),
-    contentPlugin([llmContentSource]),
+    compressHistoryPlugin(options.compression),
+    codingWorkflowPlugin(),
     contextAssemblerPlugin(),
     llmPlugin(options.llm, options.liveOutput, { commitAssistantMessage: false }),
     toolsPlugin(tools),
@@ -65,9 +78,22 @@ export function createCase2Agent(options: Case2Options) {
   ]
   for (const plugin of plugins) plugin(journal)
 
-  let started = false
-  let turnNumber = 0
+  let started = restored
+  let messageNumber = 0
   let running = false
+  const messageIds = new Set(journal.read()
+    .filter(event => event.type === USER_MESSAGE)
+    .map(event => (event.data as { turnId: string }).turnId))
+
+  function nextMessageId(prefix: 'turn' | 'steer'): string {
+    let turnId: string
+    do {
+      messageNumber += 1
+      turnId = `${prefix}-${messageNumber}`
+    } while (messageIds.has(turnId))
+    messageIds.add(turnId)
+    return turnId
+  }
 
   async function start(): Promise<void> {
     if (started) return
@@ -80,8 +106,7 @@ export function createCase2Agent(options: Case2Options) {
     if (running) throw new Error('CASE2 agent is already running')
     await start()
     running = true
-    turnNumber += 1
-    journal.append(USER_MESSAGE, { turnId: `turn-${turnNumber}`, content })
+    journal.append(USER_MESSAGE, { turnId: nextMessageId('turn'), content })
     try {
       await runUntilIdle()
     } finally {
@@ -91,8 +116,7 @@ export function createCase2Agent(options: Case2Options) {
 
   function steer(content: string): void {
     if (!running) throw new Error('CASE2 agent is idle; use submit instead')
-    turnNumber += 1
-    journal.append(USER_MESSAGE, { turnId: `steer-${turnNumber}`, content })
+    journal.append(USER_MESSAGE, { turnId: nextMessageId('steer'), content })
   }
 
   return {
@@ -106,4 +130,26 @@ export function createCase2Agent(options: Case2Options) {
       ? 'paused' as const
       : running ? 'running' as const : 'idle' as const,
   }
+}
+
+export function createCase2Agent(options: Case2Options) {
+  return assembleCase2Agent(options, createJournal(), false)
+}
+
+export async function createPersistentCase2Agent(options: PersistentCase2Options) {
+  const { journalPath, ...caseOptions } = options
+  const runtime = createJournal()
+
+  jsonlLoadPlugin(journalPath)(runtime.journal)
+  const before = runtime.journal.read().length
+  runtime.journal.append(JSONL_LOAD, {})
+  await runtime.runUntilIdle()
+  const restored = runtime.journal.read().length > before + 1
+
+  return assembleCase2Agent(
+    caseOptions,
+    runtime,
+    restored,
+    [jsonlStorePlugin(journalPath)],
+  )
 }

@@ -88,6 +88,12 @@ export interface AssistantMessage {
 export interface AgentLlmRequest {
   purpose: 'agent'
   turnId: string
+  /** Optional per-invocation guidance appended after the stable system prompt. */
+  instruction?: string
+  /** A workflow may close the action surface for a final response. */
+  toolMode?: 'all' | 'none'
+  /** Internal workflow generations can suppress transient user-facing output. */
+  streamMode?: 'visible' | 'silent'
 }
 
 export interface CompressionLlmRequest {

@@ -169,6 +169,9 @@ export function projectMessages(events: readonly Event[], invoke: LlmInvoke): Ch
   if (summary !== undefined) {
     messages.push({ role: 'system', content: `此前会话摘要：\n${summary}` })
   }
+  if (invoke.request.purpose === 'agent' && invoke.request.instruction !== undefined) {
+    messages.push({ role: 'system', content: invoke.request.instruction })
+  }
 
   const through = invokeIndex(events, invoke.requestId) - 1
   const dynamic = dynamicContext(events, manifest.dynamicTurnId)

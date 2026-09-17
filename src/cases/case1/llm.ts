@@ -60,11 +60,13 @@ export const llmPlugin = (
     const events = journal.read()
     let channel: LiveChannel | undefined
     try {
-      channel = liveOutput?.open({
-        requestId: invoke.requestId,
-        turnId: invoke.request.turnId,
-        purpose: invoke.request.purpose,
-      })
+      channel = invoke.request.purpose === 'agent' && invoke.request.streamMode === 'silent'
+        ? undefined
+        : liveOutput?.open({
+          requestId: invoke.requestId,
+          turnId: invoke.request.turnId,
+          purpose: invoke.request.purpose,
+        })
     } catch {
       // Opening a presentation surface is best-effort too.
     }
@@ -74,7 +76,11 @@ export const llmPlugin = (
         {
           request: invoke.request,
           messages: projectMessages(events, invoke),
-          tools: invoke.manifest.kind === 'agent' ? projectTools(events) : [],
+          tools: invoke.manifest.kind === 'agent'
+            && invoke.request.purpose === 'agent'
+            && invoke.request.toolMode !== 'none'
+            ? projectTools(events)
+            : [],
         },
         channel === undefined ? undefined : async update => {
           try {

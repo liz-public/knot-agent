@@ -4,16 +4,24 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
-import { createCase2Agent } from '../src/cases/case2/case2.js'
+import { createCase2Agent, createPersistentCase2Agent } from '../src/cases/case2/case2.js'
 import type { LlmProvider } from '../src/cases/case1/llm.js'
 import type { ToolDefinition } from '../src/cases/case1/tools.js'
 import {
   ASSISTANT_MESSAGE,
+  HISTORY_CHECKPOINT,
   LLM_INVOKE,
+  SESSION_START,
   TOOL_CALL,
   TOOL_RESULT,
+  USER_MESSAGE,
   type ToolResult,
 } from '../src/cases/case1/protocol.js'
+import {
+  WORKFLOW_COMPLETED,
+  WORKFLOW_PHASE_CHANGED,
+  WORKFLOW_STARTED,
+} from '../src/cases/case2/protocol.js'
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
 
@@ -54,6 +62,14 @@ test('CASE2.0 edits and verifies a real workspace through the four coding tools'
   const provider: LlmProvider = {
     async generate(call) {
       generation += 1
+      if (call.request.purpose === 'agent' && call.request.toolMode === 'none') {
+        assert.equal(call.tools.length, 0)
+        assert.ok(call.messages.some(message => message.content?.includes('Workflow phase: finalizing.')))
+        return {
+          generated: { content: 'Added multiply and verified the math tests pass.', toolCalls: [] },
+          usage,
+        }
+      }
       if (generation === 1) {
         assert.match(call.messages.at(-1)?.content ?? '', /Current workspace:/)
         assert.deepEqual(
@@ -116,8 +132,11 @@ test('CASE2.0 edits and verifies a real workspace through the four coding tools'
   assert.match(await readFile(join(cwd, 'math.js'), 'utf8'), /multiply/)
   assert.equal(events.filter(event => event.type === TOOL_CALL).length, 3)
   assert.equal(events.filter(event => event.type === TOOL_RESULT).length, 3)
-  assert.equal(events.filter(event => event.type === LLM_INVOKE).length, 4)
+  assert.equal(events.filter(event => event.type === LLM_INVOKE).length, 5)
   assert.equal(events.filter(event => event.type === ASSISTANT_MESSAGE).length, 1)
+  assert.equal(events.filter(event => event.type === WORKFLOW_STARTED).length, 1)
+  assert.equal(events.filter(event => event.type === WORKFLOW_PHASE_CHANGED).length, 1)
+  assert.equal(events.filter(event => event.type === WORKFLOW_COMPLETED).length, 1)
   assert.deepEqual(replies, ['Added multiply and verified the math tests pass.'])
 })
 
@@ -246,7 +265,7 @@ test('CASE2.2 keeps todo state as a tool fact visible to later generations', asy
     .flatMap(event => (event.data as ToolResult).results)
     .find(result => result.name === 'todo.write')
   assert.equal(todoResult?.state?.key, 'todo')
-  assert.equal(generation, 3)
+  assert.equal(generation, 5)
 })
 
 test('CASE2.3 folds steering after an in-flight tool result into one legal model request', async t => {
@@ -288,7 +307,7 @@ test('CASE2.3 folds steering after an in-flight tool result into one legal model
   release.resolve()
   await running
 
-  assert.equal(generation, 2)
+  assert.equal(generation, 3)
   assert.deepEqual(replies, ['Finished and explained.'])
 })
 
@@ -323,7 +342,7 @@ test('CASE2.3 discards a stale completion when steering arrives during generatio
   release.resolve()
   await running
 
-  assert.equal(generation, 2)
+  assert.equal(generation, 3)
   assert.deepEqual(replies, ['Current answer.'])
 })
 
@@ -364,7 +383,7 @@ test('CASE2.3 pauses only at the next complete event boundary', async t => {
   agent.resume()
   await running
   assert.equal(agent.status(), 'idle')
-  assert.equal(generation, 2)
+  assert.equal(generation, 3)
 })
 
 test('CASE2.4 runs a synchronous child journal and returns only its summary to the parent', async t => {
@@ -449,4 +468,115 @@ test('CASE2.4 runs a synchronous child journal and returns only its summary to t
     event.type === TOOL_CALL
     && (event.data as { calls: Array<{ name: string }> }).calls[0]?.name === 'read',
   ), false)
+})
+
+test('CASE2 compacts before the finalizing request and then resumes it without tools', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-compress-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const purposes: string[] = []
+  const toolCounts: number[] = []
+  const streamAvailability: string[] = []
+  const events: Event[] = []
+  const replies: string[] = []
+  const agent = createCase2Agent({
+    cwd,
+    compression: { threshold: 0.8 },
+    liveOutput: {
+      open: () => ({ write: () => undefined, close: () => undefined }),
+    },
+    trace: event => events.push(event),
+    output: { content: content => replies.push(content) },
+    llm: {
+      async generate(call, onUpdate) {
+        purposes.push(call.request.purpose)
+        toolCounts.push(call.tools.length)
+        streamAvailability.push(`${call.request.purpose}:${onUpdate === undefined ? 'silent' : 'visible'}`)
+        if (call.request.purpose === 'history.compress') {
+          return {
+            generated: { content: 'The user requested a verified coding change.', toolCalls: [] },
+            usage,
+          }
+        }
+        if (call.request.toolMode === 'none') {
+          assert.ok(call.messages.some(message => message.content?.includes('此前会话摘要')))
+          return {
+            generated: { content: 'Final response after compaction.', toolCalls: [] },
+            usage,
+          }
+        }
+        return {
+          generated: { content: 'Work candidate.', toolCalls: [] },
+          usage: { inputTokens: 85, outputTokens: 5, totalTokens: 90, contextWindow: 100 },
+        }
+      },
+    },
+  })
+
+  await agent.submit('Make and verify the requested change.')
+
+  assert.deepEqual(purposes, ['agent', 'history.compress', 'agent'])
+  assert.deepEqual(streamAvailability, ['agent:silent', 'history.compress:visible', 'agent:visible'])
+  assert.equal(toolCounts.at(-1), 0)
+  assert.equal(events.filter(event => event.type === HISTORY_CHECKPOINT).length, 1)
+  assert.deepEqual(replies, ['Final response after compaction.'])
+})
+
+test('CASE2 restores one completed JSONL session and starts a distinct next workflow', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-case2-persistent-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const journalPath = join(directory, 'session.jsonl')
+  const replies: string[] = []
+
+  const first = await createPersistentCase2Agent({
+    cwd: directory,
+    journalPath,
+    output: { content: content => replies.push(content) },
+    llm: {
+      async generate(call) {
+        return {
+          generated: {
+            content: call.request.purpose === 'agent' && call.request.toolMode === 'none'
+              ? 'First final response.'
+              : 'First work candidate.',
+            toolCalls: [],
+          },
+          usage,
+        }
+      },
+    },
+  })
+  await first.submit('First task.')
+
+  const second = await createPersistentCase2Agent({
+    cwd: directory,
+    journalPath,
+    output: { content: content => replies.push(content) },
+    llm: {
+      async generate(call) {
+        assert.ok(call.messages.some(message => message.content === 'First final response.'))
+        return {
+          generated: {
+            content: call.request.purpose === 'agent' && call.request.toolMode === 'none'
+              ? 'Second final response.'
+              : 'Second work candidate.',
+            toolCalls: [],
+          },
+          usage,
+        }
+      },
+    },
+  })
+  await second.submit('Second task.')
+
+  const events = second.journal.read()
+  const turnIds = events
+    .filter(event => event.type === USER_MESSAGE)
+    .map(event => (event.data as { turnId: string }).turnId)
+  const workflowIds = events
+    .filter(event => event.type === WORKFLOW_STARTED)
+    .map(event => (event.data as { workflowId: string }).workflowId)
+  assert.equal(events.filter(event => event.type === SESSION_START).length, 1)
+  assert.equal(new Set(turnIds).size, 2)
+  assert.deepEqual(workflowIds, ['workflow-1', 'workflow-2'])
+  assert.deepEqual(replies, ['First final response.', 'Second final response.'])
 })
