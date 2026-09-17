@@ -2,6 +2,7 @@ import { createJournal, type Event, type Plugin } from '../../journal.js'
 import { JSONL_LOAD, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
 import { tracePlugin } from '../../plugins/trace.js'
 import { compressHistoryPlugin, type CompressHistoryOptions } from '../case1/compress-history.js'
+import { contentPlugin, llmContentSource } from '../case1/content.js'
 import { contextAssemblerPlugin } from '../case1/context-assembler.js'
 import { llmPlugin, type LiveOutput, type LlmProvider } from '../case1/llm.js'
 import { outputPlugin, type OutputSinks } from '../case1/output.js'
@@ -11,8 +12,9 @@ import { codingTools } from './coding-tools.js'
 import { codingSystemPromptPlugin } from './system-prompt.js'
 import { workspaceContextPlugin } from './workspace-context.js'
 import { todoTool } from './todo-tool.js'
-import { codingWorkflowPlugin } from './coding-flow.js'
+import { codingFlowPlugin } from './coding-flow.js'
 import { controlledEventBoundary } from './controlled-boundary.js'
+import { goalTool } from './goal-tool.js'
 import { spawnAgentTool, type SubagentFactory } from './subagent-tool.js'
 import {
   askTool,
@@ -53,6 +55,7 @@ function assembleCase2Agent(
   const baseTools = [
     ...codingTools(options.cwd),
     todoTool(),
+    goalTool(),
     ...(options.subagentFactory === undefined
       ? []
       : [spawnAgentTool(options.cwd, options.subagentFactory)]),
@@ -70,7 +73,8 @@ function assembleCase2Agent(
     codingSystemPromptPlugin(),
     workspaceContextPlugin(options.cwd),
     compressHistoryPlugin(options.compression),
-    codingWorkflowPlugin(),
+    codingFlowPlugin(),
+    contentPlugin([llmContentSource]),
     contextAssemblerPlugin(),
     llmPlugin(options.llm, options.liveOutput, { commitAssistantMessage: false }),
     toolsPlugin(tools),

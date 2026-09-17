@@ -41,16 +41,23 @@ export function createTerminalUi(
         renderedReasoning = undefined
         let content = ''
         let reasoning = ''
+        let toolUpdates = false
         return {
           write(update) {
             if (update.kind === 'content') {
               if (content.length === 0) streams.stdout.write(interactive ? 'assistant> ' : '')
               content += update.text
               streams.stdout.write(update.text)
-            } else {
+            } else if (update.kind === 'reasoning') {
               if (reasoning.length === 0) streams.stderr.write('[reasoning] ')
               reasoning += update.text
               streams.stderr.write(update.text)
+            } else {
+              if (!toolUpdates && reasoning.length > 0) streams.stderr.write('\n')
+              toolUpdates = true
+              const name = update.name === undefined ? '' : ` ${update.name}`
+              const argumentsDelta = update.argumentsDelta ?? ''
+              streams.stderr.write(`[tool_call ${update.index}]${name}${argumentsDelta}\n`)
             }
           },
           close() {
@@ -59,7 +66,7 @@ export function createTerminalUi(
               renderedContent = content
             }
             if (reasoning.length > 0) {
-              streams.stderr.write('\n')
+              if (!toolUpdates) streams.stderr.write('\n')
               renderedReasoning = reasoning
             }
           },

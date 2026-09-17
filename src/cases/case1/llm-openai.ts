@@ -117,6 +117,19 @@ async function readOpenAiStream(
       current.name += call.function?.name ?? ''
       current.arguments += call.function?.arguments ?? ''
       calls.set(call.index, current)
+      if (call.id !== undefined
+        || call.function?.name !== undefined
+        || call.function?.arguments !== undefined) {
+        await onUpdate({
+          kind: 'tool_call',
+          index: call.index,
+          ...(call.id === undefined ? {} : { id: call.id }),
+          ...(call.function?.name === undefined ? {} : { name: call.function.name }),
+          ...(call.function?.arguments === undefined
+            ? {}
+            : { argumentsDelta: call.function.arguments }),
+        })
+      }
     }
   }
 

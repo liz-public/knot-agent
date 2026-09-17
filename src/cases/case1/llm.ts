@@ -21,6 +21,13 @@ export interface LlmCall {
 export type GenerationUpdate =
   | { readonly kind: 'content'; readonly text: string }
   | { readonly kind: 'reasoning'; readonly text: string }
+  | {
+    readonly kind: 'tool_call'
+    readonly index: number
+    readonly id?: string
+    readonly name?: string
+    readonly argumentsDelta?: string
+  }
 
 export interface LiveOutputMeta {
   readonly requestId: string
@@ -60,13 +67,11 @@ export const llmPlugin = (
     const events = journal.read()
     let channel: LiveChannel | undefined
     try {
-      channel = invoke.request.purpose === 'agent' && invoke.request.streamMode === 'silent'
-        ? undefined
-        : liveOutput?.open({
-          requestId: invoke.requestId,
-          turnId: invoke.request.turnId,
-          purpose: invoke.request.purpose,
-        })
+      channel = liveOutput?.open({
+        requestId: invoke.requestId,
+        turnId: invoke.request.turnId,
+        purpose: invoke.request.purpose,
+      })
     } catch {
       // Opening a presentation surface is best-effort too.
     }
@@ -76,11 +81,7 @@ export const llmPlugin = (
         {
           request: invoke.request,
           messages: projectMessages(events, invoke),
-          tools: invoke.manifest.kind === 'agent'
-            && invoke.request.purpose === 'agent'
-            && invoke.request.toolMode !== 'none'
-            ? projectTools(events)
-            : [],
+          tools: invoke.manifest.kind === 'agent' ? projectTools(events) : [],
         },
         channel === undefined ? undefined : async update => {
           try {

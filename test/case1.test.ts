@@ -322,6 +322,71 @@ test('CASE1 OpenAI provider streams through the live port and commits one final 
   }
 })
 
+test('streamed content, reasoning, and tool-call deltas survive as separate live channels and complete facts', async () => {
+  const originalFetch = globalThis.fetch
+  let requestNumber = 0
+  globalThis.fetch = async () => {
+    requestNumber += 1
+    const lines = requestNumber === 1
+      ? [
+        'data: {"choices":[{"delta":{"reasoning_content":"checking"}}]}',
+        'data: {"choices":[{"delta":{"content":"I will inspect."}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"echo","arguments":"{\\"text\\":\\""}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"hello\\"}"}}]}}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}}',
+        'data: [DONE]',
+        '',
+      ]
+      : [
+        'data: {"choices":[{"delta":{"content":"Done."}}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":18,"completion_tokens":2,"total_tokens":20}}',
+        'data: [DONE]',
+        '',
+      ]
+    return new Response(lines.join('\n\n'), {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    })
+  }
+
+  try {
+    const updates: GenerationUpdate[] = []
+    const events: Event[] = []
+    const agent = createCase1Agent({
+      llm: openAiLlmPlugin({
+        baseUrl: 'https://llm.invalid/chat/completions',
+        model: 'streaming-tools-model',
+        contextWindow: 32768,
+      }, {
+        open: () => ({
+          write: update => { updates.push(update) },
+          close: () => undefined,
+        }),
+      }),
+      tools: [echoTool],
+      trace: event => events.push(event),
+    })
+
+    await agent.submit('Inspect with a tool.')
+
+    assert.deepEqual(updates.slice(0, 4), [
+      { kind: 'reasoning', text: 'checking' },
+      { kind: 'content', text: 'I will inspect.' },
+      { kind: 'tool_call', index: 0, id: 'call-1', name: 'echo', argumentsDelta: '{"text":"' },
+      { kind: 'tool_call', index: 0, argumentsDelta: 'hello"}' },
+    ])
+    const generated = events.find(event => event.type === LLM_GENERATED)!.data as LlmGenerated
+    assert.equal(generated.generated.content, 'I will inspect.')
+    assert.equal(generated.generated.reasoning, 'checking')
+    const call = events.find(event => event.type === TOOL_CALL)!.data as ToolCall
+    assert.equal(call.assistantContent, 'I will inspect.')
+    assert.deepEqual(call.calls[0]?.arguments, { text: 'hello' })
+    assert.equal(events.some(event => event.type.includes('delta')), false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('CASE1 OpenAI provider preserves missing usage as unknown', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async () => new Response(JSON.stringify({
