@@ -9,16 +9,32 @@ import { tracePlugin } from '../../plugins/trace.js'
 import { codingTools } from './coding-tools.js'
 import { codingSystemPromptPlugin } from './system-prompt.js'
 import { workspaceContextPlugin } from './workspace-context.js'
+import {
+  askTool,
+  permissionTools,
+  type ApprovalPort,
+  type AskPort,
+  type PermissionPolicy,
+} from './tool-interaction.js'
 
 export interface Case2Options {
   readonly cwd: string
   readonly llm: Plugin
   readonly output?: OutputSinks
   readonly trace?: (event: Event) => void
+  readonly permissionPolicy?: PermissionPolicy
+  readonly approvalPort?: ApprovalPort
+  readonly askPort?: AskPort
 }
 
 export function createCase2Agent(options: Case2Options) {
   const { journal, runUntilIdle } = createJournal()
+  const baseTools = codingTools(options.cwd)
+  const tools = permissionTools(
+    [...baseTools, ...(options.askPort === undefined ? [] : [askTool(options.askPort)])],
+    options.permissionPolicy,
+    options.approvalPort,
+  )
   const plugins: Plugin[] = [
     ...(options.trace === undefined ? [] : [tracePlugin(options.trace)]),
     codingSystemPromptPlugin(),
@@ -27,7 +43,7 @@ export function createCase2Agent(options: Case2Options) {
     contentPlugin([llmContentSource]),
     contextAssemblerPlugin(),
     options.llm,
-    toolsPlugin(codingTools(options.cwd)),
+    toolsPlugin(tools),
     outputPlugin(options.output ?? { content: () => undefined }),
   ]
   for (const plugin of plugins) plugin(journal)

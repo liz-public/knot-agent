@@ -11,6 +11,7 @@ import {
   LLM_INVOKE,
   TOOL_CALL,
   TOOL_RESULT,
+  type ToolResult,
 } from '../src/cases/case1/protocol.js'
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
@@ -96,4 +97,80 @@ test('CASE2.0 edits and verifies a real workspace through the four coding tools'
   assert.equal(events.filter(event => event.type === LLM_INVOKE).length, 4)
   assert.equal(events.filter(event => event.type === ASSISTANT_MESSAGE).length, 1)
   assert.deepEqual(replies, ['Added multiply and verified the math tests pass.'])
+})
+
+test('CASE2.1 keeps approval and ask inside the tool call lifecycle', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-interaction-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const approvals: string[] = []
+  const decisions: Array<'allow' | 'deny'> = ['deny', 'allow']
+  const questions: string[] = []
+  let generation = 0
+  const provider: LlmProvider = {
+    async generate(call) {
+      generation += 1
+      if (generation === 1 || generation === 2) {
+        return {
+          generated: {
+            toolCalls: [{
+              id: `write-${generation}`,
+              name: 'write',
+              arguments: { path: 'answer.txt', content: `attempt-${generation}` },
+            }],
+          },
+          usage,
+        }
+      }
+      if (generation === 3) {
+        return {
+          generated: {
+            toolCalls: [{
+              id: 'ask-1',
+              name: 'ask',
+              arguments: { question: 'Keep the file?', choices: ['yes', 'no'] },
+            }],
+          },
+          usage,
+        }
+      }
+      assert.match(call.messages.at(-1)?.content ?? '', /"answer":"yes"/)
+      return {
+        generated: { content: 'The approved file was written and the user chose yes.', toolCalls: [] },
+        usage,
+      }
+    },
+  }
+  const results: Event[] = []
+  const agent = createCase2Agent({
+    cwd,
+    llm: llmPlugin(provider),
+    permissionPolicy: {
+      evaluate: ({ toolName }) => toolName === 'write' ? 'ask' : 'allow',
+    },
+    approvalPort: {
+      async request({ toolName }) {
+        approvals.push(toolName)
+        return decisions.shift()!
+      },
+    },
+    askPort: {
+      async ask({ question }) {
+        questions.push(question)
+        return { answer: 'yes' }
+      },
+    },
+    trace: event => results.push(event),
+  })
+
+  await agent.submit('Write the file after approval, then ask whether to keep it.')
+
+  assert.deepEqual(approvals, ['write', 'write'])
+  assert.deepEqual(questions, ['Keep the file?'])
+  assert.equal(await readFile(join(cwd, 'answer.txt'), 'utf8'), 'attempt-2')
+  const toolResults = results
+    .filter(event => event.type === TOOL_RESULT)
+    .flatMap(event => (event.data as ToolResult).results.map(result => result.content))
+  assert.match(toolResults[0]!, /permission_denied/)
+  assert.match(toolResults[1]!, /"ok":true/)
+  assert.match(toolResults[2]!, /"answer":"yes"/)
 })
