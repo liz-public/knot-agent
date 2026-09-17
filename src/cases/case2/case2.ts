@@ -12,6 +12,7 @@ import { workspaceContextPlugin } from './workspace-context.js'
 import { todoTool } from './todo-tool.js'
 import { codingFlowPlugin } from './coding-flow.js'
 import { controlledEventBoundary } from './controlled-boundary.js'
+import { spawnAgentTool, type SubagentFactory } from './subagent-tool.js'
 import {
   askTool,
   permissionTools,
@@ -31,12 +32,20 @@ export interface Case2Options {
   readonly approvalPort?: ApprovalPort
   readonly askPort?: AskPort
   readonly extraTools?: readonly ToolDefinition[]
+  readonly subagentFactory?: SubagentFactory
 }
 
 export function createCase2Agent(options: Case2Options) {
   const { journal, runUntilIdle } = createJournal()
   const boundary = controlledEventBoundary()
-  const baseTools = [...codingTools(options.cwd), todoTool(), ...(options.extraTools ?? [])]
+  const baseTools = [
+    ...codingTools(options.cwd),
+    todoTool(),
+    ...(options.subagentFactory === undefined
+      ? []
+      : [spawnAgentTool(options.cwd, options.subagentFactory)]),
+    ...(options.extraTools ?? []),
+  ]
   const tools = permissionTools(
     [...baseTools, ...(options.askPort === undefined ? [] : [askTool(options.askPort)])],
     options.permissionPolicy,

@@ -366,3 +366,87 @@ test('CASE2.3 pauses only at the next complete event boundary', async t => {
   assert.equal(agent.status(), 'idle')
   assert.equal(generation, 2)
 })
+
+test('CASE2.4 runs a synchronous child journal and returns only its summary to the parent', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-child-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  await writeFile(join(cwd, 'notes.txt'), 'child-visible fact\n', 'utf8')
+  const parentEvents: Event[] = []
+  const childEvents: Event[] = []
+  let parentGeneration = 0
+  const parentProvider: LlmProvider = {
+    async generate(call) {
+      parentGeneration += 1
+      if (parentGeneration === 1) {
+        return {
+          generated: {
+            toolCalls: [{
+              id: 'spawn-1',
+              name: 'spawn_agent',
+              arguments: { task: 'Inspect notes.txt and report its fact.' },
+            }],
+          },
+          usage,
+        }
+      }
+      assert.match(call.messages.at(-1)?.content ?? '', /child found: child-visible fact/)
+      return {
+        generated: { content: 'The child confirmed the fact.', toolCalls: [] },
+        usage,
+      }
+    },
+  }
+  const parent = createCase2Agent({
+    cwd,
+    llm: parentProvider,
+    trace: event => parentEvents.push(event),
+    subagentFactory: {
+      async run({ task, cwd: childCwd }) {
+        let childGeneration = 0
+        let summary = ''
+        const child = createCase2Agent({
+          cwd: childCwd,
+          llm: {
+            async generate(call) {
+              childGeneration += 1
+              if (childGeneration === 1) {
+                assert.match(call.messages.at(-2)?.content ?? call.messages.at(-1)?.content ?? '', /Inspect notes/)
+                return {
+                  generated: {
+                    toolCalls: [{ id: 'read-child', name: 'read', arguments: { path: 'notes.txt' } }],
+                  },
+                  usage,
+                }
+              }
+              assert.match(call.messages.at(-1)?.content ?? '', /child-visible fact/)
+              return {
+                generated: { content: 'child found: child-visible fact', toolCalls: [] },
+                usage,
+              }
+            },
+          },
+          trace: event => childEvents.push(event),
+          output: { content: content => { summary = content } },
+        })
+        await child.submit(task)
+        return { summary }
+      },
+    },
+  })
+
+  await parent.submit('Delegate inspection of notes.txt.')
+
+  assert.equal(parentEvents.filter(event => event.type === TOOL_CALL).length, 1)
+  assert.equal(
+    (parentEvents.find(event => event.type === TOOL_CALL)!.data as { calls: Array<{ name: string }> }).calls[0]?.name,
+    'spawn_agent',
+  )
+  assert.ok(childEvents.some(event =>
+    event.type === TOOL_CALL
+    && (event.data as { calls: Array<{ name: string }> }).calls[0]?.name === 'read',
+  ))
+  assert.equal(parentEvents.some(event =>
+    event.type === TOOL_CALL
+    && (event.data as { calls: Array<{ name: string }> }).calls[0]?.name === 'read',
+  ), false)
+})

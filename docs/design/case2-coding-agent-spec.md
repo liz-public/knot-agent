@@ -1,6 +1,6 @@
 # CASE2：增量构建 Coding Agent
 
-> 状态：CASE2.0～2.3 已验证；2.4 按阶段推进。
+> 状态：CASE2.0～2.4 已验证。
 >
 > 唯一架构目标：不修改 `src/journal.ts`，通过替换和增加领域插件，把 CASE1 的生成—工具闭环演进为真实 Coding Agent。
 
