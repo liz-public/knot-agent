@@ -53,6 +53,7 @@ export const compressHistoryPlugin = (options: CompressHistoryOptions = {}): Plu
     }
 
     const { totalTokens, contextWindow } = result.usage
+    if (totalTokens === undefined) return
     if (contextWindow <= 0 || totalTokens / contextWindow < threshold) return
     if (hasPendingCompaction(journal.read())) return
     journal.append(HISTORY_COMPACTION_REQUIRED, {

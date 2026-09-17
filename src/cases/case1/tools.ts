@@ -18,6 +18,17 @@ export interface ToolDefinition {
   execute(arguments_: Record<string, unknown>): Promise<ToolExecution> | ToolExecution
 }
 
+function failedExecution(error: string, message: string): ToolExecution {
+  return {
+    content: JSON.stringify({
+      ok: false,
+      error,
+      message,
+      hint: '工具未完成请求。请根据错误修正调用，或向用户说明无法完成。',
+    }),
+  }
+}
+
 export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
   const byName = new Map(tools.map(tool => [tool.name, tool]))
   if (byName.size !== tools.length) throw new Error('duplicate tool name')
@@ -36,8 +47,17 @@ export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
       const batch = event.data as ToolCall
       const results = await Promise.all(batch.calls.map(async call => {
         const tool = byName.get(call.name)
-        if (tool === undefined) throw new Error(`unknown tool: ${call.name}`)
-        const result = await tool.execute(call.arguments)
+        let result: ToolExecution
+        if (tool === undefined) {
+          result = failedExecution('unknown_tool', `未知工具：${call.name}`)
+        } else {
+          try {
+            result = await tool.execute(call.arguments)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            result = failedExecution('tool_error', `工具 ${call.name} 执行失败：${message}`)
+          }
+        }
         return {
           callId: call.callId,
           name: call.name,

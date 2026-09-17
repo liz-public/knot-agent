@@ -68,6 +68,7 @@ export const contextAssemblerPlugin = (): Plugin => journal => {
         instruction: request.instruction,
         tailThroughRequestId: request.throughRequestId,
         ...after,
+        ...(checkpoint === undefined ? {} : { summaryOfRequirementId: checkpoint.requirementId }),
       }
       : {
         kind: 'agent',

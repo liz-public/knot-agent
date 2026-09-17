@@ -132,9 +132,18 @@ export function projectMessages(events: readonly Event[], invoke: LlmInvoke): Ch
 
   if (manifest.kind === 'compress') {
     const through = generationIndex(events, manifest.tailThroughRequestId)
+    const summary = manifest.summaryOfRequirementId === undefined
+      ? undefined
+      : checkpointSummary(events, manifest.summaryOfRequirementId)
+    const history = [
+      ...(summary === undefined
+        ? []
+        : [{ role: 'system' as const, content: `此前会话摘要：\n${summary}` }]),
+      ...semanticMessages(events, start, through),
+    ]
     return [
       { role: 'system', content: manifest.instruction },
-      { role: 'user', content: JSON.stringify(semanticMessages(events, start, through)) },
+      { role: 'user', content: JSON.stringify(history) },
     ]
   }
 

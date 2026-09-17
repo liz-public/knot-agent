@@ -128,6 +128,7 @@ export type ContextManifest =
     kind: 'compress'
     instruction: string
     tailAfterRequestId?: string
+    summaryOfRequirementId?: string
     tailThroughRequestId: string
   }
 
@@ -148,9 +149,9 @@ export interface GeneratedContent {
 }
 
 export interface LlmUsage {
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
   contextWindow: number
 }
 

@@ -26,6 +26,8 @@ import {
   CONTENT_REQUEST,
   CONTEXT_DYNAMIC,
   HISTORY_CHECKPOINT,
+  HISTORY_COMPACTION_REQUIRED,
+  LLM_GENERATED,
   LLM_INVOKE,
   LLM_REQUEST,
   TOOL_CALL,
@@ -33,6 +35,7 @@ import {
   type ChatMessage,
   type ContentRequest,
   type DynamicContext,
+  type LlmGenerated,
   type LlmInvoke,
   type ToolCall,
   type ToolResult,
@@ -319,6 +322,34 @@ test('CASE1 OpenAI provider streams through the live port and commits one final 
   }
 })
 
+test('CASE1 OpenAI provider preserves missing usage as unknown', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ message: { content: '完成。' } }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } })
+
+  try {
+    const seen: Event[] = []
+    const agent = createCase1Agent({
+      llm: openAiLlmPlugin({
+        baseUrl: 'https://llm.invalid/chat/completions',
+        model: 'missing-usage-model',
+        contextWindow: 100,
+      }),
+      compression: { threshold: 0 },
+      trace: event => seen.push(event),
+    })
+
+    await agent.submit('你好')
+
+    const generated = seen.find(event => event.type === LLM_GENERATED)!.data as LlmGenerated
+    assert.deepEqual(generated.usage, { contextWindow: 100 })
+    assert.equal(seen.some(event => event.type === HISTORY_COMPACTION_REQUIRED), false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 function parallelEchoProvider(ids: readonly string[], reply: string) {
   let generations = 0
   const provider: LlmProvider = {
@@ -364,6 +395,120 @@ test('one generation of tool calls is one fact, and one result batch resumes the
   assert.equal(seen.filter(event => event.type === LLM_INVOKE).length, 2)
   assert.equal(generations(), 2)
   assert.deepEqual(replies, ['三件事都办好了。'])
+})
+
+test('tool failures become ordered results and return control to the model', async () => {
+  let generations = 0
+  const replies: string[] = []
+  const seen: Event[] = []
+  const explodingTool: ToolDefinition = {
+    name: 'explode',
+    schema: {
+      type: 'function',
+      function: { name: 'explode', parameters: { type: 'object' } },
+    },
+    execute() {
+      throw new Error('device unavailable')
+    },
+  }
+  const agent = createCase1Agent({
+    llm: llmPlugin({
+      async generate(call) {
+        generations += 1
+        if (generations === 1) {
+          return {
+            generated: {
+              toolCalls: [
+                { id: 'ok', name: 'echo', arguments: { text: 'done' } },
+                { id: 'throws', name: 'explode', arguments: {} },
+                { id: 'missing', name: 'not-installed', arguments: {} },
+              ],
+            },
+            usage: fixedUsage(),
+          }
+        }
+        const results = call.messages.filter(message => message.role === 'tool')
+        assert.equal(results.length, 3)
+        assert.match(results[1]?.content ?? '', /tool_error/)
+        assert.match(results[2]?.content ?? '', /unknown_tool/)
+        return {
+          generated: { content: '一项完成，两项失败，已说明原因。', toolCalls: [] },
+          usage: fixedUsage(),
+        }
+      },
+    }),
+    tools: [echoTool, explodingTool],
+    output: { content: content => replies.push(content) },
+    trace: event => seen.push(event),
+  })
+
+  await agent.submit('执行三项操作')
+
+  const batches = seen.filter(event => event.type === TOOL_RESULT)
+  assert.equal(batches.length, 1)
+  assert.deepEqual(
+    (batches[0]!.data as ToolResult).results.map(result => result.callId),
+    ['ok', 'throws', 'missing'],
+  )
+  assert.equal(generations, 2)
+  assert.deepEqual(replies, ['一项完成，两项失败，已说明原因。'])
+})
+
+test('a later compression includes the previous checkpoint summary', async () => {
+  const compressionInputs: string[] = []
+  let compressionNumber = 0
+  let agentNumber = 0
+  const provider: LlmProvider = {
+    async generate(call) {
+      if (call.request.purpose === 'history.compress') {
+        compressionInputs.push(call.messages[1]?.content ?? '')
+        compressionNumber += 1
+        return {
+          generated: { content: `summary-${compressionNumber}`, toolCalls: [] },
+          usage: fixedUsage(),
+        }
+      }
+      agentNumber += 1
+      return {
+        generated: { content: `reply-${agentNumber}`, toolCalls: [] },
+        usage: { inputTokens: 85, outputTokens: 5, totalTokens: 90, contextWindow: 100 },
+      }
+    },
+  }
+  const agent = createCase1Agent({
+    llm: llmPlugin(provider),
+    compression: { threshold: 0.8 },
+  })
+
+  await agent.submit('first')
+  await agent.submit('second')
+  await agent.submit('third')
+
+  assert.equal(compressionInputs.length, 2)
+  assert.doesNotMatch(compressionInputs[0]!, /summary-1/)
+  assert.match(compressionInputs[1]!, /summary-1/)
+})
+
+test('unknown usage is not recorded as zero and does not trigger compression', async () => {
+  const seen: Event[] = []
+  const agent = createCase1Agent({
+    llm: llmPlugin({
+      async generate() {
+        return {
+          generated: { content: '完成。', toolCalls: [] },
+          usage: { contextWindow: 100 },
+        }
+      },
+    }),
+    compression: { threshold: 0 },
+    trace: event => seen.push(event),
+  })
+
+  await agent.submit('你好')
+
+  const generated = seen.find(event => event.type === LLM_GENERATED)!.data as LlmGenerated
+  assert.equal(generated.usage.totalTokens, undefined)
+  assert.equal(seen.some(event => event.type === HISTORY_COMPACTION_REQUIRED), false)
 })
 
 // Per-call events would be executed strictly one after another, because the

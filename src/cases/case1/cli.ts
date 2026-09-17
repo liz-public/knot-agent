@@ -82,18 +82,22 @@ export function createCliCatalog(commands: readonly CliCommand[]): CliCatalog {
       async execute(arguments_) {
         const input = arguments_['command']
         if (typeof input !== 'string') return failure('invalid_command', 'command 必须是字符串。')
+        let parsed: Record<string, unknown>
+        let command: CliCommand
         try {
           const [name, ...argv] = tokenize(input)
           if (name === undefined) return failure('empty_command', '请提供 CLI 命令。')
-          const command = byName.get(name)
-          if (command === undefined) {
+          const matched = byName.get(name)
+          if (matched === undefined) {
             return failure('command_not_found', `未知命令 ${name}。请从 bash 工具目录选择命令。`)
           }
-          return await command.tool.execute(command.parse(argv))
+          command = matched
+          parsed = command.parse(argv)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           return failure('invalid_arguments', `${message}。请按本轮动态上下文中的 usage 重试。`)
         }
+        return await command.tool.execute(parsed)
       },
     },
     detailsFor(query) {

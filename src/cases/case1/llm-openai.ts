@@ -41,7 +41,9 @@ export const openAiLlmPlugin = (
           ...(call.tools.length === 0
             ? {}
             : { tools: call.tools, tool_choice: 'auto' }),
-          ...(onUpdate === undefined ? {} : { stream: true }),
+          ...(onUpdate === undefined
+            ? {}
+            : { stream: true, stream_options: { include_usage: true } }),
         }),
       })
       if (!response.ok) {
@@ -144,12 +146,7 @@ async function readOpenAiStream(
           }
         }),
     },
-    usage: {
-      inputTokens: usage?.prompt_tokens ?? 0,
-      outputTokens: usage?.completion_tokens ?? 0,
-      totalTokens: usage?.total_tokens ?? 0,
-      contextWindow,
-    },
+    usage: responseUsage(usage, contextWindow),
   }
 }
 
@@ -168,12 +165,16 @@ function responseResult(body: OpenAiResponse, contextWindow: number) {
         arguments: JSON.parse(call.function.arguments) as Record<string, unknown>,
       })),
     },
-    usage: {
-      inputTokens: body.usage?.prompt_tokens ?? 0,
-      outputTokens: body.usage?.completion_tokens ?? 0,
-      totalTokens: body.usage?.total_tokens ?? 0,
-      contextWindow,
-    },
+    usage: responseUsage(body.usage, contextWindow),
+  }
+}
+
+function responseUsage(usage: OpenAiResponse['usage'], contextWindow: number) {
+  return {
+    contextWindow,
+    ...(usage?.prompt_tokens === undefined ? {} : { inputTokens: usage.prompt_tokens }),
+    ...(usage?.completion_tokens === undefined ? {} : { outputTokens: usage.completion_tokens }),
+    ...(usage?.total_tokens === undefined ? {} : { totalTokens: usage.total_tokens }),
   }
 }
 

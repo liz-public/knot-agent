@@ -57,13 +57,16 @@ test('an event with no subscriber is legal and stays in the journal', async () =
   assert.deepEqual(journal.read().map(event => event.type), ['nobody.listens'])
 })
 
-test('a failing handler aborts the drain and propagates unchanged', async () => {
+test('a failing handler aborts this drain and a later drain starts at the next event', async () => {
   const delivered: string[] = []
   const { journal, runUntilIdle } = createJournal()
   const failure = new Error('handler exploded')
 
   journal.subscribe('boom', () => {
     throw failure
+  })
+  journal.subscribe('boom', () => {
+    delivered.push('same-event-later-subscriber')
   })
   journal.subscribe('later', () => {
     delivered.push('later')
@@ -74,6 +77,9 @@ test('a failing handler aborts the drain and propagates unchanged', async () => 
 
   await assert.rejects(runUntilIdle(), error => error === failure)
   assert.deepEqual(delivered, [])
+
+  await runUntilIdle()
+  assert.deepEqual(delivered, ['later'])
 })
 
 test('a drain resumes at the first undelivered event', async () => {
