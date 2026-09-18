@@ -2,6 +2,13 @@
 
 The smallest journal-first agent prototype.
 
+## Workbench preview
+
+CASE2 can run as a coding agent while the Workbench presents its conversation
+and the committed Journal side by side.
+
+![Knot Workbench showing a live CASE2 coding session and its Journal inspector](docs/assets/knot-workbench.png)
+
 Before changing anything here, read [AGENTS.md](AGENTS.md): it holds the kernel
 contract, the plugin-layer rules earned from CASE1, and the questions that are
 still open.
@@ -144,12 +151,13 @@ trace plugin writes into an array instead of stderr.
 `src/protocol.ts` holds the event types those plugins agreed on. It is a plain
 declaration file, not part of the kernel.
 
-## Deliberately absent
+## Deliberately absent from the kernel
 
 Persistence, multiple sessions, priority, capabilities, endpoints, dependency
 graphs, retries, compaction, permissions, concurrency, parallel tool calls,
 streaming, dynamic plugin loading, TUI, web UI, and remote plugin protocols.
 
-They will be added only after a real plugin cannot be implemented correctly
-without changing the kernel. The reasoning behind the current shape is in
+Several of these now exist as plugins or Workbench host capabilities; they
+remain outside `src/journal.ts`. New kernel behavior is added only after a real
+plugin cannot be implemented correctly without it. The reasoning is in
 [docs/reviews/minimal-kernel-review-response.md](docs/reviews/minimal-kernel-review-response.md).
