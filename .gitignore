@@ -3,4 +3,5 @@ node_modules/
 *.tsbuildinfo
 .env
 .local/
+.knot/
 .DS_Store
