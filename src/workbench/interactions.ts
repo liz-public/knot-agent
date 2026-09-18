@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { ApprovalPort, AskPort } from '../cases/case2/tool-interaction.js'
+import type { HostApprovalPort, HostAskPort } from './assembly.js'
 import type { LiveSessionEvent } from './session.js'
 
 export interface InteractionBroker {
-  readonly approval: ApprovalPort
-  readonly ask: AskPort
+  readonly approval: HostApprovalPort
+  readonly ask: HostAskPort
   respond(id: string, value: string): boolean
 }
 

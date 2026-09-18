@@ -1,6 +1,25 @@
 import type { Plugin } from '../journal.js'
-import type { LiveOutput } from '../cases/case1/llm.js'
-import type { ApprovalPort, AskPort } from '../cases/case2/tool-interaction.js'
+
+export interface GenerationOutput {
+  open(meta: { readonly requestId: string; readonly turnId: string; readonly purpose: string }): {
+    write(update: unknown): void | Promise<void>
+    close(): void | Promise<void>
+  } | undefined
+}
+
+export interface HostApprovalPort {
+  request(input: {
+    readonly toolName: string
+    readonly arguments: Readonly<Record<string, unknown>>
+  }): Promise<'allow' | 'deny'>
+}
+
+export interface HostAskPort {
+  ask(input: {
+    readonly question: string
+    readonly choices?: readonly string[]
+  }): Promise<{ readonly answer: string }>
+}
 
 export interface SessionRuntime {
   submit(content: string): Promise<void>
@@ -13,9 +32,9 @@ export interface SessionRuntime {
 export interface AssemblyInput {
   readonly cwd: string
   readonly journalPath: string
-  readonly liveOutput: LiveOutput
-  readonly approvalPort: ApprovalPort
-  readonly askPort: AskPort
+  readonly liveOutput: GenerationOutput
+  readonly approvalPort: HostApprovalPort
+  readonly askPort: HostAskPort
   readonly platformPlugins: readonly Plugin[]
 }
 

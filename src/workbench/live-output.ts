@@ -1,9 +1,9 @@
-import type { LiveOutput } from '../cases/case1/llm.js'
+import type { GenerationOutput } from './assembly.js'
 import type { LiveSessionEvent } from './session.js'
 
 export const workbenchLiveOutput = (
   emit: (event: LiveSessionEvent) => void,
-): LiveOutput => ({
+): GenerationOutput => ({
   open(meta) {
     emit({ kind: 'generation.open', ...meta })
     return {

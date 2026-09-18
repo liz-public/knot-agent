@@ -25,7 +25,9 @@ export function case2AssemblyFactory(options: Case2AssemblyOptions): AgentAssemb
       cwd: input.cwd,
       journalPath: input.journalPath,
       llm: options.llm,
-      liveOutput: input.liveOutput,
+      liveOutput: {
+        open: meta => input.liveOutput.open(meta),
+      },
       output: { content: () => undefined },
       permissionPolicy: options.permissionPolicy ?? defaultPermissionPolicy,
       approvalPort: input.approvalPort,
