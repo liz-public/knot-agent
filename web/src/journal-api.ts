@@ -12,10 +12,19 @@ export interface SessionSummary {
   readonly assembly: string
   readonly workspace?: string
   readonly model?: string
+  readonly providerProfileId?: string
   readonly runState: 'completed' | 'idle' | 'running' | 'paused'
   readonly eventCount: number
   readonly updatedAt?: string
   readonly writable: boolean
+}
+
+export interface ProviderProfileSummary {
+  readonly id: string
+  readonly label: string
+  readonly adapter: 'openai-compatible' | 'deepseek'
+  readonly model: string
+  readonly configured: boolean
 }
 
 export interface JournalSnapshot {
@@ -67,6 +76,13 @@ export async function listSessions(signal?: AbortSignal): Promise<readonly Sessi
   return (await readJson<{ sessions: readonly SessionSummary[] }>(response)).sessions
 }
 
+export async function listProviderProfiles(
+  signal?: AbortSignal,
+): Promise<readonly ProviderProfileSummary[]> {
+  const response = await fetch('/api/workbench/providers', { signal })
+  return (await readJson<{ providers: readonly ProviderProfileSummary[] }>(response)).providers
+}
+
 export async function loadJournalSnapshot(
   sessionId: string,
   signal?: AbortSignal,
@@ -84,7 +100,11 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return await readJson<T>(response)
 }
 
-export async function createSession(input: { title?: string; cwd?: string } = {}): Promise<SessionSummary> {
+export async function createSession(input: {
+  title?: string
+  cwd?: string
+  providerProfileId?: string
+} = {}): Promise<SessionSummary> {
   return (await post<{ session: SessionSummary }>('/api/workbench/sessions', input)).session
 }
 

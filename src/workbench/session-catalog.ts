@@ -8,6 +8,7 @@ export interface LiveSessionDescriptor {
   readonly journalPath: string
   readonly assembly: string
   readonly model?: string
+  readonly providerProfileId?: string
 }
 
 function descriptor(value: unknown, file: string): LiveSessionDescriptor {
@@ -26,6 +27,9 @@ function descriptor(value: unknown, file: string): LiveSessionDescriptor {
     journalPath: item['journalPath'],
     assembly: typeof item['assembly'] === 'string' ? item['assembly'] : 'case2',
     ...(typeof item['model'] === 'string' ? { model: item['model'] } : {}),
+    ...(typeof item['providerProfileId'] === 'string'
+      ? { providerProfileId: item['providerProfileId'] }
+      : {}),
   }
 }
 

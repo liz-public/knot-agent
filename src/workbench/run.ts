@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { openAiLlmProvider } from '../cases/case1/llm-openai.js'
 import { case2AssemblyFactory } from './case2-assembly.js'
 import { createWorkbenchServer } from './http-server.js'
 import { createLiveSession } from './live-session.js'
+import {
+  providerProfilesFromEnvironment,
+  publicProviderProfile,
+  type ProviderProfile,
+} from './provider-profile.js'
 import type { WorkbenchSession } from './session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from './session-catalog.js'
 import { storedSession, type StoredSessionConfig } from './stored-session.js'
@@ -17,36 +21,36 @@ function configuredStoredSessions(): readonly StoredSessionConfig[] {
   return parsed as StoredSessionConfig[]
 }
 
-const baseUrl = process.env['KNOT_BASE_URL']
-const model = process.env['KNOT_MODEL']
-if ((baseUrl === undefined) !== (model === undefined)) {
-  throw new Error('KNOT_BASE_URL and KNOT_MODEL must be configured together')
+const providerProfiles = providerProfilesFromEnvironment(process.env)
+const profilesById = new Map(providerProfiles.map(profile => [profile.id, profile]))
+const defaultProfile = providerProfiles.find(profile => profile.configured)
+
+function assemblyFor(profile: ProviderProfile) {
+  return case2AssemblyFactory({ llm: profile.create(), model: profile.model })
 }
 
-const llm = baseUrl === undefined || model === undefined
-  ? undefined
-  : openAiLlmProvider({
-    baseUrl,
-    model,
-    ...(process.env['KNOT_API_KEY'] === undefined ? {} : { apiKey: process.env['KNOT_API_KEY'] }),
-    ...(process.env['KNOT_REQUEST_EXTRA_JSON'] === undefined
-      ? {}
-      : { extraBody: JSON.parse(process.env['KNOT_REQUEST_EXTRA_JSON']) as Record<string, unknown> }),
-    ...(process.env['KNOT_CONTEXT_WINDOW'] === undefined
-      ? {}
-      : { contextWindow: Number(process.env['KNOT_CONTEXT_WINDOW']) }),
-  })
-const liveAssembly = llm === undefined || model === undefined
-  ? undefined
-  : case2AssemblyFactory({ llm, model })
+function profileForDescriptor(input: { model?: string; providerProfileId?: string }) {
+  if (input.providerProfileId !== undefined) return profilesById.get(input.providerProfileId)
+  return providerProfiles.find(profile => profile.configured && profile.model === input.model)
+    ?? defaultProfile
+}
 
 const defaultCwd = process.env['KNOT_CWD'] ?? process.cwd()
 const configuredJournal = process.env['KNOT_JOURNAL_PATH']
 const sessionDirectory = process.env['KNOT_WORKBENCH_SESSION_DIR']
   ?? (configuredJournal === undefined ? join(defaultCwd, '.knot', 'sessions') : dirname(configuredJournal))
 
-async function newLiveSession(input: { title?: string; cwd?: string } = {}): Promise<WorkbenchSession> {
-  if (liveAssembly === undefined) throw new Error('A model must be configured to create a live session')
+async function newLiveSession(input: {
+  title?: string
+  cwd?: string
+  providerProfileId?: string
+} = {}): Promise<WorkbenchSession> {
+  const profile = input.providerProfileId === undefined
+    ? defaultProfile
+    : profilesById.get(input.providerProfileId)
+  if (profile === undefined) throw new Error(`Unknown provider profile ${input.providerProfileId}`)
+  if (!profile.configured) throw new Error(`Provider profile ${profile.id} is not configured`)
+  const assembly = assemblyFor(profile)
   const id = `case2-${randomUUID().slice(0, 8)}`
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
@@ -54,10 +58,11 @@ async function newLiveSession(input: { title?: string; cwd?: string } = {}): Pro
     title: input.title?.trim() || 'New coding session',
     cwd: input.cwd?.trim() || defaultCwd,
     journalPath: join(sessionDirectory, `${id}.jsonl`),
-    assembly: liveAssembly.id,
-    model: liveAssembly.model,
+    assembly: assembly.id,
+    model: assembly.model,
+    providerProfileId: profile.id,
   }
-  const session = await createLiveSession({ ...descriptor, assembly: liveAssembly })
+  const session = await createLiveSession({ ...descriptor, assembly })
   await saveSessionDescriptor(sessionDirectory, descriptor)
   return session
 }
@@ -65,13 +70,18 @@ async function newLiveSession(input: { title?: string; cwd?: string } = {}): Pro
 const sessions: WorkbenchSession[] = configuredStoredSessions().map(session => storedSession(session))
 for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
   if (sessions.some(session => session.id === descriptor.id)) continue
-  sessions.push(liveAssembly === undefined
+  const profile = profileForDescriptor(descriptor)
+  sessions.push(profile === undefined || !profile.configured
     ? storedSession(descriptor)
-    : await createLiveSession({ ...descriptor, assembly: liveAssembly }))
+    : await createLiveSession({
+      ...descriptor,
+      providerProfileId: profile.id,
+      assembly: assemblyFor(profile),
+    }))
 }
 if (configuredJournal !== undefined) {
   if (!sessions.some(session => session.id === 'case2-main')) {
-    sessions.unshift(liveAssembly === undefined
+    sessions.unshift(defaultProfile === undefined
       ? storedSession({
         id: 'case2-main',
         title: 'CASE2 coding session',
@@ -84,11 +94,12 @@ if (configuredJournal !== undefined) {
         title: 'CASE2 coding session',
         cwd: defaultCwd,
         journalPath: configuredJournal,
-        assembly: liveAssembly,
+        providerProfileId: defaultProfile.id,
+        assembly: assemblyFor(defaultProfile),
       }))
   }
 }
-if (sessions.length === 0 && llm === undefined) {
+if (sessions.length === 0 && defaultProfile === undefined) {
   throw new Error('Configure KNOT_JOURNAL_PATH, KNOT_WORKBENCH_SESSIONS, or an LLM')
 }
 if (sessions.length === 0) sessions.push(await newLiveSession({ title: 'CASE2 coding session' }))
@@ -100,7 +111,8 @@ if (!Number.isInteger(port) || port < 0 || port > 65_535) {
 
 const server = createWorkbenchServer({
   sessions,
-  ...(llm === undefined ? {} : { createSession: newLiveSession }),
+  providerProfiles: providerProfiles.map(publicProviderProfile),
+  ...(defaultProfile === undefined ? {} : { createSession: newLiveSession }),
   webRoot: process.env['KNOT_WEB_ROOT'] ?? join(process.cwd(), 'web', 'dist'),
 })
 server.listen(port, '127.0.0.1', () => {

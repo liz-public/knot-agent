@@ -102,6 +102,21 @@ Provider-specific request fields can be supplied without changing the plugin:
 export KNOT_REQUEST_EXTRA_JSON='{"model_provider":"maas","_lingxi_maf_enabled":false}'
 ```
 
+The Workbench also exposes an official DeepSeek profile. Credentials stay in
+the Host environment and are never returned to the browser or written to the
+Journal:
+
+```bash
+export DEEPSEEK_API_KEY="..."
+export KNOT_DEEPSEEK_MODEL="deepseek-flash" # optional
+export KNOT_DEEPSEEK_THINKING="enabled"     # optional
+export KNOT_DEEPSEEK_REASONING_EFFORT="high" # optional
+npm run workbench
+```
+
+Provider selection applies when a new Session is assembled. An active Session
+does not change providers in place.
+
 Run tests:
 
 ```bash

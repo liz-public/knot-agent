@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { cases as caseFixtures, contextMessages, plugins, protocols, sequence, type CaseFixture, type PluginFixture } from './fixtures'
 import {
   createSession,
+  listProviderProfiles,
   listSessions,
   loadJournalSnapshot,
   pauseSession,
@@ -14,6 +15,7 @@ import {
   type GenerationUpdate,
   type InteractionRequest,
   type JournalSnapshot,
+  type ProviderProfileSummary,
   type ReadEvent,
   type SessionSummary,
 } from './journal-api'
@@ -365,10 +367,12 @@ function StudioView({ currentCase, provider, onProvider, validation, onValidate,
   </main>
 }
 
-function Dialog({ kind, project, projects, currentCase, model, onClose, onCreateSession, onCreateCase, onCreateProject, onSelectProject, onModel }: { kind: DialogKind; project: ProjectFixture; projects: readonly ProjectFixture[]; currentCase: CaseFixture; model: string; onClose: () => void; onCreateSession: (title: string, cwd: string) => void; onCreateCase: (title: string) => void; onCreateProject: (name: string, root: string) => void; onSelectProject: (id: string) => void; onModel: (model: string) => void }) {
+function Dialog({ kind, project, projects, currentCase, providerProfiles, providerProfileId, onClose, onCreateSession, onCreateCase, onCreateProject, onSelectProject, onProviderProfile }: { kind: DialogKind; project: ProjectFixture; projects: readonly ProjectFixture[]; currentCase: CaseFixture; providerProfiles: readonly ProviderProfileSummary[]; providerProfileId: string; onClose: () => void; onCreateSession: (title: string, cwd: string, providerProfileId: string) => void; onCreateCase: (title: string) => void; onCreateProject: (name: string, root: string) => void; onSelectProject: (id: string) => void; onProviderProfile: (providerProfileId: string) => void }) {
   const [title, setTitle] = useState(kind === 'new-session' ? `${currentCase.title} run` : kind === 'projects' ? 'Untitled agent project' : 'Untitled case')
   const [cwd, setCwd] = useState(kind === 'projects' ? '/Users/lizhe/workspace' : currentCase.workspace)
-  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className="dialog"><header><div><span className="eyebrow">{kind === 'settings' || kind === 'projects' ? 'PROJECT' : kind === 'plugin-library' ? 'STUDIO' : 'CREATE'}</span><h2>{kind === 'new-session' ? 'New CASE2 session' : kind === 'new-case' ? 'New simulation case' : kind === 'projects' ? 'Projects' : kind === 'settings' ? 'Project settings' : 'Component library'}</h2></div><button className="icon-button" onClick={onClose}><Icon name="close" size={16}/></button></header>{kind === 'new-session' && <><label>Session title<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Working directory<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><div className="dialog-summary"><span>Assembly</span><strong>CASE2 coding agent</strong><span>Provider</span><strong>{model}</strong></div><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateSession(title.trim(), cwd.trim())}>Create session</button></footer></>}{kind === 'new-case' && <><label>Case name<input value={title} onChange={event => setTitle(event.target.value)}/></label><p className="dialog-copy">Creates a local blueprint by copying the current CASE2 assembly. Persistence will be connected after the project format is frozen.</p><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === ''} onClick={() => onCreateCase(title.trim())}>Create fixture</button></footer></>}{kind === 'projects' && <><div className="project-list">{projects.map(item => <button key={item.id} className={item.id === project.id ? 'active' : ''} onClick={() => onSelectProject(item.id)}><span className="project-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span><strong>{item.name}</strong><small>{item.root}</small></span>{item.id === project.id && <Icon name="check" size={14}/>}</button>)}</div><div className="dialog-divider"><span>New fixture project</span></div><label>Project name<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Workspace root<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateProject(title.trim(), cwd.trim())}>Create project</button></footer></>}{kind === 'settings' && <><div className="settings-list"><div><span>Project root</span><code>{project.root}</code></div><div><span>Runtime</span><strong>Local Node.js · connected</strong></div><div><span>Storage</span><strong>Append-only JSONL</strong></div><div><span>Default case</span><strong>{currentCase.title}</strong></div></div><label>Default model<select value={model} onChange={event => onModel(event.target.value)}><option>qwen3-coder</option><option>DeepSeek Reasoner</option><option>Mock provider</option></select></label><footer><button className="primary" onClick={onClose}>Done</button></footer></>}{kind === 'plugin-library' && <><div className="library-grid">{plugins.slice(2, 8).map(plugin => <button key={plugin.id} onClick={onClose}><span className={`category ${plugin.category}`}>{plugin.category}</span><strong>{plugin.name}</strong><small>{plugin.responsibility}</small><i>Already assembled</i></button>)}</div><p className="dialog-copy">Dynamic installation is intentionally a UI fixture until plugin identity, metadata and runtime mutation semantics are frozen.</p></>}</section></div>
+  const providerSelect = <label>Provider profile<select value={providerProfileId} onChange={event => onProviderProfile(event.target.value)}>{providerProfiles.map(profile => <option key={profile.id} value={profile.id} disabled={!profile.configured}>{profile.label}{profile.configured ? '' : ' · not configured'}</option>)}</select></label>
+  const selectedProvider = providerProfiles.find(profile => profile.id === providerProfileId)
+  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className="dialog"><header><div><span className="eyebrow">{kind === 'settings' || kind === 'projects' ? 'PROJECT' : kind === 'plugin-library' ? 'STUDIO' : 'CREATE'}</span><h2>{kind === 'new-session' ? 'New CASE2 session' : kind === 'new-case' ? 'New simulation case' : kind === 'projects' ? 'Projects' : kind === 'settings' ? 'Project settings' : 'Component library'}</h2></div><button className="icon-button" onClick={onClose}><Icon name="close" size={16}/></button></header>{kind === 'new-session' && <><label>Session title<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Working directory<input value={cwd} onChange={event => setCwd(event.target.value)}/></label>{providerSelect}<div className="dialog-summary"><span>Assembly</span><strong>CASE2 coding agent</strong><span>Model</span><strong>{selectedProvider?.model ?? 'No configured provider'}</strong></div><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === '' || selectedProvider?.configured !== true} onClick={() => onCreateSession(title.trim(), cwd.trim(), providerProfileId)}>Create session</button></footer></>}{kind === 'new-case' && <><label>Case name<input value={title} onChange={event => setTitle(event.target.value)}/></label><p className="dialog-copy">Creates a local blueprint by copying the current CASE2 assembly. Persistence will be connected after the project format is frozen.</p><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === ''} onClick={() => onCreateCase(title.trim())}>Create fixture</button></footer></>}{kind === 'projects' && <><div className="project-list">{projects.map(item => <button key={item.id} className={item.id === project.id ? 'active' : ''} onClick={() => onSelectProject(item.id)}><span className="project-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span><strong>{item.name}</strong><small>{item.root}</small></span>{item.id === project.id && <Icon name="check" size={14}/>}</button>)}</div><div className="dialog-divider"><span>New fixture project</span></div><label>Project name<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Workspace root<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateProject(title.trim(), cwd.trim())}>Create project</button></footer></>}{kind === 'settings' && <><div className="settings-list"><div><span>Project root</span><code>{project.root}</code></div><div><span>Runtime</span><strong>Local Node.js · connected</strong></div><div><span>Storage</span><strong>Append-only JSONL</strong></div><div><span>Default case</span><strong>{currentCase.title}</strong></div></div>{providerSelect}<footer><button className="primary" onClick={onClose}>Done</button></footer></>}{kind === 'plugin-library' && <><div className="library-grid">{plugins.slice(2, 8).map(plugin => <button key={plugin.id} onClick={onClose}><span className={`category ${plugin.category}`}>{plugin.category}</span><strong>{plugin.name}</strong><small>{plugin.responsibility}</small><i>Already assembled</i></button>)}</div><p className="dialog-copy">Dynamic installation is intentionally a UI fixture until plugin identity, metadata and runtime mutation semantics are frozen.</p></>}</section></div>
 }
 
 export function App() {
@@ -388,7 +392,8 @@ export function App() {
   const [dialog, setDialog] = useState<DialogKind>()
   const [inspectorOpen, setInspectorOpen] = useState(true)
   const [inspectorWidth, setInspectorWidth] = useState(430)
-  const [model, setModel] = useState('qwen3-coder')
+  const [providerProfiles, setProviderProfiles] = useState<readonly ProviderProfileSummary[]>([])
+  const [providerProfileId, setProviderProfileId] = useState('')
   const [provider, setProvider] = useState<'mock' | 'real'>('real')
   const [validation, setValidation] = useState<'idle' | 'running' | 'passed'>('idle')
   const currentCase = caseItems.find(item => item.id === selectedCase) ?? caseItems[0]!
@@ -399,6 +404,16 @@ export function App() {
     void listSessions(controller.signal).then(next => { setSessions(next); setSelected(current => current !== undefined && next.some(session => session.id === current) ? current : next[0]?.id) }, error => { if (!controller.signal.aborted) setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) }) })
     return () => controller.abort()
   }, [reload])
+  useEffect(() => {
+    const controller = new AbortController()
+    void listProviderProfiles(controller.signal).then(profiles => {
+      setProviderProfiles(profiles)
+      setProviderProfileId(current => profiles.some(profile => profile.id === current && profile.configured)
+        ? current
+        : profiles.find(profile => profile.configured)?.id ?? '')
+    }, error => { if (!controller.signal.aborted) setRunError(error instanceof Error ? error.message : String(error)) })
+    return () => controller.abort()
+  }, [])
   useEffect(() => {
     if (selected === undefined) return
     const controller = new AbortController()
@@ -431,8 +446,8 @@ export function App() {
   async function command(action: () => Promise<void>): Promise<void> {
     try { setRunError(undefined); await action() } catch (error) { setRunError(error instanceof Error ? error.message : String(error)) }
   }
-  async function makeSession(title: string, cwd: string): Promise<void> {
-    await command(async () => { const session = await createSession({ title, cwd }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) })
+  async function makeSession(title: string, cwd: string, profileId = providerProfileId): Promise<void> {
+    await command(async () => { const session = await createSession({ title, cwd, ...(profileId === '' ? {} : { providerProfileId: profileId }) }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) })
   }
   function makeCase(title: string): void {
     const item: CaseFixture = { ...currentCase, id: `fixture-${Date.now()}`, title, runs: 0, provider: 'mock', providerLabel: 'mock provider' }
@@ -447,7 +462,9 @@ export function App() {
   const snapshot = journal.status === 'ready' ? journal.snapshot : undefined
   const workspace = activeSession?.workspace
     ?? workspaceFrom(snapshot?.events ?? [], currentCase.workspace)
-  const activeModel = activeSession?.model ?? model
+  const activeModel = activeSession?.model
+    ?? providerProfiles.find(profile => profile.id === providerProfileId)?.model
+    ?? 'No provider'
   const shellStyle = { '--inspector-width': `${inspectorOpen ? inspectorWidth : 0}px` } as CSSProperties
   return <div className={`app-shell ${inspectorOpen ? '' : 'inspector-closed'}`} style={shellStyle}>
     <ProjectRail mode={mode} project={currentProject} sessions={sessions} selectedSession={selected} selectedCase={selectedCase} cases={caseItems} onMode={setMode} onSelectSession={id => { setSelected(id); setMode('run') }} onSelectCase={id => { setSelectedCase(id); setMode('studio') }} onDialog={setDialog}/>
@@ -458,10 +475,11 @@ export function App() {
       project={currentProject}
       projects={projects}
       currentCase={currentCase}
-      model={model}
-      onModel={setModel}
+      providerProfiles={providerProfiles}
+      providerProfileId={providerProfileId}
+      onProviderProfile={setProviderProfileId}
       onClose={() => setDialog(undefined)}
-      onCreateSession={(title, cwd) => void makeSession(title, cwd)}
+      onCreateSession={(title, cwd, profileId) => void makeSession(title, cwd, profileId)}
       onCreateCase={makeCase}
       onCreateProject={makeProject}
       onSelectProject={id => { setSelectedProject(id); setDialog(undefined) }}

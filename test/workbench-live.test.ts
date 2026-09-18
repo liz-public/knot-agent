@@ -9,7 +9,7 @@ import { createInteractionBroker } from '../src/workbench/interactions.js'
 import { case2AssemblyFactory } from '../src/workbench/case2-assembly.js'
 import { createLiveSession } from '../src/workbench/live-session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from '../src/workbench/session-catalog.js'
-import type { InteractionRequestDto, LiveSessionEvent } from '../src/workbench/session.js'
+import type { InteractionRequestDto, LiveSessionEvent, WorkbenchSession } from '../src/workbench/session.js'
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
 
@@ -36,6 +36,7 @@ test('workbench session descriptors preserve new sessions for host restart', asy
     journalPath: join(directory, 'case2-one.jsonl'),
     assembly: 'case2',
     model: 'mock',
+    providerProfileId: 'default',
   }
   await saveSessionDescriptor(directory, descriptor)
   assert.deepEqual(await loadSessionDescriptors(directory), [descriptor])
@@ -128,7 +129,32 @@ test('workbench HTTP commands drive one injected live session', async t => {
       },
     }, model: 'mock' }),
   })
-  const server = createWorkbenchServer({ sessions: [session] })
+  let createInput: { title?: string; cwd?: string; providerProfileId?: string } | undefined
+  const createdSession: WorkbenchSession = {
+    id: 'created',
+    summary: async () => ({
+      id: 'created', title: 'Created', assembly: 'case2', model: 'deepseek-flash',
+      providerProfileId: 'deepseek', runState: 'idle', eventCount: 0, writable: true,
+    }),
+    snapshot: async () => ({
+      session: await createdSession.summary(),
+      events: [],
+    }),
+  }
+  const server = createWorkbenchServer({
+    sessions: [session],
+    providerProfiles: [{
+      id: 'default',
+      label: 'Mock provider',
+      adapter: 'openai-compatible',
+      model: 'mock',
+      configured: true,
+    }],
+    createSession: async input => {
+      createInput = input
+      return createdSession
+    },
+  })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(0, '127.0.0.1', resolve)
@@ -139,6 +165,28 @@ test('workbench HTTP commands drive one injected live session', async t => {
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('expected TCP address')
   const base = `http://127.0.0.1:${address.port}/api/workbench/sessions/live`
+  const providers = await (await fetch(`http://127.0.0.1:${address.port}/api/workbench/providers`)).json() as {
+    providers: Array<{ id: string; configured: boolean; apiKey?: string }>
+  }
+  assert.doesNotMatch(JSON.stringify(providers), /apiKey/)
+  assert.deepEqual(providers.providers, [{
+    id: 'default',
+    label: 'Mock provider',
+    adapter: 'openai-compatible',
+    model: 'mock',
+    configured: true,
+  }])
+  const created = await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'DeepSeek run', cwd: directory, providerProfileId: 'deepseek' }),
+  })
+  assert.equal(created.status, 201)
+  assert.deepEqual(createInput, {
+    title: 'DeepSeek run',
+    cwd: directory,
+    providerProfileId: 'deepseek',
+  })
   const idle = nextEvent([], session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
   const streamAbort = new AbortController()
   t.after(() => streamAbort.abort())

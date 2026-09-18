@@ -15,6 +15,7 @@ import {
   type LlmProvider,
 } from '../src/cases/case1/llm.js'
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
+import { deepSeekLlmProvider } from '../src/cases/case1/llm-deepseek.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
 import {
   isDynamicContextMessage,
@@ -260,6 +261,58 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
     }>
     assert.deepEqual(secondMessages.slice(-2).map(message => message.role), ['assistant', 'tool'])
     assert.equal(secondMessages.at(-2)?.reasoning_content, '选择唯一候选。')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('DeepSeek provider supplies required reasoning history without changing canonical messages', async () => {
+  const originalFetch = globalThis.fetch
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '完成。' } }],
+      usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+
+  try {
+    const messages: ChatMessage[] = [
+      { role: 'user', content: '运行工具。' },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{
+          id: 'shortcut-call',
+          type: 'function',
+          function: { name: 'bash', arguments: '{"command":"date"}' },
+        }],
+      },
+      { role: 'tool', tool_call_id: 'shortcut-call', content: '2026-09-18' },
+      { role: 'assistant', content: '上一步已完成。', reasoning: '检查工具结果。' },
+      { role: 'user', content: '继续。' },
+    ]
+    const provider = deepSeekLlmProvider({
+      apiKey: 'test-key',
+      model: 'deepseek-flash',
+      thinking: 'enabled',
+      reasoningEffort: 'high',
+      contextWindow: 1_000_000,
+    })
+
+    await provider.generate({
+      request: { purpose: 'agent', turnId: 'turn-1' },
+      messages,
+      tools: [{ type: 'function', function: { name: 'bash' } }],
+    })
+
+    const sent = requestBody?.['messages'] as Array<{ role: string; reasoning_content?: string }>
+    assert.equal(sent[1]?.reasoning_content, '')
+    assert.equal(sent[3]?.reasoning_content, '检查工具结果。')
+    assert.deepEqual(requestBody?.['thinking'], { type: 'enabled' })
+    assert.equal(requestBody?.['reasoning_effort'], 'high')
+    assert.equal(messages[1]?.reasoning, undefined)
   } finally {
     globalThis.fetch = originalFetch
   }

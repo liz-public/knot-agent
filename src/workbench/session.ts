@@ -8,6 +8,7 @@ export interface SessionSummaryDto {
   readonly assembly: string
   readonly workspace?: string
   readonly model?: string
+  readonly providerProfileId?: string
   readonly runState: SessionRunState
   readonly eventCount: number
   readonly updatedAt?: string

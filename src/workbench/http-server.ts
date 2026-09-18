@@ -2,11 +2,17 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from 'node:fs/promises'
 import { extname, isAbsolute, relative, resolve } from 'node:path'
 import { JournalReadError } from './read-journal.js'
+import type { ProviderProfileSummary } from './provider-profile.js'
 import type { WorkbenchSession } from './session.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
-  readonly createSession?: (input: { title?: string; cwd?: string }) => Promise<WorkbenchSession>
+  readonly providerProfiles?: readonly ProviderProfileSummary[]
+  readonly createSession?: (input: {
+    title?: string
+    cwd?: string
+    providerProfileId?: string
+  }) => Promise<WorkbenchSession>
   readonly webRoot?: string
 }
 
@@ -92,6 +98,11 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         return
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/workbench/providers') {
+        sendJson(response, 200, { providers: options.providerProfiles ?? [] })
+        return
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/workbench/sessions') {
         if (options.createSession === undefined) {
           sendJson(response, 405, { error: { code: 'read_only', message: 'Session creation is unavailable' } })
@@ -101,6 +112,9 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         const session = await options.createSession({
           ...(typeof body['title'] === 'string' ? { title: body['title'] } : {}),
           ...(typeof body['cwd'] === 'string' ? { cwd: body['cwd'] } : {}),
+          ...(typeof body['providerProfileId'] === 'string'
+            ? { providerProfileId: body['providerProfileId'] }
+            : {}),
         })
         if (byId.has(session.id)) throw new Error(`duplicate workbench session id ${session.id}`)
         byId.set(session.id, session)

@@ -8,6 +8,7 @@ export interface StoredSessionConfig {
   readonly journalPath: string
   readonly workspace?: string
   readonly model?: string
+  readonly providerProfileId?: string
 }
 
 export function storedSession(
@@ -24,6 +25,9 @@ export function storedSession(
         assembly: config.assembly,
         ...(config.workspace === undefined ? {} : { workspace: config.workspace }),
         ...(config.model === undefined ? {} : { model: config.model }),
+        ...(config.providerProfileId === undefined
+          ? {}
+          : { providerProfileId: config.providerProfileId }),
         runState: 'completed',
         eventCount: journal.eventCount,
         ...(updatedAt === undefined ? {} : { updatedAt }),

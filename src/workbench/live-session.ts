@@ -13,6 +13,7 @@ export interface LiveSessionOptions {
   readonly cwd: string
   readonly journalPath: string
   readonly assembly: AgentAssemblyFactory
+  readonly providerProfileId?: string
 }
 
 export async function createLiveSession(
@@ -48,6 +49,9 @@ export async function createLiveSession(
         assembly: options.assembly.id,
         workspace: options.cwd,
         model: options.assembly.model,
+        ...(options.providerProfileId === undefined
+          ? {}
+          : { providerProfileId: options.providerProfileId }),
         runState,
         eventCount: journal.eventCount,
         ...(updatedAt === undefined ? {} : { updatedAt }),
