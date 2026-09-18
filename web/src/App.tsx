@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { assemblyStages, contextMessages, plugins } from './fixtures'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { cases as caseFixtures, contextMessages, plugins, protocols, sequence, type CaseFixture, type PluginFixture } from './fixtures'
 import {
   createSession,
   listSessions,
@@ -18,10 +18,12 @@ import {
 
 type Mode = 'run' | 'studio'
 type InspectorTab = 'trace' | 'context' | 'journal' | 'plugins'
+type DialogKind = 'new-session' | 'new-case' | 'projects' | 'settings' | 'plugin-library'
 type JournalState =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly snapshot: JournalSnapshot }
   | { readonly status: 'error'; readonly message: string }
+
 interface LiveDraft {
   readonly requestId: string
   readonly reasoning: string
@@ -29,17 +31,37 @@ interface LiveDraft {
   readonly toolCalls: readonly string[]
 }
 
+interface UsageSummary {
+  readonly input: number
+  readonly output: number
+  readonly total: number
+  readonly window: number
+}
+
+interface ProjectFixture {
+  readonly id: string
+  readonly name: string
+  readonly summary: string
+  readonly root: string
+}
+
+const initialProjects: readonly ProjectFixture[] = [
+  { id: 'knot-agent', name: 'knot-agent', summary: 'Agent workbench', root: '/Users/lizhe/workspace/knot-agent' },
+  { id: 'android-agent', name: 'Android agent lab', summary: 'Imported blueprint', root: '/Users/lizhe/AndroidStudioProjects/lz-refactor' },
+]
+
 function Icon({ name, size = 16 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
     knot: <><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="12" cy="17" r="3"/><path d="M9.5 8.8 11 14M14.5 8.8 13 14M10 7h4"/></>,
-    play: <path d="m8 5 11 7-11 7Z" />,
+    play: <path d="m8 5 11 7-11 7Z"/>,
     studio: <><path d="M4 6h16M7 3v6M4 18h16M16 15v6"/></>,
-    plus: <path d="M12 5v14M5 12h14" />,
-    chevron: <path d="m9 18 6-6-6-6" />,
-    message: <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />,
+    plus: <path d="M12 5v14M5 12h14"/>,
+    chevron: <path d="m9 18 6-6-6-6"/>,
+    down: <path d="m6 9 6 6 6-6"/>,
+    message: <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/>,
     case: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 10 2 2-2 2M13 15h4"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></>,
-    branch: <><circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M8 7h5a5 5 0 0 1 5 5v-3"/></>,
+    branch: <><circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M8 7h5a5 5 0 0 1 5 5V9"/></>,
     send: <><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></>,
     pause: <><path d="M9 5v14M15 5v14"/></>,
     terminal: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></>,
@@ -47,106 +69,143 @@ function Icon({ name, size = 16 }: { name: string; size?: number }) {
     code: <path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/>,
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>,
+    close: <path d="m6 6 12 12M18 6 6 18"/>,
+    panel: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></>,
+    folder: <path d="M3 7h7l2 2h9v10H3Z"/>,
+    database: <><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></>,
+    activity: <path d="M3 12h4l2-7 4 14 2-7h6"/>,
   }
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
+function formatElapsed(value?: number): string {
+  if (value === undefined) return '—'
+  return value < 1_000 ? `+${value}ms` : `+${(value / 1_000).toFixed(2)}s`
+}
+
+function eventTone(type: string): 'neutral' | 'model' | 'tool' | 'success' {
+  if (type.startsWith('llm.') || type === 'assistant.reasoning') return 'model'
+  if (type.startsWith('tool.')) return 'tool'
+  if (type === 'assistant.message') return 'success'
+  return 'neutral'
+}
+
+function ownerFor(type: string): string {
+  if (type === 'user.message') return 'Input'
+  if (type === 'context.dynamic') return 'WorkspaceContext'
+  if (type === 'content.request') return 'CodingFlow'
+  if (type === 'llm.request') return 'ContentSources'
+  if (type === 'llm.invoke') return 'ContextAssembler'
+  if (type.startsWith('llm.') || type === 'assistant.reasoning') return 'LLMProvider'
+  if (type.startsWith('tool.')) return 'Tools'
+  if (type === 'assistant.message') return 'Output'
+  if (type === 'system.prompt') return 'SystemPrompt'
+  return 'Runtime'
+}
+
+function eventPreview(event: ReadEvent): string {
+  const data = typeof event.data === 'object' && event.data !== null ? event.data as Record<string, unknown> : {}
+  if (typeof data['content'] === 'string') return data['content']
+  if (typeof data['query'] === 'string') return data['query']
+  if (typeof data['purpose'] === 'string') return data['purpose']
+  if (Array.isArray(data['calls'])) return data['calls'].map(item => String((item as Record<string, unknown>)['name'] ?? 'tool')).join(', ')
+  if (Array.isArray(data['results'])) return data['results'].map(item => String((item as Record<string, unknown>)['name'] ?? 'result')).join(', ')
+  if (data['usage'] !== undefined) return 'generation complete · usage recorded'
+  return Object.keys(data).slice(0, 4).join(' · ') || 'empty payload'
+}
+
+function usageFrom(events: readonly ReadEvent[]): UsageSummary | undefined {
+  const generated = [...events].reverse().find(event => event.type === 'llm.generated')
+  if (generated === undefined || typeof generated.data !== 'object' || generated.data === null) return undefined
+  const usage = (generated.data as Record<string, unknown>)['usage']
+  if (typeof usage !== 'object' || usage === null) return undefined
+  const value = usage as Record<string, unknown>
+  const input = Number(value['inputTokens'])
+  const output = Number(value['outputTokens'])
+  const total = Number(value['totalTokens'])
+  const window = Number(value['contextWindow'])
+  if (![input, output, total, window].every(Number.isFinite)) return undefined
+  return { input, output, total, window }
+}
+
+function workspaceFrom(events: readonly ReadEvent[], fallback: string): string {
+  const context = [...events].reverse().find(event => event.type === 'context.dynamic')
+  if (context === undefined || typeof context.data !== 'object' || context.data === null) return fallback
+  const content = (context.data as Record<string, unknown>)['content']
+  if (typeof content !== 'string') return fallback
+  return content.match(/Current workspace:\s*(.+)/)?.[1] ?? fallback
+}
+
 function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => void }) {
-  return (
-    <div className="mode-switch" aria-label="Workbench mode">
-      <button className={mode === 'run' ? 'active' : ''} onClick={() => onChange('run')}><Icon name="play" size={14}/>Run</button>
-      <button className={mode === 'studio' ? 'active' : ''} onClick={() => onChange('studio')}><Icon name="studio" size={14}/>Studio</button>
-    </div>
-  )
+  return <div className="mode-switch" aria-label="Workbench mode"><button className={mode === 'run' ? 'active' : ''} onClick={() => onChange('run')}><Icon name="play" size={14}/>Run</button><button className={mode === 'studio' ? 'active' : ''} onClick={() => onChange('studio')}><Icon name="studio" size={14}/>Studio</button></div>
 }
 
-function ProjectRail({
-  mode,
-  onMode,
-  sessions,
-  selected,
-  onSelect,
-  onCreate,
-}: {
+function ProjectRail({ mode, project, sessions, selectedSession, selectedCase, cases, onMode, onSelectSession, onSelectCase, onDialog }: {
   mode: Mode
-  onMode: (mode: Mode) => void
+  project: ProjectFixture
   sessions: readonly SessionSummary[]
-  selected?: string
-  onSelect: (sessionId: string) => void
-  onCreate: () => void
+  selectedSession?: string
+  selectedCase: string
+  cases: readonly CaseFixture[]
+  onMode: (mode: Mode) => void
+  onSelectSession: (id: string) => void
+  onSelectCase: (id: string) => void
+  onDialog: (kind: DialogKind) => void
 }) {
-  return (
-    <aside className="project-rail">
-      <div className="brand"><span className="brand-mark"><Icon name="knot" size={22}/></span><span>Knot</span><span className="alpha">alpha</span></div>
-      <button className="project-picker">
-        <span className="project-avatar">K</span>
-        <span><strong>knot-agent</strong><small>CASE2 workbench</small></span>
-        <Icon name="chevron" size={14}/>
-      </button>
-      <div className="rail-mode"><ModeSwitch mode={mode} onChange={onMode}/></div>
-      <nav className="rail-scroll">
-        <div className="section-heading"><span>Sessions</span><button aria-label="New session" onClick={onCreate}><Icon name="plus" size={15}/></button></div>
-        <div className="session-list">
-          {sessions.map(session => (
-            <button key={session.id} className={`session-row ${selected === session.id ? 'active' : ''}`} onClick={() => onSelect(session.id)}>
-              <Icon name="message" size={15}/><span><strong>{session.title}</strong><small>{session.assembly.toUpperCase()} · {session.runState} · {session.eventCount} facts</small></span>{session.runState === 'running' && <i/>}
-            </button>
-          ))}
-          {sessions.length === 0 && <span className="empty-sessions">No configured sessions</span>}
-        </div>
-        <div className="section-heading cases-heading"><span>Cases</span><button aria-label="New case"><Icon name="plus" size={15}/></button></div>
-        <button className="nav-row"><Icon name="case" size={15}/><span>CASE2 coding task</span><b>8</b></button>
-        <button className="nav-row"><Icon name="case" size={15}/><span>Guard regression</span><b>3</b></button>
-      </nav>
-      <div className="rail-footer"><button className="nav-row"><Icon name="settings" size={16}/><span>Project settings</span></button><div className="runtime"><span className="status-dot"/>Runtime ready <code>local</code></div></div>
-    </aside>
-  )
+  return <aside className="project-rail">
+    <div className="brand"><span className="brand-mark"><Icon name="knot" size={22}/></span><span>Knot</span><span className="alpha">alpha</span></div>
+    <button className="project-picker" onClick={() => onDialog('projects')}><span className="project-avatar">{project.name.slice(0, 1).toUpperCase()}</span><span><strong>{project.name}</strong><small>{project.summary}</small></span><Icon name="down" size={13}/></button>
+    <div className="rail-mode"><ModeSwitch mode={mode} onChange={onMode}/></div>
+    <nav className="rail-scroll">
+      <div className="section-heading"><span>Sessions</span><button aria-label="New session" onClick={() => onDialog('new-session')}><Icon name="plus" size={15}/></button></div>
+      <div className="session-list">{sessions.map(session => <button key={session.id} className={`session-row ${selectedSession === session.id && mode === 'run' ? 'active' : ''}`} onClick={() => onSelectSession(session.id)}><Icon name="message" size={15}/><span><strong>{session.title}</strong><small>{session.assembly.toUpperCase()} · {session.runState} · {session.eventCount} facts</small></span>{session.runState === 'running' && <i/>}</button>)}{sessions.length === 0 && <span className="empty-sessions">No configured sessions</span>}</div>
+      <div className="section-heading cases-heading"><span>Cases</span><button aria-label="New case" onClick={() => onDialog('new-case')}><Icon name="plus" size={15}/></button></div>
+      {cases.map(item => <button key={item.id} className={`nav-row ${selectedCase === item.id && mode === 'studio' ? 'active' : ''}`} onClick={() => onSelectCase(item.id)}><Icon name="case" size={15}/><span>{item.title}</span><b>{item.runs}</b></button>)}
+    </nav>
+    <div className="rail-footer"><button className="nav-row" onClick={() => onDialog('settings')}><Icon name="settings" size={16}/><span>Project settings</span></button><div className="runtime"><span className="status-dot"/>Runtime ready <code>local</code></div></div>
+  </aside>
 }
 
-function WorkbenchHeader({ mode, session }: { mode: Mode; session?: SessionSummary }) {
-  return (
-    <header className="workbench-header">
-      <div className="breadcrumb"><span>knot-agent</span><b>/</b><strong>{mode === 'run' ? session?.title ?? 'No session' : 'CASE2 assembly'}</strong></div>
-      <div className="header-actions">
-        <span className="branch"><Icon name="branch" size={14}/>main</span>
-        <button className="model-button"><span className="model-dot"/>qwen3-coder <Icon name="chevron" size={13}/></button>
-        <button className="icon-button" aria-label="More"><Icon name="more" size={17}/></button>
-      </div>
-    </header>
-  )
+function WorkbenchHeader({ mode, project, session, currentCase, workspace, model, inspectorOpen, onModel, onSettings, onInspector }: {
+  mode: Mode
+  project: ProjectFixture
+  session?: SessionSummary
+  currentCase: CaseFixture
+  workspace: string
+  model: string
+  inspectorOpen: boolean
+  onModel: () => void
+  onSettings: () => void
+  onInspector: () => void
+}) {
+  return <header className="workbench-header">
+    <div className="breadcrumb"><span>{project.name}</span><b>/</b><strong>{mode === 'run' ? session?.title ?? 'No session' : currentCase.title}</strong></div>
+    <div className="header-actions"><button className="path-button" onClick={onSettings} title={workspace}><Icon name="folder" size={14}/><span>{workspace.split('/').filter(Boolean).at(-1) ?? workspace}</span></button><span className="branch"><Icon name="branch" size={14}/>main</span><button className="model-button" onClick={onModel}><span className="model-dot"/>{model}<Icon name="down" size={12}/></button>{!inspectorOpen && <button className="icon-button framed" onClick={onInspector} title="Open inspector"><Icon name="panel" size={16}/></button>}</div>
+  </header>
 }
 
-function InteractionCard({
-  interaction,
-  onRespond,
-}: {
-  interaction: InteractionRequest
-  onRespond: (interaction: InteractionRequest, value: string) => Promise<void>
-}) {
+function InteractionCard({ interaction, onRespond }: { interaction: InteractionRequest; onRespond: (interaction: InteractionRequest, value: string) => Promise<void> }) {
   const [answer, setAnswer] = useState('')
-  return <div className="interaction-card">
-    <strong>{interaction.kind === 'approval' ? `Allow ${interaction.toolName}?` : interaction.question}</strong>
-    {interaction.kind === 'approval' && <pre>{JSON.stringify(interaction.arguments, null, 2)}</pre>}
-    {interaction.kind === 'ask' && interaction.choices === undefined && <input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Your answer"/>}
-    <div>{interaction.kind === 'approval'
-      ? <><button onClick={() => void onRespond(interaction, 'deny')}>Deny</button><button className="primary" onClick={() => void onRespond(interaction, 'allow')}>Allow</button></>
-      : interaction.choices === undefined
-        ? <button className="primary" disabled={answer.trim().length === 0} onClick={() => void onRespond(interaction, answer.trim())}>Answer</button>
-        : interaction.choices.map(choice => <button key={choice} onClick={() => void onRespond(interaction, choice)}>{choice}</button>)}</div>
-  </div>
+  return <div className="interaction-card"><strong>{interaction.kind === 'approval' ? `Allow ${interaction.toolName}?` : interaction.question}</strong>{interaction.kind === 'approval' && <pre>{JSON.stringify(interaction.arguments, null, 2)}</pre>}{interaction.kind === 'ask' && interaction.choices === undefined && <input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Your answer"/>}<div>{interaction.kind === 'approval' ? <><button onClick={() => void onRespond(interaction, 'deny')}>Deny</button><button className="primary" onClick={() => void onRespond(interaction, 'allow')}>Allow</button></> : interaction.choices === undefined ? <button className="primary" disabled={answer.trim().length === 0} onClick={() => void onRespond(interaction, answer.trim())}>Answer</button> : interaction.choices.map(choice => <button key={choice} onClick={() => void onRespond(interaction, choice)}>{choice}</button>)}</div></div>
 }
 
-function RunView({
-  snapshot,
-  live,
-  interactions,
-  error,
-  onSend,
-  onPause,
-  onResume,
-  onRespond,
-}: {
+function ToolResult({ result, command }: { result: Record<string, unknown>; command?: string }) {
+  const raw = String(result['content'] ?? '')
+  let parsed: Record<string, unknown> | undefined
+  try {
+    const value = JSON.parse(raw) as unknown
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) parsed = value as Record<string, unknown>
+  } catch { /* Plain-text tool results remain plain text. */ }
+  const isTerminal = result['name'] === 'bash' && parsed !== undefined
+  if (!isTerminal) return <div className="tool-card result-card"><div className="tool-heading"><span className="tool-icon"><Icon name="check" size={15}/></span><strong>{String(result['name'])}</strong><span className="success-pill">result</span></div><pre>{raw}</pre></div>
+  const exitCode = Number(parsed?.['exitCode'] ?? 0)
+  const output = [String(parsed?.['stdout'] ?? ''), String(parsed?.['stderr'] ?? '')].filter(Boolean).join('\n') || '(no output)'
+  return <div className="terminal-card"><header><span className="terminal-lights"><i/><i/><i/></span><code>$ {command ?? 'bash'}</code><span className={exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>exit {exitCode}</span></header><pre>{output}</pre></div>
+}
+
+function RunView({ snapshot, workspace, live, interactions, error, onSend, onPause, onResume, onRespond }: {
   snapshot?: JournalSnapshot
+  workspace: string
   live?: LiveDraft
   interactions: readonly InteractionRequest[]
   error?: string
@@ -159,21 +218,25 @@ function RunView({
   const [delivery, setDelivery] = useState<'steer' | 'follow_up'>('steer')
   const [queued, setQueued] = useState<string>()
   const session = snapshot?.session
-  const visibleEvents = snapshot?.events.filter(event =>
-    event.type === 'user.message'
-    || event.type === 'assistant.reasoning'
-    || event.type === 'assistant.message'
-    || event.type === 'tool.call'
-    || event.type === 'tool.result',
-  ) ?? []
+  const events = snapshot?.events ?? []
+  const usage = usageFrom(events)
+  const visibleEvents = events.filter(event => ['user.message', 'assistant.reasoning', 'assistant.message', 'tool.call', 'tool.result'].includes(event.type))
+  const commands = new Map<string, string>()
+  for (const event of events) {
+    if (event.type !== 'tool.call' || typeof event.data !== 'object' || event.data === null) continue
+    const calls = (event.data as Record<string, unknown>)['calls']
+    if (!Array.isArray(calls)) continue
+    for (const item of calls) {
+      const call = item as Record<string, unknown>
+      const args = call['arguments'] as Record<string, unknown> | undefined
+      commands.set(String(call['callId']), typeof args?.['command'] === 'string' ? args['command'] : JSON.stringify(args ?? {}))
+    }
+  }
   async function send(): Promise<void> {
     const content = draft.trim()
     if (content.length === 0 || session?.writable !== true) return
     setDraft('')
-    if (session.runState === 'running' && delivery === 'follow_up') {
-      setQueued(content)
-      return
-    }
+    if (session.runState === 'running' && delivery === 'follow_up') { setQueued(content); return }
     await onSend(content)
   }
   useEffect(() => {
@@ -182,239 +245,188 @@ function RunView({
     setQueued(undefined)
     void onSend(content)
   }, [session?.runState, queued, onSend])
-  return (
-    <main className="run-view">
-      <div className="conversation-scroll">
-        <div className="run-intro"><span className="eyebrow">{session?.assembly.toUpperCase() ?? 'CASE2'} · {session?.writable ? 'LIVE SESSION' : 'COMPLETED SESSION'}</span><h1>{session?.title ?? 'Select a session'}</h1><p>{session?.writable ? 'Commands advance the same persistent Journal shown in the inspector.' : 'This completed Journal is available for read-only inspection.'}</p></div>
-        {visibleEvents.map(event => {
-          const data = event.data as Record<string, unknown>
-          const time = event.observedAt === undefined ? '' : new Date(event.observedAt).toLocaleTimeString()
-          if (event.type === 'user.message') return <section className="turn user-turn" key={event.position}><div className="avatar user">L</div><div><div className="message-meta"><strong>You</strong><time>{time}</time></div><p>{String(data['content'] ?? '')}</p></div></section>
-          if (event.type === 'assistant.reasoning') return <section className="turn assistant-turn compact-turn" key={event.position}><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><details className="reasoning"><summary>Reasoning</summary><p>{String(data['content'] ?? '')}</p></details></div></section>
-          if (event.type === 'assistant.message') return <section className="turn assistant-turn" key={event.position}><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><time>{time}</time></div><p>{String(data['content'] ?? '')}</p></div></section>
-          if (event.type === 'tool.call') {
-            const calls = Array.isArray(data['calls']) ? data['calls'] as Array<Record<string, unknown>> : []
-            return <div className="timeline-tool" key={event.position}>{calls.map(call => <div className="tool-card" key={String(call['callId'])}><div className="tool-heading"><span className="tool-icon"><Icon name="terminal" size={15}/></span><strong>{String(call['name'])}</strong><code>{JSON.stringify(call['arguments'])}</code><span className="tool-time">{formatElapsed(event.elapsedMs)}</span></div></div>)}</div>
-          }
-          const results = Array.isArray(data['results']) ? data['results'] as Array<Record<string, unknown>> : []
-          return <div className="timeline-tool" key={event.position}>{results.map(result => <div className="tool-card result-card" key={String(result['callId'])}><div className="tool-heading"><span className="tool-icon"><Icon name="check" size={15}/></span><strong>{String(result['name'])}</strong><span className="success-pill">result</span></div><pre>{String(result['content'] ?? '')}</pre></div>)}</div>
-        })}
-        {live !== undefined && <section className="turn assistant-turn live-turn"><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><span className="working"><i/>generating</span></div>{live.reasoning.length > 0 && <details className="reasoning" open><summary>Reasoning</summary><p>{live.reasoning}</p></details>}{live.content.length > 0 && <p>{live.content}</p>}{live.toolCalls.map((call, index) => <div className="live-tool" key={`${call}-${index}`}><Icon name="terminal" size={13}/>{call}</div>)}</div></section>}
-        {interactions.map(interaction => <InteractionCard key={interaction.id} interaction={interaction} onRespond={onRespond}/>)}
-        {error !== undefined && <div className="run-error">{error}</div>}
-      </div>
-      <div className="composer-wrap">
-        <div className="context-meter"><span><i/>{session?.eventCount ?? 0} committed facts</span><span>{session?.runState ?? 'offline'}</span></div>
-        <div className="composer">
-          <textarea value={draft} disabled={session?.writable !== true} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }} placeholder={session?.writable ? 'Ask Knot to inspect or change the workspace…' : 'This session is read only'} rows={3}/>
-          <div className="composer-actions"><div>{session?.runState === 'running' ? <button className="small-action" onClick={() => setDelivery(value => value === 'steer' ? 'follow_up' : 'steer')}>{delivery === 'steer' ? 'Steer now' : 'Follow up'}</button> : <button className="small-action" disabled>New turn</button>}<button className="small-action" disabled>@ Files</button></div><div>{session?.runState === 'paused' ? <button className="pause-button" onClick={() => void onResume()}><Icon name="play" size={14}/>Resume</button> : <button className="pause-button" disabled={session?.runState !== 'running'} onClick={() => void onPause()}><Icon name="pause" size={14}/>Pause</button>}<button className="send-button" disabled={draft.trim().length === 0 || session?.writable !== true} onClick={() => void send()} title={session?.runState === 'running' ? delivery === 'steer' ? 'Send steering to the active turn' : 'Queue after the current turn' : 'Start a turn'}><Icon name="send" size={15}/></button></div></div>
-        </div>
-        <div className="fixture-note">{queued === undefined ? session?.writable ? 'LiveOutput is transient · completed facts are committed to JSONL' : 'Read-only persisted Journal' : `Queued follow-up: ${queued}`}</div>
-      </div>
-    </main>
-  )
-}
-
-function StudioView() {
-  const [provider, setProvider] = useState<'mock' | 'real'>('real')
-  return (
-    <main className="studio-view">
-      <div className="studio-heading"><div><span className="eyebrow">ASSEMBLY</span><h1>CASE2 coding agent</h1><p>Six responsibility boundaries composed around one Journal.</p></div><div className="studio-actions"><button>Validate</button><button className="primary"><Icon name="play" size={14}/>Run case</button></div></div>
-      <section className="studio-card pipeline-card"><div className="card-heading"><div><h2>Runtime path</h2><p>Descriptive topology derived from the current assembly.</p></div><span className="healthy"><i/>6 plugins ready</span></div><div className="pipeline">{assemblyStages.map((stage, index) => <div className="stage-wrap" key={stage.label}><article className={`stage ${stage.tone}`}><span>{String(index + 1).padStart(2, '0')}</span><strong>{stage.label}</strong><small>{stage.detail}</small></article>{index < assemblyStages.length - 1 && <div className="connector"><i/></div>}</div>)}</div></section>
-      <div className="studio-grid">
-        <section className="studio-card"><div className="card-heading"><div><h2>Case configuration</h2><p>One controlled fixture, one selected provider.</p></div><code>case2/basic-edit</code></div><div className="field"><label>Content provider</label><div className="segmented"><button className={provider === 'mock' ? 'active' : ''} onClick={() => setProvider('mock')}>Mock</button><button className={provider === 'real' ? 'active' : ''} onClick={() => setProvider('real')}>qwen3-coder</button></div></div><div className="field"><label>Workspace</label><code>/workspace/knot-agent/.fixtures/basic-edit</code></div><div className="field"><label>Assertions</label><span>assistant.message · tool.result · tests pass</span></div></section>
-        <section className="studio-card"><div className="card-heading"><div><h2>Last validation</h2><p>Mock and real use the same assembly boundaries.</p></div><span className="success-pill"><Icon name="check" size={12}/>passed</span></div><div className="metrics"><div><strong>2.12s</strong><span>duration</span></div><div><strong>2</strong><span>model calls</span></div><div><strong>1</strong><span>tool batch</span></div><div><strong>1.4k</strong><span>tokens</span></div></div><div className="comparison"><span>Journal invariants</span><strong>8 / 8</strong><div><i/></div></div></section>
-      </div>
-      <section className="studio-card plugin-table-card"><div className="card-heading"><div><h2>Assembly components</h2><p>Registration order is behavior; metadata remains provisional.</p></div><button className="subtle-button"><Icon name="plus" size={14}/>Add component</button></div><div className="plugin-table">{plugins.slice(0, 5).map((plugin, index) => <div className="plugin-row" key={plugin.name}><span className="order">{index + 1}</span><span><strong>{plugin.name}</strong><small>{plugin.responsibility}</small></span><code>{plugin.listens}</code><span className="arrow">→</span><code>{plugin.emits}</code><button><Icon name="chevron" size={14}/></button></div>)}</div></section>
-    </main>
-  )
-}
-
-function eventTone(type: string): 'neutral' | 'model' | 'tool' | 'success' {
-  if (type.startsWith('llm.') || type === 'assistant.reasoning') return 'model'
-  if (type.startsWith('tool.')) return 'tool'
-  if (type === 'assistant.message') return 'success'
-  return 'neutral'
-}
-
-function formatElapsed(value?: number): string {
-  if (value === undefined) return '—'
-  return value < 1_000 ? `+${value}ms` : `+${(value / 1_000).toFixed(2)}s`
+  const percent = usage === undefined || usage.window === 0 ? 0 : Math.min(100, usage.input / usage.window * 100)
+  return <main className="run-view">
+    <div className="session-strip"><div><span className={`run-state ${session?.runState ?? 'offline'}`}/><strong>{session?.runState ?? 'offline'}</strong><span>{session?.eventCount ?? 0} facts</span></div><div className="workspace-compact" title={workspace}><Icon name="folder" size={12}/><span>main</span><b>/</b><code>{workspace}</code></div><div className="usage-compact"><span>Context</span><div><i style={{ width: `${percent}%` }}/></div><strong>{usage === undefined ? 'unknown' : `${usage.input.toLocaleString()} / ${usage.window.toLocaleString()}`}</strong></div><div><span>Last output</span><strong>{usage === undefined ? '—' : `${usage.output} tk`}</strong></div></div>
+    <div className="conversation-scroll"><div className="run-intro"><span className="eyebrow">{session?.assembly.toUpperCase() ?? 'CASE2'} · {session?.writable ? 'LIVE SESSION' : 'COMPLETED SESSION'}</span><h1>{session?.title ?? 'Select a session'}</h1><p>{session?.writable ? 'Commands advance the persistent Journal shown in the inspector.' : 'This completed Journal is available for read-only inspection.'}</p></div>
+      {visibleEvents.map(event => {
+        const data = event.data as Record<string, unknown>
+        const time = event.observedAt === undefined ? '' : new Date(event.observedAt).toLocaleTimeString()
+        if (event.type === 'user.message') return <section className="turn user-turn" key={event.position}><div className="avatar user">L</div><div><div className="message-meta"><strong>You</strong><time>{time}</time></div><p>{String(data['content'] ?? '')}</p></div></section>
+        if (event.type === 'assistant.reasoning') return <section className="turn assistant-turn compact-turn" key={event.position}><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><details className="reasoning"><summary>Reasoning</summary><p>{String(data['content'] ?? '')}</p></details></div></section>
+        if (event.type === 'assistant.message') return <section className="turn assistant-turn" key={event.position}><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><time>{time}</time></div><p>{String(data['content'] ?? '')}</p></div></section>
+        if (event.type === 'tool.call') {
+          const calls = Array.isArray(data['calls']) ? data['calls'] as Array<Record<string, unknown>> : []
+          return <div className="timeline-tool" key={event.position}>{calls.map(call => <div className="tool-card" key={String(call['callId'])}><div className="tool-heading"><span className="tool-icon"><Icon name="terminal" size={15}/></span><strong>{String(call['name'])}</strong><code>{commands.get(String(call['callId']))}</code><span className="tool-time">{formatElapsed(event.elapsedMs)}</span></div></div>)}</div>
+        }
+        const results = Array.isArray(data['results']) ? data['results'] as Array<Record<string, unknown>> : []
+        return <div className="timeline-tool" key={event.position}>{results.map(result => <ToolResult key={String(result['callId'])} result={result} command={commands.get(String(result['callId']))}/>)}</div>
+      })}
+      {live !== undefined && <section className="turn assistant-turn live-turn"><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><span className="working"><i/>generating</span></div>{live.reasoning.length > 0 && <details className="reasoning" open><summary>Reasoning · live</summary><p>{live.reasoning}</p></details>}{live.content.length > 0 && <p>{live.content}</p>}{live.toolCalls.map((call, index) => <div className="live-tool" key={`${call}-${index}`}><Icon name="terminal" size={13}/>{call}</div>)}</div></section>}
+      {interactions.map(interaction => <InteractionCard key={interaction.id} interaction={interaction} onRespond={onRespond}/>)}{error !== undefined && <div className="run-error">{error}</div>}
+    </div>
+    <div className="composer-wrap"><div className="composer"><textarea value={draft} disabled={session?.writable !== true} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }} placeholder={session?.writable ? 'Ask Knot to inspect or change the workspace…' : 'This session is read only'} rows={3}/><div className="composer-actions"><div>{session?.runState === 'running' ? <button className="small-action" onClick={() => setDelivery(value => value === 'steer' ? 'follow_up' : 'steer')}>{delivery === 'steer' ? 'Steer now' : 'Follow up'}</button> : <button className="small-action" disabled>New turn</button>}<button className="small-action" onClick={() => setDraft(value => `${value}@`)}>@ Files</button></div><div>{session?.runState === 'paused' ? <button className="pause-button" onClick={() => void onResume()}><Icon name="play" size={14}/>Resume</button> : <button className="pause-button" disabled={session?.runState !== 'running'} onClick={() => void onPause()}><Icon name="pause" size={14}/>Pause</button>}<button className="send-button" disabled={draft.trim().length === 0 || session?.writable !== true} onClick={() => void send()}><Icon name="send" size={15}/></button></div></div></div><div className="fixture-note">{queued === undefined ? session?.writable ? 'LiveOutput is transient · completed facts are committed to JSONL' : 'Read-only persisted Journal' : `Queued follow-up: ${queued}`}</div></div>
+  </main>
 }
 
 function TracePanel({ events }: { events: readonly ReadEvent[] }) {
-  return <div className="trace-list">{events.map(event => <button className="trace-row" key={event.position}><span className="trace-number">{String(event.position).padStart(3, '0')}</span><i className={eventTone(event.type)}/><span><strong>{event.type}</strong><small>{event.observedAt === undefined ? 'legacy event · no timestamp' : new Date(event.observedAt).toLocaleTimeString()}</small></span><time>{formatElapsed(event.elapsedMs)}</time></button>)}</div>
+  const [filter, setFilter] = useState('')
+  const [selected, setSelected] = useState<number>(events.at(-1)?.position ?? 0)
+  const needle = filter.toLowerCase().trim()
+  const visible = needle === '' ? events : events.filter(event => `${event.type} ${eventPreview(event)} ${ownerFor(event.type)}`.toLowerCase().includes(needle))
+  const detail = events.find(event => event.position === selected)
+  const modelCalls = events.filter(event => event.type === 'llm.generated').length
+  const toolCalls = events.filter(event => event.type === 'tool.call').length
+  const elapsed = events.reduce((sum, event) => sum + (event.elapsedMs ?? 0), 0)
+  return <div className="trace-panel"><div className="trace-summary"><div><strong>{events.length}</strong><span>facts</span></div><div><strong>{modelCalls}</strong><span>model calls</span></div><div><strong>{toolCalls}</strong><span>tool batches</span></div><div><strong>{(elapsed / 1_000).toFixed(2)}s</strong><span>observed</span></div></div><label className="trace-search"><Icon name="search" size={13}/><input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter event, owner or payload"/></label><div className="trace-columns"><span>#</span><span>Event / payload</span><span>Owner</span><span>Time</span><span>Δ</span></div><div className="trace-list">{visible.map(event => <button className={`trace-row ${selected === event.position ? 'selected' : ''}`} key={event.position} onClick={() => setSelected(event.position)}><span className="trace-number">{String(event.position).padStart(3, '0')}</span><i className={eventTone(event.type)}/><span className="trace-main"><strong>{event.type}</strong><small>{eventPreview(event)}</small></span><code>{ownerFor(event.type)}</code><time>{event.observedAt === undefined ? '—' : new Date(event.observedAt).toLocaleTimeString([], { hour12: false })}</time><time>{formatElapsed(event.elapsedMs)}</time></button>)}</div>{detail !== undefined && <div className="trace-detail"><header><span><i className={eventTone(detail.type)}/><strong>{detail.type}</strong><code>#{detail.position}</code></span><button onClick={() => setSelected(-1)}><Icon name="close" size={13}/></button></header><p>{eventPreview(detail)}</p><pre>{JSON.stringify(detail.data, null, 2)}</pre></div>}</div>
 }
 
 function ContextPanel() {
-  const total = useMemo(() => contextMessages.reduce((sum, message) => sum + Number(message.tokens), 0), [])
-  return <div className="context-panel"><div className="context-summary"><span>Projected request</span><strong>{total} tokens</strong></div>{contextMessages.map((message, index) => <article className="context-message" key={`${message.role}-${index}`}><header><span className={`role ${message.role}`}>{message.role}</span><code>{message.tokens} tk</code></header><p>{message.text}</p>{message.tool && <span className="context-tool">tool: {message.tool}</span>}</article>)}</div>
+  const total = contextMessages.reduce((sum, message) => sum + message.tokens, 0)
+  return <div className="context-panel"><div className="blueprint-banner"><span>Blueprint</span><p>Projected request shape. Real request capture stays deferred until provider diagnostics require it.</p></div><div className="context-usage"><div><strong>{total.toLocaleString()}</strong><span>estimated tokens</span></div><div className="context-bar">{contextMessages.map(message => <i key={message.role} className={`bar-${message.role}`} style={{ width: `${message.tokens / total * 100}%` }}/>)}</div></div>{contextMessages.map((message, index) => <article className="context-message" key={`${message.role}-${index}`}><header><span className={`role ${message.role}`}>{message.role}</span><code>{message.tokens} tk</code></header><p>{message.text}</p><footer><span>{message.source}</span>{'tool' in message && message.tool !== undefined && <span>tool: {message.tool}</span>}</footer></article>)}</div>
 }
 
 function JournalPanel({ state, onRefresh }: { state: JournalState; onRefresh: () => void }) {
   const [filter, setFilter] = useState('')
-  if (state.status === 'loading') {
-    return <div className="journal-state"><i className="loading-dot"/><strong>Reading Journal…</strong><span>The workbench has read-only access.</span></div>
-  }
-  if (state.status === 'error') {
-    return <div className="journal-state error-state"><strong>Journal unavailable</strong><span>{state.message}</span><button onClick={onRefresh}>Try again</button></div>
-  }
-
+  if (state.status === 'loading') return <div className="journal-state"><i className="loading-dot"/><strong>Reading Journal…</strong><span>The workbench has read-only access.</span></div>
+  if (state.status === 'error') return <div className="journal-state error-state"><strong>Journal unavailable</strong><span>{state.message}</span><button onClick={onRefresh}>Try again</button></div>
   const needle = filter.trim().toLowerCase()
-  const events = needle.length === 0
-    ? state.snapshot.events
-    : state.snapshot.events.filter(event =>
-      event.type.toLowerCase().includes(needle)
-      || JSON.stringify(event.data).toLowerCase().includes(needle),
-    )
-  return <div className="journal-panel">
-    <div className="journal-toolbar">
-      <label className="journal-search"><Icon name="search" size={14}/><input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter type or payload"/></label>
-      <button onClick={onRefresh}>Refresh</button>
-    </div>
-    {state.snapshot.session.eventCount === 0
-      ? <div className="journal-state"><strong>Empty Journal</strong><span>The configured source contains no events.</span></div>
-      : events.length === 0
-        ? <div className="journal-state"><strong>No matching events</strong><span>Clear the filter to show all facts.</span></div>
-        : events.map(event => <details className="journal-event" key={event.position}><summary><span>{String(event.position).padStart(3, '0')}</span><code>{event.type}</code></summary><pre>{JSON.stringify({ type: event.type, data: event.data }, null, 2)}</pre></details>)}
-  </div>
+  const events = needle === '' ? state.snapshot.events : state.snapshot.events.filter(event => `${event.type} ${JSON.stringify(event.data)}`.toLowerCase().includes(needle))
+  return <div className="journal-panel"><div className="journal-toolbar"><label className="journal-search"><Icon name="search" size={14}/><input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter type or payload"/></label><button onClick={onRefresh}>Refresh</button></div>{events.length === 0 ? <div className="journal-state"><strong>No matching events</strong><span>Clear the filter to show all facts.</span></div> : events.map(event => <details className="journal-event" key={event.position}><summary><span>{String(event.position).padStart(3, '0')}</span><code>{event.type}</code><small>{eventPreview(event)}</small><time>{formatElapsed(event.elapsedMs)}</time></summary><pre>{JSON.stringify({ type: event.type, data: event.data }, null, 2)}</pre></details>)}</div>
 }
 
 function PluginsPanel() {
-  return <div className="plugins-panel"><div className="inventory-note"><Icon name="code" size={17}/><div><strong>Runtime inventory</strong><span>Observed from the CASE2 assembly fixture.</span></div></div>{plugins.map(plugin => <article className="plugin-card" key={plugin.name}><header><span><i className={plugin.state}/><strong>{plugin.name}</strong></span><button><Icon name="chevron" size={14}/></button></header><p>{plugin.responsibility}</p><dl><div><dt>listens</dt><dd>{plugin.listens}</dd></div><div><dt>emits</dt><dd>{plugin.emits}</dd></div></dl></article>)}</div>
+  const [selected, setSelected] = useState(plugins[0]!.id)
+  const plugin = plugins.find(item => item.id === selected) ?? plugins[0]!
+  return <div className="plugins-panel"><div className="blueprint-banner"><span>Blueprint</span><p>Assembly metadata fixture. It defines the future read-model contract.</p></div><div className="plugin-mini-list">{plugins.map((item, index) => <button key={item.id} className={selected === item.id ? 'active' : ''} onClick={() => setSelected(item.id)}><b>{String(index + 1).padStart(2, '0')}</b><span><strong>{item.name}</strong><small>{item.responsibility}</small></span><i className={item.state}/></button>)}</div><PluginDetail plugin={plugin}/></div>
 }
 
-function Inspector({ journal, onRefresh }: { journal: JournalState; onRefresh: () => void }) {
+function PluginDetail({ plugin }: { plugin: PluginFixture }) {
+  return <article className="plugin-detail"><header><span className={`category ${plugin.category}`}>{plugin.category}</span><code>{plugin.version}</code></header><h3>{plugin.name}</h3><p>{plugin.description}</p><dl><div><dt>Listens</dt><dd>{plugin.listens.join(' · ') || '—'}</dd></div><div><dt>Emits</dt><dd>{plugin.emits.join(' · ') || '—'}</dd></div><div><dt>Protocols</dt><dd>{plugin.protocols.join(' · ')}</dd></div><div><dt>Author</dt><dd>{plugin.author}</dd></div></dl></article>
+}
+
+function Inspector({ journal, open, width, onWidth, onClose, onRefresh }: { journal: JournalState; open: boolean; width: number; onWidth: (width: number) => void; onClose: () => void; onRefresh: () => void }) {
   const [tab, setTab] = useState<InspectorTab>('trace')
+  if (!open) return null
   const snapshot = journal.status === 'ready' ? journal.snapshot : undefined
-  const content = tab === 'trace' && snapshot !== undefined
-    ? <TracePanel events={snapshot.events}/>
-    : tab === 'journal' ? <JournalPanel state={journal} onRefresh={onRefresh}/> : null
-  return (
-    <aside className="inspector"><div className="inspector-heading"><div><strong>Inspector</strong><span>{snapshot?.session.title ?? 'read-only Journal'}</span></div><button className="icon-button" aria-label="Inspector options"><Icon name="more" size={16}/></button></div><div className="inspector-tabs">{(['trace', 'context', 'journal', 'plugins'] as const).map(item => <button key={item} disabled={item === 'context' || item === 'plugins'} title={item === 'context' || item === 'plugins' ? 'Deferred until a real read model exists' : `Real ${item} data`} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div><div className="inspector-content">{content}</div><footer className="inspector-footer"><span><i/>{snapshot?.session.eventCount ?? 0} facts</span><span>{snapshot?.session.runState ?? 'offline'}</span></footer></aside>
-  )
+  function startResize(event: React.PointerEvent<HTMLDivElement>): void {
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const startX = event.clientX
+    const startWidth = width
+    const move = (next: PointerEvent) => onWidth(Math.max(330, Math.min(680, startWidth + startX - next.clientX)))
+    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+  }
+  const content = tab === 'trace' && snapshot !== undefined ? <TracePanel events={snapshot.events}/> : tab === 'context' ? <ContextPanel/> : tab === 'journal' ? <JournalPanel state={journal} onRefresh={onRefresh}/> : <PluginsPanel/>
+  return <aside className="inspector"><div className="inspector-resizer" onPointerDown={startResize}/><div className="inspector-heading"><div><strong>Inspector</strong><span>{snapshot?.session.title ?? 'Journal read model'}</span></div><div><button className="width-button" onClick={() => onWidth(width < 520 ? 600 : 390)}>{width < 520 ? 'Wide' : 'Compact'}</button><button className="icon-button" onClick={onClose} aria-label="Close inspector"><Icon name="close" size={15}/></button></div></div><div className="inspector-tabs">{(['trace', 'context', 'journal', 'plugins'] as const).map(item => <button key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}{(item === 'context' || item === 'plugins') && <i/>}</button>)}</div><div className="inspector-content">{content}</div><footer className="inspector-footer"><span><i/>{snapshot?.session.eventCount ?? 0} facts</span><span>{tab === 'trace' || tab === 'journal' ? 'JSONL source' : 'fixture blueprint'}</span></footer></aside>
+}
+
+function StudioView({ currentCase, provider, onProvider, validation, onValidate, onRun, onAddPlugin }: { currentCase: CaseFixture; provider: 'mock' | 'real'; onProvider: (value: 'mock' | 'real') => void; validation: 'idle' | 'running' | 'passed'; onValidate: () => void; onRun: () => void; onAddPlugin: () => void }) {
+  const [section, setSection] = useState<'topology' | 'sequence' | 'protocols'>('topology')
+  const [selectedPlugin, setSelectedPlugin] = useState(plugins[5]!.id)
+  const plugin = plugins.find(item => item.id === selectedPlugin) ?? plugins[5]!
+  return <main className="studio-view"><div className="studio-heading"><div><span className="eyebrow">AGENT ASSEMBLY · BLUEPRINT</span><h1>{currentCase.title}</h1><p>{currentCase.summary}</p></div><div className="studio-actions"><button onClick={onValidate}>{validation === 'running' ? 'Validating…' : validation === 'passed' ? <><Icon name="check" size={14}/>Validated</> : 'Validate'}</button><button className="primary" onClick={onRun}><Icon name="play" size={14}/>Run case</button></div></div>
+    <div className="studio-tabs"><button className={section === 'topology' ? 'active' : ''} onClick={() => setSection('topology')}>Assembly</button><button className={section === 'sequence' ? 'active' : ''} onClick={() => setSection('sequence')}>Interaction sequence</button><button className={section === 'protocols' ? 'active' : ''} onClick={() => setSection('protocols')}>Protocol catalog</button></div>
+    {section === 'topology' && <><section className="studio-card assembly-map"><div className="card-heading"><div><h2>Registration order</h2><p>Every component is an ordinary Journal plugin; order is explicit assembly behavior.</p></div><span className="healthy"><i/>{plugins.length} components</span></div><div className="plugin-lanes">{(['platform', 'context', 'flow', 'content', 'effect', 'presentation'] as const).map(category => <div className="plugin-lane" key={category}><span>{category}</span><div>{plugins.filter(item => item.category === category).map((item, index) => <button key={item.id} className={selectedPlugin === item.id ? 'active' : ''} onClick={() => setSelectedPlugin(item.id)}><b>{plugins.indexOf(item) + 1}</b><strong>{item.name}</strong><small>{item.listens.join(' · ')}</small>{index < plugins.filter(candidate => candidate.category === category).length - 1 && <i/>}</button>)}</div></div>)}</div></section><div className="studio-detail-grid"><section className="studio-card plugin-table-card"><div className="card-heading"><div><h2>Assembly components</h2><p>Select a component to inspect its stable responsibility and protocols.</p></div><button className="subtle-button" onClick={onAddPlugin}><Icon name="plus" size={14}/>Add component</button></div><div className="plugin-table">{plugins.map((item, index) => <button className={`plugin-row ${selectedPlugin === item.id ? 'active' : ''}`} key={item.id} onClick={() => setSelectedPlugin(item.id)}><span className="order">{index + 1}</span><span><strong>{item.name}</strong><small>{item.responsibility}</small></span><span className={`category ${item.category}`}>{item.category}</span><code>{item.listens.join(' · ')}</code><span className="arrow">→</span><code>{item.emits.join(' · ') || '—'}</code></button>)}</div></section><section className="studio-card sticky-detail"><PluginDetail plugin={plugin}/><div className="contract-note"><Icon name="code" size={16}/><span><strong>Metadata contract candidate</strong><small>ID, version, author, responsibility and protocol declarations stay descriptive until frozen by later cases.</small></span></div></section></div></>}
+    {section === 'sequence' && <section className="studio-card sequence-card"><div className="card-heading"><div><h2>One complete coding turn</h2><p>An interactive fixture of the event path; it is the acceptance target for a future assembly read model.</p></div><span className="blueprint-pill">fixture</span></div><div className="sequence-head"><span>Producer</span><span>Journal event</span><span>Consumer</span><span>Meaning</span></div><div className="sequence-list">{sequence.map((step, index) => <button key={`${step.event}-${index}`}><b>{String(index + 1).padStart(2, '0')}</b><strong>{step.from}</strong><span><i/>→ <code>{step.event}</code> →<i/></span><strong>{step.to}</strong><small>{step.note}</small></button>)}</div></section>}
+    {section === 'protocols' && <section className="studio-card protocol-card"><div className="card-heading"><div><h2>Protocol catalog</h2><p>The vocabulary that lets plugins collaborate without naming one another.</p></div><span className="blueprint-pill">{protocols.length} contracts</span></div><div className="protocol-table"><header><span>Protocol</span><span>Kind</span><span>Purpose</span><span>Producer → consumers</span><span>Fields</span></header>{protocols.map(item => <article key={item.name}><code>{item.name}</code><span className={`protocol-kind ${item.kind}`}>{item.kind}</span><p>{item.summary}</p><span><strong>{item.producer}</strong><i>→</i>{item.consumers}</span><code>{item.fields}</code></article>)}</div></section>}
+    <div className="studio-bottom-grid"><section className="studio-card"><div className="card-heading"><div><h2>Case configuration</h2><p>Fixture configuration; Run creates a real CASE2 session.</p></div><code>{currentCase.assembly}</code></div><div className="field"><label>Content provider</label><div className="segmented"><button className={provider === 'mock' ? 'active' : ''} onClick={() => onProvider('mock')}>Mock</button><button className={provider === 'real' ? 'active' : ''} onClick={() => onProvider('real')}>Real model</button></div></div><div className="field"><label>Workspace</label><code>{currentCase.workspace}</code></div><div className="field"><label>Assertions</label><span>{currentCase.assertions.join(' · ')}</span></div></section><section className="studio-card"><div className="card-heading"><div><h2>Last validation</h2><p>Mock and real providers share the same assembly boundaries.</p></div><span className="success-pill"><Icon name="check" size={12}/>{validation === 'passed' ? 'passed now' : 'passed'}</span></div><div className="metrics"><div><strong>2.12s</strong><span>duration</span></div><div><strong>2</strong><span>model calls</span></div><div><strong>1</strong><span>tool batch</span></div><div><strong>1.4k</strong><span>tokens</span></div></div></section></div>
+  </main>
+}
+
+function Dialog({ kind, project, projects, currentCase, model, onClose, onCreateSession, onCreateCase, onCreateProject, onSelectProject, onModel }: { kind: DialogKind; project: ProjectFixture; projects: readonly ProjectFixture[]; currentCase: CaseFixture; model: string; onClose: () => void; onCreateSession: (title: string, cwd: string) => void; onCreateCase: (title: string) => void; onCreateProject: (name: string, root: string) => void; onSelectProject: (id: string) => void; onModel: (model: string) => void }) {
+  const [title, setTitle] = useState(kind === 'new-session' ? `${currentCase.title} run` : kind === 'projects' ? 'Untitled agent project' : 'Untitled case')
+  const [cwd, setCwd] = useState(kind === 'projects' ? '/Users/lizhe/workspace' : currentCase.workspace)
+  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className="dialog"><header><div><span className="eyebrow">{kind === 'settings' || kind === 'projects' ? 'PROJECT' : kind === 'plugin-library' ? 'STUDIO' : 'CREATE'}</span><h2>{kind === 'new-session' ? 'New CASE2 session' : kind === 'new-case' ? 'New simulation case' : kind === 'projects' ? 'Projects' : kind === 'settings' ? 'Project settings' : 'Component library'}</h2></div><button className="icon-button" onClick={onClose}><Icon name="close" size={16}/></button></header>{kind === 'new-session' && <><label>Session title<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Working directory<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><div className="dialog-summary"><span>Assembly</span><strong>CASE2 coding agent</strong><span>Provider</span><strong>{model}</strong></div><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateSession(title.trim(), cwd.trim())}>Create session</button></footer></>}{kind === 'new-case' && <><label>Case name<input value={title} onChange={event => setTitle(event.target.value)}/></label><p className="dialog-copy">Creates a local blueprint by copying the current CASE2 assembly. Persistence will be connected after the project format is frozen.</p><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === ''} onClick={() => onCreateCase(title.trim())}>Create fixture</button></footer></>}{kind === 'projects' && <><div className="project-list">{projects.map(item => <button key={item.id} className={item.id === project.id ? 'active' : ''} onClick={() => onSelectProject(item.id)}><span className="project-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span><strong>{item.name}</strong><small>{item.root}</small></span>{item.id === project.id && <Icon name="check" size={14}/>}</button>)}</div><div className="dialog-divider"><span>New fixture project</span></div><label>Project name<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Workspace root<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateProject(title.trim(), cwd.trim())}>Create project</button></footer></>}{kind === 'settings' && <><div className="settings-list"><div><span>Project root</span><code>{project.root}</code></div><div><span>Runtime</span><strong>Local Node.js · connected</strong></div><div><span>Storage</span><strong>Append-only JSONL</strong></div><div><span>Default case</span><strong>{currentCase.title}</strong></div></div><label>Default model<select value={model} onChange={event => onModel(event.target.value)}><option>qwen3-coder</option><option>DeepSeek Reasoner</option><option>Mock provider</option></select></label><footer><button className="primary" onClick={onClose}>Done</button></footer></>}{kind === 'plugin-library' && <><div className="library-grid">{plugins.slice(2, 8).map(plugin => <button key={plugin.id} onClick={onClose}><span className={`category ${plugin.category}`}>{plugin.category}</span><strong>{plugin.name}</strong><small>{plugin.responsibility}</small><i>Already assembled</i></button>)}</div><p className="dialog-copy">Dynamic installation is intentionally a UI fixture until plugin identity, metadata and runtime mutation semantics are frozen.</p></>}</section></div>
 }
 
 export function App() {
   const [mode, setMode] = useState<Mode>('run')
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
   const [selected, setSelected] = useState<string>()
+  const [caseItems, setCaseItems] = useState<readonly CaseFixture[]>(caseFixtures)
+  const [projects, setProjects] = useState<readonly ProjectFixture[]>(initialProjects)
+  const [selectedProject, setSelectedProject] = useState(initialProjects[0]!.id)
+  const [selectedCase, setSelectedCase] = useState(caseFixtures[0]!.id)
   const [journal, setJournal] = useState<JournalState>({ status: 'loading' })
   const [live, setLive] = useState<LiveDraft>()
   const [interactions, setInteractions] = useState<readonly InteractionRequest[]>([])
   const [runError, setRunError] = useState<string>()
   const [reload, setReload] = useState(0)
+  const [dialog, setDialog] = useState<DialogKind>()
+  const [inspectorOpen, setInspectorOpen] = useState(true)
+  const [inspectorWidth, setInspectorWidth] = useState(430)
+  const [model, setModel] = useState('qwen3-coder')
+  const [provider, setProvider] = useState<'mock' | 'real'>('real')
+  const [validation, setValidation] = useState<'idle' | 'running' | 'passed'>('idle')
+  const currentCase = caseItems.find(item => item.id === selectedCase) ?? caseItems[0]!
+  const currentProject = projects.find(item => item.id === selectedProject) ?? projects[0]!
+
   useEffect(() => {
     const controller = new AbortController()
-    void listSessions(controller.signal).then(
-      next => {
-        setSessions(next)
-        setSelected(current => current !== undefined && next.some(session => session.id === current)
-          ? current
-          : next[0]?.id)
-      },
-      error => {
-        if (controller.signal.aborted) return
-        setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) })
-      },
-    )
+    void listSessions(controller.signal).then(next => { setSessions(next); setSelected(current => current !== undefined && next.some(session => session.id === current) ? current : next[0]?.id) }, error => { if (!controller.signal.aborted) setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) }) })
     return () => controller.abort()
   }, [reload])
   useEffect(() => {
     if (selected === undefined) return
     const controller = new AbortController()
     setJournal({ status: 'loading' })
-    void loadJournalSnapshot(selected, controller.signal).then(
-      snapshot => {
-        setJournal({ status: 'ready', snapshot })
-        setSessions(current => current.map(session => session.id === snapshot.session.id ? snapshot.session : session))
-      },
-      error => {
-        if (controller.signal.aborted) return
-        setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) })
-      },
-    )
+    void loadJournalSnapshot(selected, controller.signal).then(snapshot => { setJournal({ status: 'ready', snapshot }); setSessions(current => current.map(session => session.id === snapshot.session.id ? snapshot.session : session)) }, error => { if (!controller.signal.aborted) setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) }) })
     return () => controller.abort()
   }, [selected, reload])
   const activeSession = sessions.find(session => session.id === selected)
   useEffect(() => {
-    setLive(undefined)
-    setInteractions([])
-    setRunError(undefined)
+    setLive(undefined); setInteractions([]); setRunError(undefined)
     if (selected === undefined || activeSession?.writable !== true) return
     let refreshTimer: ReturnType<typeof setTimeout> | undefined
-    const refreshSoon = () => {
-      if (refreshTimer !== undefined) return
-      refreshTimer = setTimeout(() => {
-        refreshTimer = undefined
-        setReload(value => value + 1)
-      }, 25)
-    }
+    const refreshSoon = () => { if (refreshTimer === undefined) refreshTimer = setTimeout(() => { refreshTimer = undefined; setReload(value => value + 1) }, 25) }
     const unsubscribe = subscribeSession(selected, event => {
-      if (event.kind === 'journal.changed') {
-        refreshSoon()
-        return
-      }
-      if (event.kind === 'state.changed') {
-        setSessions(current => current.map(session => session.id === selected
-          ? { ...session, runState: event.runState }
-          : session))
-        setJournal(current => current.status === 'ready'
-          ? { status: 'ready', snapshot: { ...current.snapshot, session: { ...current.snapshot.session, runState: event.runState } } }
-          : current)
-        if (event.runState === 'idle') {
-          setLive(undefined)
-          refreshSoon()
-        }
-        return
-      }
-      if (event.kind === 'generation.open') {
-        setLive({ requestId: event.requestId, reasoning: '', content: '', toolCalls: [] })
-        return
-      }
-      if (event.kind === 'generation.update') {
-        setLive(current => {
-          const base = current?.requestId === event.requestId
-            ? current
-            : { requestId: event.requestId, reasoning: '', content: '', toolCalls: [] }
-          const update: GenerationUpdate = event.update
-          if (update.kind === 'reasoning') return { ...base, reasoning: base.reasoning + update.text }
-          if (update.kind === 'content') return { ...base, content: base.content + update.text }
-          const calls = [...base.toolCalls]
-          calls[update.index] = [calls[update.index], update.name, update.argumentsDelta].filter(Boolean).join(' ')
-          return { ...base, toolCalls: calls }
-        })
-        return
-      }
-      if (event.kind === 'interaction.request') {
-        setInteractions(current => [...current.filter(item => item.id !== event.interaction.id), event.interaction])
-        return
-      }
+      if (event.kind === 'journal.changed') { refreshSoon(); return }
+      if (event.kind === 'state.changed') { setSessions(current => current.map(session => session.id === selected ? { ...session, runState: event.runState } : session)); setJournal(current => current.status === 'ready' ? { status: 'ready', snapshot: { ...current.snapshot, session: { ...current.snapshot.session, runState: event.runState } } } : current); if (event.runState === 'idle') { setLive(undefined); refreshSoon() }; return }
+      if (event.kind === 'generation.open') { setLive({ requestId: event.requestId, reasoning: '', content: '', toolCalls: [] }); return }
+      if (event.kind === 'generation.update') { setLive(current => { const base = current?.requestId === event.requestId ? current : { requestId: event.requestId, reasoning: '', content: '', toolCalls: [] }; const update: GenerationUpdate = event.update; if (update.kind === 'reasoning') return { ...base, reasoning: base.reasoning + update.text }; if (update.kind === 'content') return { ...base, content: base.content + update.text }; const calls = [...base.toolCalls]; calls[update.index] = [calls[update.index], update.name, update.argumentsDelta].filter(Boolean).join(' '); return { ...base, toolCalls: calls } }); return }
+      if (event.kind === 'interaction.request') { setInteractions(current => [...current.filter(item => item.id !== event.interaction.id), event.interaction]); return }
       if (event.kind === 'run.error') setRunError(event.message)
     }, () => setRunError('Live session stream disconnected; committed facts remain available.'))
-    return () => {
-      if (refreshTimer !== undefined) clearTimeout(refreshTimer)
-      unsubscribe()
-    }
+    return () => { if (refreshTimer !== undefined) clearTimeout(refreshTimer); unsubscribe() }
   }, [selected, activeSession?.writable])
 
   async function command(action: () => Promise<void>): Promise<void> {
-    try {
-      setRunError(undefined)
-      await action()
-    } catch (error) {
-      setRunError(error instanceof Error ? error.message : String(error))
-    }
+    try { setRunError(undefined); await action() } catch (error) { setRunError(error instanceof Error ? error.message : String(error)) }
   }
+  async function makeSession(title: string, cwd: string): Promise<void> {
+    await command(async () => { const session = await createSession({ title, cwd }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) })
+  }
+  function makeCase(title: string): void {
+    const item: CaseFixture = { ...currentCase, id: `fixture-${Date.now()}`, title, runs: 0, provider: 'mock', providerLabel: 'mock provider' }
+    setCaseItems(current => [...current, item]); setSelectedCase(item.id); setMode('studio'); setDialog(undefined)
+  }
+  function makeProject(name: string, root: string): void {
+    const item: ProjectFixture = { id: `fixture-${Date.now()}`, name, summary: 'Local fixture project', root }
+    setProjects(current => [...current, item]); setSelectedProject(item.id); setDialog(undefined)
+  }
+  function validate(): void { setValidation('running'); window.setTimeout(() => setValidation('passed'), 700) }
 
   const snapshot = journal.status === 'ready' ? journal.snapshot : undefined
-  return <div className="app-shell">
-    <ProjectRail mode={mode} onMode={setMode} sessions={sessions} selected={selected} onSelect={setSelected} onCreate={() => void command(async () => {
-      const session = await createSession()
-      setSessions(current => [session, ...current])
-      setSelected(session.id)
-    })}/>
-    <section className="center-column"><WorkbenchHeader mode={mode} session={activeSession}/>{mode === 'run' ? <RunView key={snapshot?.session.id} snapshot={snapshot} live={live} interactions={interactions} error={runError} onSend={content => command(async () => { if (selected !== undefined) await submitMessage(selected, content) })} onPause={() => command(async () => { if (selected !== undefined) await pauseSession(selected) })} onResume={() => command(async () => { if (selected !== undefined) await resumeSession(selected) })} onRespond={(interaction, value) => command(async () => { if (selected === undefined) return; await respondToInteraction(selected, interaction.id, value); setInteractions(current => current.filter(item => item.id !== interaction.id)) })}/> : <StudioView/>}</section>
-    <Inspector journal={journal} onRefresh={() => setReload(value => value + 1)}/>
+  const workspace = workspaceFrom(snapshot?.events ?? [], currentCase.workspace)
+  const shellStyle = { '--inspector-width': `${inspectorOpen ? inspectorWidth : 0}px` } as CSSProperties
+  return <div className={`app-shell ${inspectorOpen ? '' : 'inspector-closed'}`} style={shellStyle}>
+    <ProjectRail mode={mode} project={currentProject} sessions={sessions} selectedSession={selected} selectedCase={selectedCase} cases={caseItems} onMode={setMode} onSelectSession={id => { setSelected(id); setMode('run') }} onSelectCase={id => { setSelectedCase(id); setMode('studio') }} onDialog={setDialog}/>
+    <section className="center-column"><WorkbenchHeader mode={mode} project={currentProject} session={activeSession} currentCase={currentCase} workspace={workspace} model={model} inspectorOpen={inspectorOpen} onModel={() => setDialog('settings')} onSettings={() => setDialog('settings')} onInspector={() => setInspectorOpen(true)}/>{mode === 'run' ? <RunView key={snapshot?.session.id} snapshot={snapshot} workspace={workspace} live={live} interactions={interactions} error={runError} onSend={content => command(async () => { if (selected !== undefined) await submitMessage(selected, content) })} onPause={() => command(async () => { if (selected !== undefined) await pauseSession(selected) })} onResume={() => command(async () => { if (selected !== undefined) await resumeSession(selected) })} onRespond={(interaction, value) => command(async () => { if (selected === undefined) return; await respondToInteraction(selected, interaction.id, value); setInteractions(current => current.filter(item => item.id !== interaction.id)) })}/> : <StudioView currentCase={currentCase} provider={provider} onProvider={setProvider} validation={validation} onValidate={validate} onRun={() => void makeSession(`${currentCase.title} run`, currentCase.workspace)} onAddPlugin={() => setDialog('plugin-library')}/>}</section>
+    <Inspector journal={journal} open={inspectorOpen} width={inspectorWidth} onWidth={setInspectorWidth} onClose={() => setInspectorOpen(false)} onRefresh={() => setReload(value => value + 1)}/>
+    {dialog !== undefined && <Dialog
+      kind={dialog}
+      project={currentProject}
+      projects={projects}
+      currentCase={currentCase}
+      model={model}
+      onModel={setModel}
+      onClose={() => setDialog(undefined)}
+      onCreateSession={(title, cwd) => void makeSession(title, cwd)}
+      onCreateCase={makeCase}
+      onCreateProject={makeProject}
+      onSelectProject={id => { setSelectedProject(id); setDialog(undefined) }}
+    />}
   </div>
 }
