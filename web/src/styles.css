@@ -107,6 +107,18 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .working { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
 .working i { width: 5px; height: 5px; border-radius: 50%; background: var(--violet); }
 .turn p { margin: 5px 0 0; font-size: 13px; line-height: 1.65; }
+.markdown-content { margin-top: 4px; color: var(--ink); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.markdown-content > :first-child { margin-top: 0; }.markdown-content > :last-child { margin-bottom: 0; }
+.markdown-content p { margin: 8px 0; }.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { margin: 18px 0 8px; line-height: 1.3; letter-spacing: -.015em; }
+.markdown-content h1 { font-size: 20px; }.markdown-content h2 { font-size: 17px; }.markdown-content h3 { font-size: 15px; }.markdown-content h4 { font-size: 13px; }
+.markdown-content ul, .markdown-content ol { margin: 8px 0; padding-left: 22px; }.markdown-content li { margin: 3px 0; }.markdown-content li > p { margin: 0; }
+.markdown-content blockquote { margin: 10px 0; padding: 2px 11px; border-left: 3px solid #d6d0f3; color: var(--muted); background: #faf9fd; }
+.markdown-content code { padding: 2px 4px; border-radius: 4px; color: #5747a7; background: #f0edfa; font: .92em ui-monospace, SFMono-Regular, Menlo, monospace; }
+.markdown-content pre { max-height: 360px; margin: 10px 0; padding: 11px 12px; overflow: auto; border-radius: 8px; color: #e1e2e7; background: #202229; font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.markdown-content pre code { padding: 0; color: inherit; background: transparent; font: inherit; }
+.markdown-content table { width: 100%; margin: 10px 0; border-collapse: collapse; font-size: 12px; }.markdown-content th, .markdown-content td { padding: 6px 8px; border: .5px solid var(--line-strong); text-align: left; }.markdown-content th { background: #f5f4f8; }
+.markdown-content a { color: #5e4fc0; text-decoration: underline; text-underline-offset: 2px; }.markdown-content hr { margin: 15px 0; border: 0; border-top: .5px solid var(--line); }
+.live-markdown { color: #34353b; }
 .compact-turn { padding-block: 10px; }
 .live-turn { margin-top: 12px; padding: 13px; border: .5px solid #dbd5f7; border-radius: 9px; background: #faf9ff; }
 .reasoning { margin: 6px 0 9px; padding: 7px 9px; border-left: 2px solid #d8d3f3; color: var(--muted); background: #faf9fd; font-size: 11px; }
@@ -114,22 +126,25 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .reasoning p { font-size: 11px; }
 .timeline-tool { margin: 9px 0 9px 37px; }
 .tool-card, .terminal-card { margin: 10px 0; overflow: hidden; border: .5px solid var(--line); border-radius: 8px; background: #fafafa; }
+.collapsible-tool > summary { cursor: pointer; list-style: none; user-select: none; }.collapsible-tool > summary::-webkit-details-marker { display: none; }
+.disclosure { width: 14px; height: 14px; flex: 0 0 auto; display: grid; place-items: center; color: var(--faint); }
+.disclosure::before { content: "›"; font-size: 17px; line-height: 1; transition: transform .12s ease; }.collapsible-tool[open] .disclosure::before { transform: rotate(90deg); }
 .tool-heading { min-height: 35px; padding: 6px 8px; display: flex; align-items: center; gap: 7px; }
 .tool-icon { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; color: #8a521d; background: var(--amber-soft); }
 .tool-heading strong { font-size: 11px; }
 .tool-heading code { min-width: 0; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .tool-time { margin-left: auto; color: var(--faint); font-size: 10px; }
 .success-pill { padding: 3px 6px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; color: #287654; background: var(--green-soft); font-size: 10px; font-weight: 650; white-space: nowrap; }
-.tool-card pre { margin: 0; padding: 9px 11px; overflow-x: auto; border-top: .5px solid var(--line); color: #60626a; background: #f5f5f6; font: 10px/1.55 ui-monospace, monospace; }
+.tool-card pre { max-height: 320px; margin: 0; padding: 9px 11px; overflow: auto; border-top: .5px solid var(--line); color: #60626a; background: #f5f5f6; font: 10px/1.55 ui-monospace, monospace; }
 .terminal-card { border-color: #2d3038; background: #181a1f; }
-.terminal-card header { height: 33px; padding: 0 10px; display: flex; align-items: center; gap: 8px; color: #c8cad2; background: #24262d; }
-.terminal-card header code { min-width: 0; flex: 1; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-card header, .terminal-card > summary { height: 33px; padding: 0 10px; display: flex; align-items: center; gap: 8px; color: #c8cad2; background: #24262d; }
+.terminal-card header code, .terminal-card > summary code { min-width: 0; flex: 1; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .terminal-lights { display: flex; gap: 4px; }
 .terminal-lights i { width: 6px; height: 6px; border-radius: 50%; background: #686b73; }
 .terminal-lights i:first-child { background: #d87569; }.terminal-lights i:nth-child(2) { background: #d9a955; }.terminal-lights i:last-child { background: #69ad7d; }
-.terminal-card header > span:last-child { font-size: 9px; }
+.terminal-card header > span:last-child, .terminal-card > summary > span:not(.disclosure) { font-size: 9px; }
 .terminal-ok { color: #79c492; }.terminal-fail { color: #ed8a7e; }
-.terminal-card pre { margin: 0; padding: 11px; overflow-x: auto; color: #d8dae1; background: #181a1f; font: 11px/1.6 ui-monospace, monospace; white-space: pre-wrap; }
+.terminal-card pre { max-height: 320px; margin: 0; padding: 11px; overflow: auto; color: #d8dae1; background: #181a1f; font: 11px/1.6 ui-monospace, monospace; white-space: pre-wrap; }
 .live-tool { margin-top: 7px; padding: 7px 8px; display: flex; align-items: center; gap: 7px; border-radius: 7px; color: var(--amber); background: var(--amber-soft); font: 10px ui-monospace, monospace; }
 .interaction-card { margin: 12px 0 12px 37px; padding: 12px; border: .5px solid #dfcfb9; border-radius: 9px; background: #fffaf4; }
 .interaction-card strong { font-size: 11px; }.interaction-card pre { max-height: 150px; margin: 7px 0; overflow: auto; color: var(--muted); font: 10px/1.5 ui-monospace, monospace; }

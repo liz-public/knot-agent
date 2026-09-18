@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { cases as caseFixtures, contextMessages, plugins, protocols, sequence, type CaseFixture, type PluginFixture } from './fixtures'
 import {
   createSession,
@@ -197,6 +199,10 @@ function InteractionCard({ interaction, onRespond }: { interaction: InteractionR
   return <div className="interaction-card"><strong>{interaction.kind === 'approval' ? `Allow ${interaction.toolName}?` : interaction.question}</strong>{interaction.kind === 'approval' && <pre>{JSON.stringify(interaction.arguments, null, 2)}</pre>}{interaction.kind === 'ask' && interaction.choices === undefined && <input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Your answer"/>}<div>{interaction.kind === 'approval' ? <><button onClick={() => void onRespond(interaction, 'deny')}>Deny</button><button className="primary" onClick={() => void onRespond(interaction, 'allow')}>Allow</button></> : interaction.choices === undefined ? <button className="primary" disabled={answer.trim().length === 0} onClick={() => void onRespond(interaction, answer.trim())}>Answer</button> : interaction.choices.map(choice => <button key={choice} onClick={() => void onRespond(interaction, choice)}>{choice}</button>)}</div></div>
 }
 
+function MarkdownContent({ content, live = false }: { content: string; live?: boolean }) {
+  return <div className={`markdown-content ${live ? 'live-markdown' : ''}`}><ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></div>
+}
+
 function ToolResult({ result, command }: { result: Record<string, unknown>; command?: string }) {
   const raw = String(result['content'] ?? '')
   let parsed: Record<string, unknown> | undefined
@@ -205,10 +211,10 @@ function ToolResult({ result, command }: { result: Record<string, unknown>; comm
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) parsed = value as Record<string, unknown>
   } catch { /* Plain-text tool results remain plain text. */ }
   const isTerminal = result['name'] === 'bash' && parsed !== undefined
-  if (!isTerminal) return <div className="tool-card result-card"><div className="tool-heading"><span className="tool-icon"><Icon name="check" size={15}/></span><strong>{String(result['name'])}</strong><span className="success-pill">result</span></div><pre>{raw}</pre></div>
+  if (!isTerminal) return <details className="tool-card result-card collapsible-tool"><summary className="tool-heading"><span className="tool-icon"><Icon name="check" size={15}/></span><strong>{String(result['name'])}</strong><span className="success-pill">result</span><span className="disclosure"/></summary><pre>{raw}</pre></details>
   const exitCode = Number(parsed?.['exitCode'] ?? 0)
   const output = [String(parsed?.['stdout'] ?? ''), String(parsed?.['stderr'] ?? '')].filter(Boolean).join('\n') || '(no output)'
-  return <div className="terminal-card"><header><span className="terminal-lights"><i/><i/><i/></span><code>$ {command ?? 'bash'}</code><span className={exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>exit {exitCode}</span></header><pre>{output}</pre></div>
+  return <details className="terminal-card collapsible-tool"><summary><span className="terminal-lights"><i/><i/><i/></span><code>$ {command ?? 'bash'}</code><span className={exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>exit {exitCode}</span><span className="disclosure"/></summary><pre>{output}</pre></details>
 }
 
 function RunView({ snapshot, workspace, live, liveTools, interactions, error, onSend, onPause, onResume, onRespond }: {
@@ -226,6 +232,8 @@ function RunView({ snapshot, workspace, live, liveTools, interactions, error, on
   const [draft, setDraft] = useState('')
   const [delivery, setDelivery] = useState<'steer' | 'follow_up'>('steer')
   const [queued, setQueued] = useState<string>()
+  const conversationRef = useRef<HTMLDivElement>(null)
+  const followOutput = useRef(true)
   const session = snapshot?.session
   const events = snapshot?.events ?? []
   const usage = usageFrom(events)
@@ -254,24 +262,36 @@ function RunView({ snapshot, workspace, live, liveTools, interactions, error, on
     setQueued(undefined)
     void onSend(content)
   }, [session?.runState, queued, onSend])
+  const liveOutputSize = (live?.content.length ?? 0)
+    + (live?.reasoning.length ?? 0)
+    + liveTools.reduce((size, tool) => size + tool.output.length, 0)
+  useLayoutEffect(() => {
+    const element = conversationRef.current
+    if (element !== null && followOutput.current) element.scrollTop = element.scrollHeight
+  }, [events.length, interactions.length, liveOutputSize, error])
+  function trackScroll(): void {
+    const element = conversationRef.current
+    if (element === null) return
+    followOutput.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+  }
   const percent = usage === undefined || usage.window === 0 ? 0 : Math.min(100, usage.input / usage.window * 100)
   return <main className="run-view">
     <div className="session-strip"><div><span className={`run-state ${session?.runState ?? 'offline'}`}/><strong>{session?.runState ?? 'offline'}</strong><span>{session?.eventCount ?? 0} facts</span></div><div className="workspace-compact" title={workspace}><Icon name="folder" size={12}/><span>main</span><b>/</b><code>{workspace}</code></div><div className="usage-compact"><span>Context</span><div><i style={{ width: `${percent}%` }}/></div><strong>{usage === undefined ? 'unknown' : `${usage.input.toLocaleString()} / ${usage.window.toLocaleString()}`}</strong></div><div><span>Last output</span><strong>{usage === undefined ? '—' : `${usage.output} tk`}</strong></div></div>
-    <div className="conversation-scroll"><div className="run-intro"><span className="eyebrow">{session?.assembly.toUpperCase() ?? 'CASE2'} · {session?.writable ? 'LIVE SESSION' : 'COMPLETED SESSION'}</span><h1>{session?.title ?? 'Select a session'}</h1><p>{session?.writable ? 'Commands advance the persistent Journal shown in the inspector.' : 'This completed Journal is available for read-only inspection.'}</p></div>
+    <div className="conversation-scroll" ref={conversationRef} onScroll={trackScroll}><div className="run-intro"><span className="eyebrow">{session?.assembly.toUpperCase() ?? 'CASE2'} · {session?.writable ? 'LIVE SESSION' : 'COMPLETED SESSION'}</span><h1>{session?.title ?? 'Select a session'}</h1><p>{session?.writable ? 'Commands advance the persistent Journal shown in the inspector.' : 'This completed Journal is available for read-only inspection.'}</p></div>
       {visibleEvents.map(event => {
         const data = event.data as Record<string, unknown>
         const time = event.observedAt === undefined ? '' : new Date(event.observedAt).toLocaleTimeString()
         if (event.type === 'user.message') return <section className="turn user-turn" key={event.position}><div className="avatar user">L</div><div><div className="message-meta"><strong>You</strong><time>{time}</time></div><p>{String(data['content'] ?? '')}</p></div></section>
         if (event.type === 'assistant.reasoning') return <section className="turn assistant-turn compact-turn" key={event.position}><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><details className="reasoning"><summary>Reasoning</summary><p>{String(data['content'] ?? '')}</p></details></div></section>
-        if (event.type === 'assistant.message') return <section className="turn assistant-turn" key={event.position}><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><time>{time}</time></div><p>{String(data['content'] ?? '')}</p></div></section>
+        if (event.type === 'assistant.message') return <section className="turn assistant-turn" key={event.position}><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><time>{time}</time></div><MarkdownContent content={String(data['content'] ?? '')}/></div></section>
         if (event.type === 'tool.call') {
           const calls = Array.isArray(data['calls']) ? data['calls'] as Array<Record<string, unknown>> : []
-          return <div className="timeline-tool" key={event.position}>{calls.map(call => <div className="tool-card" key={String(call['callId'])}><div className="tool-heading"><span className="tool-icon"><Icon name="terminal" size={15}/></span><strong>{String(call['name'])}</strong><code>{commands.get(String(call['callId']))}</code><span className="tool-time">{formatElapsed(event.elapsedMs)}</span></div></div>)}</div>
+          return <div className="timeline-tool" key={event.position}>{calls.map(call => <details className="tool-card collapsible-tool" key={String(call['callId'])}><summary className="tool-heading"><span className="tool-icon"><Icon name="terminal" size={15}/></span><strong>{String(call['name'])}</strong><code>{commands.get(String(call['callId']))}</code><span className="tool-time">{formatElapsed(event.elapsedMs)}</span><span className="disclosure"/></summary><pre>{JSON.stringify(call['arguments'] ?? {}, null, 2)}</pre></details>)}</div>
         }
         const results = Array.isArray(data['results']) ? data['results'] as Array<Record<string, unknown>> : []
         return <div className="timeline-tool" key={event.position}>{results.map(result => <ToolResult key={String(result['callId'])} result={result} command={commands.get(String(result['callId']))}/>)}</div>
       })}
-      {live !== undefined && <section className="turn assistant-turn live-turn"><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><span className="working"><i/>generating</span></div>{live.reasoning.length > 0 && <details className="reasoning" open><summary>Reasoning · live</summary><p>{live.reasoning}</p></details>}{live.content.length > 0 && <p>{live.content}</p>}{live.toolCalls.map((call, index) => <div className="live-tool" key={`${call}-${index}`}><Icon name="terminal" size={13}/>{call}</div>)}</div></section>}
+      {live !== undefined && <section className="turn assistant-turn live-turn"><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><span className="working"><i/>generating</span></div>{live.reasoning.length > 0 && <details className="reasoning" open><summary>Reasoning · live</summary><p>{live.reasoning}</p></details>}{live.content.length > 0 && <MarkdownContent content={live.content} live/>}{live.toolCalls.map((call, index) => <div className="live-tool" key={`${call}-${index}`}><Icon name="terminal" size={13}/>{call}</div>)}</div></section>}
       {liveTools.map(tool => <div className="timeline-tool" key={tool.callId}><div className="terminal-card live-terminal"><header><span className="terminal-lights"><i/><i/><i/></span><code>$ {tool.command}</code><span className={tool.exitCode === undefined ? 'working' : tool.exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>{tool.exitCode === undefined ? 'running' : `exit ${tool.exitCode}`}</span></header><pre>{tool.output || '(waiting for output)'}</pre></div></div>)}
       {interactions.map(interaction => <InteractionCard key={interaction.id} interaction={interaction} onRespond={onRespond}/>)}{error !== undefined && <div className="run-error">{error}</div>}
     </div>
@@ -382,7 +402,9 @@ export function App() {
   useEffect(() => {
     if (selected === undefined) return
     const controller = new AbortController()
-    setJournal({ status: 'loading' })
+    setJournal(current => current.status === 'ready' && current.snapshot.session.id === selected
+      ? current
+      : { status: 'loading' })
     void loadJournalSnapshot(selected, controller.signal).then(snapshot => { setJournal({ status: 'ready', snapshot }); setSessions(current => current.map(session => session.id === snapshot.session.id ? snapshot.session : session)) }, error => { if (!controller.signal.aborted) setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) }) })
     return () => controller.abort()
   }, [selected, reload])
