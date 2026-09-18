@@ -15,7 +15,10 @@ export interface ToolExecution {
 export interface ToolDefinition {
   readonly name: string
   readonly schema: Record<string, unknown>
-  execute(arguments_: Record<string, unknown>): Promise<ToolExecution> | ToolExecution
+  execute(
+    arguments_: Record<string, unknown>,
+    context: { readonly turnId: string; readonly callId: string },
+  ): Promise<ToolExecution> | ToolExecution
 }
 
 function failedExecution(error: string, message: string): ToolExecution {
@@ -52,7 +55,10 @@ export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
           result = failedExecution('unknown_tool', `未知工具：${call.name}`)
         } else {
           try {
-            result = await tool.execute(call.arguments)
+            result = await tool.execute(call.arguments, {
+              turnId: batch.turnId,
+              callId: call.callId,
+            })
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             result = failedExecution('tool_error', `工具 ${call.name} 执行失败：${message}`)

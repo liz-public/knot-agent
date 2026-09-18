@@ -79,7 +79,7 @@ export function createCliCatalog(commands: readonly CliCommand[]): CliCatalog {
           },
         },
       },
-      async execute(arguments_) {
+      async execute(arguments_, context) {
         const input = arguments_['command']
         if (typeof input !== 'string') return failure('invalid_command', 'command 必须是字符串。')
         let parsed: Record<string, unknown>
@@ -97,7 +97,7 @@ export function createCliCatalog(commands: readonly CliCommand[]): CliCatalog {
           const message = error instanceof Error ? error.message : String(error)
           return failure('invalid_arguments', `${message}。请按本轮动态上下文中的 usage 重试。`)
         }
-        return await command.tool.execute(parsed)
+        return await command.tool.execute(parsed, context)
       },
     },
     detailsFor(query) {

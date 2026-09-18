@@ -37,6 +37,9 @@ export type SessionStreamEvent =
   | { readonly kind: 'generation.open'; readonly requestId: string; readonly turnId: string; readonly purpose: string; readonly emittedAt: string }
   | { readonly kind: 'generation.update'; readonly requestId: string; readonly update: GenerationUpdate; readonly emittedAt: string }
   | { readonly kind: 'generation.close'; readonly requestId: string; readonly emittedAt: string }
+  | { readonly kind: 'tool.open'; readonly turnId: string; readonly callId: string; readonly toolName: string; readonly command: string; readonly emittedAt: string }
+  | { readonly kind: 'tool.update'; readonly callId: string; readonly update: { readonly stream: 'stdout' | 'stderr'; readonly text: string }; readonly emittedAt: string }
+  | { readonly kind: 'tool.close'; readonly callId: string; readonly exitCode: number; readonly emittedAt: string }
   | { readonly kind: 'interaction.request'; readonly interaction: InteractionRequest; readonly emittedAt: string }
   | { readonly kind: 'run.error'; readonly message: string; readonly emittedAt: string }
 

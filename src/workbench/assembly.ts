@@ -21,6 +21,18 @@ export interface HostAskPort {
   }): Promise<{ readonly answer: string }>
 }
 
+export interface ToolOutput {
+  open(meta: {
+    readonly turnId: string
+    readonly callId: string
+    readonly toolName: string
+    readonly command: string
+  }): {
+    write(update: { readonly stream: 'stdout' | 'stderr'; readonly text: string }): void | Promise<void>
+    close(result: { readonly exitCode: number }): void | Promise<void>
+  } | undefined
+}
+
 export interface SessionRuntime {
   submit(content: string): Promise<void>
   steer(content: string): void
@@ -33,6 +45,7 @@ export interface AssemblyInput {
   readonly cwd: string
   readonly journalPath: string
   readonly liveOutput: GenerationOutput
+  readonly toolOutput: ToolOutput
   readonly approvalPort: HostApprovalPort
   readonly askPort: HostAskPort
   readonly platformPlugins: readonly Plugin[]

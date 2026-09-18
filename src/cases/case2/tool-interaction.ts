@@ -42,7 +42,7 @@ export function permissionTools(
   if (policy === undefined) return tools
   return tools.map(tool => ({
     ...tool,
-    async execute(arguments_) {
+    async execute(arguments_, context) {
       const decision = policy.evaluate({ toolName: tool.name, arguments: arguments_ })
       if (decision === 'deny') return denied(tool.name)
       if (decision === 'ask') {
@@ -51,7 +51,7 @@ export function permissionTools(
           return denied(tool.name)
         }
       }
-      return tool.execute(arguments_)
+      return tool.execute(arguments_, context)
     },
   }))
 }

@@ -751,12 +751,13 @@ test('the LLM source asks exactly once when every earlier source declines', asyn
 test('the mock device rejects a selection it never offered', async () => {
   const session = createAndroidDeviceSession()
   const tool = createCliCatalog(mockAndroidCliCommands(session)).bash
+  const context = { turnId: 'direct', callId: 'direct-call' }
 
-  const orphan = await tool.execute({ command: 'select 1' })
+  const orphan = await tool.execute({ command: 'select 1' }, context)
   assert.match(orphan.content, /no_active_list/)
 
-  await tool.execute({ command: 'contact call 李行素' })
-  const outOfRange = await tool.execute({ command: 'select 2' })
+  await tool.execute({ command: 'contact call 李行素' }, context)
+  const outOfRange = await tool.execute({ command: 'select 2' }, context)
   assert.match(outOfRange.content, /invalid_selection/)
   assert.equal(session.pendingContact, '李行素')
 })
@@ -832,7 +833,7 @@ test('eight Android-shaped mock tools keep their input and result contracts', as
   const device = createAndroidDeviceSession()
   const byName = new Map(mockAndroidSystemTools(device).map(tool => [tool.name, tool]))
   const execute = async (name: string, arguments_: Record<string, unknown>) => {
-    const result = await byName.get(name)!.execute(arguments_)
+    const result = await byName.get(name)!.execute(arguments_, { turnId: 'direct', callId: name })
     return JSON.parse(result.content) as Record<string, unknown>
   }
 

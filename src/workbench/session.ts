@@ -35,6 +35,19 @@ export type LiveSessionEvent =
   }
   | { readonly kind: 'generation.close'; readonly requestId: string }
   | {
+    readonly kind: 'tool.open'
+    readonly turnId: string
+    readonly callId: string
+    readonly toolName: string
+    readonly command: string
+  }
+  | {
+    readonly kind: 'tool.update'
+    readonly callId: string
+    readonly update: { readonly stream: 'stdout' | 'stderr'; readonly text: string }
+  }
+  | { readonly kind: 'tool.close'; readonly callId: string; readonly exitCode: number }
+  | {
     readonly kind: 'interaction.request'
     readonly interaction: InteractionRequestDto
   }

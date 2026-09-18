@@ -186,7 +186,7 @@ test('live CASE2 completes a coding turn and continues it after host reconstruct
         usage,
       }
       if (generation === 3) return {
-        generated: { toolCalls: [{ id: 'bash-1', name: 'bash', arguments: { command: 'test "$(cat value.txt)" = after' } }] },
+        generated: { toolCalls: [{ id: 'bash-1', name: 'bash', arguments: { command: 'printf streamed && test "$(cat value.txt)" = after' } }] },
         usage,
       }
       return { generated: { content: 'Changed value.txt and verified it.', toolCalls: [] }, usage }
@@ -216,6 +216,15 @@ test('live CASE2 completes a coding turn and continues it after host reconstruct
     .filter(event => event.type === 'tool.call')
     .flatMap(event => (event.data as { calls: Array<{ name: string }> }).calls.map(call => call.name))
   assert.deepEqual(calls, ['read', 'edit', 'bash'])
+  assert.ok(firstEvents.some(event => event.kind === 'tool.open' && event.callId === 'bash-1'))
+  assert.ok(firstEvents.some(event => event.kind === 'tool.update'
+    && event.callId === 'bash-1'
+    && event.update.stream === 'stdout'
+    && event.update.text === 'streamed'))
+  assert.ok(firstEvents.some(event => event.kind === 'tool.close'
+    && event.callId === 'bash-1'
+    && event.exitCode === 0))
+  assert.equal(firstSnapshot.events.some(event => event.type.startsWith('tool.output.')), false)
   assert.equal(firstSnapshot.session.workspace, directory)
   assert.equal(firstSnapshot.session.model, 'mock-coder')
 

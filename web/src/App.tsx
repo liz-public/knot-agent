@@ -31,6 +31,14 @@ interface LiveDraft {
   readonly toolCalls: readonly string[]
 }
 
+interface LiveToolDraft {
+  readonly callId: string
+  readonly toolName: string
+  readonly command: string
+  readonly output: string
+  readonly exitCode?: number
+}
+
 interface UsageSummary {
   readonly input: number
   readonly output: number
@@ -203,10 +211,11 @@ function ToolResult({ result, command }: { result: Record<string, unknown>; comm
   return <div className="terminal-card"><header><span className="terminal-lights"><i/><i/><i/></span><code>$ {command ?? 'bash'}</code><span className={exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>exit {exitCode}</span></header><pre>{output}</pre></div>
 }
 
-function RunView({ snapshot, workspace, live, interactions, error, onSend, onPause, onResume, onRespond }: {
+function RunView({ snapshot, workspace, live, liveTools, interactions, error, onSend, onPause, onResume, onRespond }: {
   snapshot?: JournalSnapshot
   workspace: string
   live?: LiveDraft
+  liveTools: readonly LiveToolDraft[]
   interactions: readonly InteractionRequest[]
   error?: string
   onSend: (content: string) => Promise<void>
@@ -263,6 +272,7 @@ function RunView({ snapshot, workspace, live, interactions, error, onSend, onPau
         return <div className="timeline-tool" key={event.position}>{results.map(result => <ToolResult key={String(result['callId'])} result={result} command={commands.get(String(result['callId']))}/>)}</div>
       })}
       {live !== undefined && <section className="turn assistant-turn live-turn"><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><span className="working"><i/>generating</span></div>{live.reasoning.length > 0 && <details className="reasoning" open><summary>Reasoning · live</summary><p>{live.reasoning}</p></details>}{live.content.length > 0 && <p>{live.content}</p>}{live.toolCalls.map((call, index) => <div className="live-tool" key={`${call}-${index}`}><Icon name="terminal" size={13}/>{call}</div>)}</div></section>}
+      {liveTools.map(tool => <div className="timeline-tool" key={tool.callId}><div className="terminal-card live-terminal"><header><span className="terminal-lights"><i/><i/><i/></span><code>$ {tool.command}</code><span className={tool.exitCode === undefined ? 'working' : tool.exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>{tool.exitCode === undefined ? 'running' : `exit ${tool.exitCode}`}</span></header><pre>{tool.output || '(waiting for output)'}</pre></div></div>)}
       {interactions.map(interaction => <InteractionCard key={interaction.id} interaction={interaction} onRespond={onRespond}/>)}{error !== undefined && <div className="run-error">{error}</div>}
     </div>
     <div className="composer-wrap"><div className="composer"><textarea value={draft} disabled={session?.writable !== true} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }} placeholder={session?.writable ? 'Ask Knot to inspect or change the workspace…' : 'This session is read only'} rows={3}/><div className="composer-actions"><div>{session?.runState === 'running' ? <button className="small-action" onClick={() => setDelivery(value => value === 'steer' ? 'follow_up' : 'steer')}>{delivery === 'steer' ? 'Steer now' : 'Follow up'}</button> : <button className="small-action" disabled>New turn</button>}<button className="small-action" onClick={() => setDraft(value => `${value}@`)}>@ Files</button></div><div>{session?.runState === 'paused' ? <button className="pause-button" onClick={() => void onResume()}><Icon name="play" size={14}/>Resume</button> : <button className="pause-button" disabled={session?.runState !== 'running'} onClick={() => void onPause()}><Icon name="pause" size={14}/>Pause</button>}<button className="send-button" disabled={draft.trim().length === 0 || session?.writable !== true} onClick={() => void send()}><Icon name="send" size={15}/></button></div></div></div><div className="fixture-note">{queued === undefined ? session?.writable ? 'LiveOutput is transient · completed facts are committed to JSONL' : 'Read-only persisted Journal' : `Queued follow-up: ${queued}`}</div></div>
@@ -351,6 +361,7 @@ export function App() {
   const [selectedCase, setSelectedCase] = useState(caseFixtures[0]!.id)
   const [journal, setJournal] = useState<JournalState>({ status: 'loading' })
   const [live, setLive] = useState<LiveDraft>()
+  const [liveTools, setLiveTools] = useState<readonly LiveToolDraft[]>([])
   const [interactions, setInteractions] = useState<readonly InteractionRequest[]>([])
   const [runError, setRunError] = useState<string>()
   const [reload, setReload] = useState(0)
@@ -377,15 +388,18 @@ export function App() {
   }, [selected, reload])
   const activeSession = sessions.find(session => session.id === selected)
   useEffect(() => {
-    setLive(undefined); setInteractions([]); setRunError(undefined)
+    setLive(undefined); setLiveTools([]); setInteractions([]); setRunError(undefined)
     if (selected === undefined || activeSession?.writable !== true) return
     let refreshTimer: ReturnType<typeof setTimeout> | undefined
     const refreshSoon = () => { if (refreshTimer === undefined) refreshTimer = setTimeout(() => { refreshTimer = undefined; setReload(value => value + 1) }, 25) }
     const unsubscribe = subscribeSession(selected, event => {
-      if (event.kind === 'journal.changed') { refreshSoon(); return }
+      if (event.kind === 'journal.changed') { setLiveTools(current => current.filter(tool => tool.exitCode === undefined)); refreshSoon(); return }
       if (event.kind === 'state.changed') { setSessions(current => current.map(session => session.id === selected ? { ...session, runState: event.runState } : session)); setJournal(current => current.status === 'ready' ? { status: 'ready', snapshot: { ...current.snapshot, session: { ...current.snapshot.session, runState: event.runState } } } : current); if (event.runState === 'idle') { setLive(undefined); refreshSoon() }; return }
       if (event.kind === 'generation.open') { setLive({ requestId: event.requestId, reasoning: '', content: '', toolCalls: [] }); return }
       if (event.kind === 'generation.update') { setLive(current => { const base = current?.requestId === event.requestId ? current : { requestId: event.requestId, reasoning: '', content: '', toolCalls: [] }; const update: GenerationUpdate = event.update; if (update.kind === 'reasoning') return { ...base, reasoning: base.reasoning + update.text }; if (update.kind === 'content') return { ...base, content: base.content + update.text }; const calls = [...base.toolCalls]; calls[update.index] = [calls[update.index], update.name, update.argumentsDelta].filter(Boolean).join(' '); return { ...base, toolCalls: calls } }); return }
+      if (event.kind === 'tool.open') { setLiveTools(current => [...current.filter(tool => tool.callId !== event.callId), { callId: event.callId, toolName: event.toolName, command: event.command, output: '' }]); return }
+      if (event.kind === 'tool.update') { setLiveTools(current => current.map(tool => tool.callId === event.callId ? { ...tool, output: tool.output + event.update.text } : tool)); return }
+      if (event.kind === 'tool.close') { setLiveTools(current => current.map(tool => tool.callId === event.callId ? { ...tool, exitCode: event.exitCode } : tool)); return }
       if (event.kind === 'interaction.request') { setInteractions(current => [...current.filter(item => item.id !== event.interaction.id), event.interaction]); return }
       if (event.kind === 'run.error') setRunError(event.message)
     }, () => setRunError('Live session stream disconnected; committed facts remain available.'))
@@ -415,7 +429,7 @@ export function App() {
   const shellStyle = { '--inspector-width': `${inspectorOpen ? inspectorWidth : 0}px` } as CSSProperties
   return <div className={`app-shell ${inspectorOpen ? '' : 'inspector-closed'}`} style={shellStyle}>
     <ProjectRail mode={mode} project={currentProject} sessions={sessions} selectedSession={selected} selectedCase={selectedCase} cases={caseItems} onMode={setMode} onSelectSession={id => { setSelected(id); setMode('run') }} onSelectCase={id => { setSelectedCase(id); setMode('studio') }} onDialog={setDialog}/>
-    <section className="center-column"><WorkbenchHeader mode={mode} project={currentProject} session={activeSession} currentCase={currentCase} workspace={workspace} model={activeModel} inspectorOpen={inspectorOpen} onModel={() => setDialog('settings')} onSettings={() => setDialog('settings')} onInspector={() => setInspectorOpen(true)}/>{mode === 'run' ? <RunView key={snapshot?.session.id} snapshot={snapshot} workspace={workspace} live={live} interactions={interactions} error={runError} onSend={content => command(async () => { if (selected !== undefined) await submitMessage(selected, content) })} onPause={() => command(async () => { if (selected !== undefined) await pauseSession(selected) })} onResume={() => command(async () => { if (selected !== undefined) await resumeSession(selected) })} onRespond={(interaction, value) => command(async () => { if (selected === undefined) return; await respondToInteraction(selected, interaction.id, value); setInteractions(current => current.filter(item => item.id !== interaction.id)) })}/> : <StudioView currentCase={currentCase} provider={provider} onProvider={setProvider} validation={validation} onValidate={validate} onRun={() => void makeSession(`${currentCase.title} run`, currentCase.workspace)} onAddPlugin={() => setDialog('plugin-library')}/>}</section>
+    <section className="center-column"><WorkbenchHeader mode={mode} project={currentProject} session={activeSession} currentCase={currentCase} workspace={workspace} model={activeModel} inspectorOpen={inspectorOpen} onModel={() => setDialog('settings')} onSettings={() => setDialog('settings')} onInspector={() => setInspectorOpen(true)}/>{mode === 'run' ? <RunView key={snapshot?.session.id} snapshot={snapshot} workspace={workspace} live={live} liveTools={liveTools} interactions={interactions} error={runError} onSend={content => command(async () => { if (selected !== undefined) await submitMessage(selected, content) })} onPause={() => command(async () => { if (selected !== undefined) await pauseSession(selected) })} onResume={() => command(async () => { if (selected !== undefined) await resumeSession(selected) })} onRespond={(interaction, value) => command(async () => { if (selected === undefined) return; await respondToInteraction(selected, interaction.id, value); setInteractions(current => current.filter(item => item.id !== interaction.id)) })}/> : <StudioView currentCase={currentCase} provider={provider} onProvider={setProvider} validation={validation} onValidate={validate} onRun={() => void makeSession(`${currentCase.title} run`, currentCase.workspace)} onAddPlugin={() => setDialog('plugin-library')}/>}</section>
     <Inspector journal={journal} open={inspectorOpen} width={inspectorWidth} onWidth={setInspectorWidth} onClose={() => setInspectorOpen(false)} onRefresh={() => setReload(value => value + 1)}/>
     {dialog !== undefined && <Dialog
       kind={dialog}

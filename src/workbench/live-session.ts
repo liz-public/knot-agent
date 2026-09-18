@@ -5,6 +5,7 @@ import { journalChangePlugin } from './journal-bridge.js'
 import { workbenchLiveOutput } from './live-output.js'
 import { JournalReadError, readJournalSnapshot } from './read-journal.js'
 import type { LiveSessionEvent, SessionRunState, WorkbenchSession } from './session.js'
+import { workbenchToolOutput } from './tool-output.js'
 
 export interface LiveSessionOptions {
   readonly id: string
@@ -23,6 +24,7 @@ export async function createLiveSession(
     cwd: options.cwd,
     journalPath: options.journalPath,
     liveOutput: workbenchLiveOutput(event => hub.emit(event)),
+    toolOutput: workbenchToolOutput(event => hub.emit(event)),
     approvalPort: interactions.approval,
     askPort: interactions.ask,
     platformPlugins: [journalChangePlugin(() => hub.emit({ kind: 'journal.changed' }))],

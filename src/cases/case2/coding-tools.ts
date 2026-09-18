@@ -1,7 +1,19 @@
-import { exec } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import type { ToolDefinition, ToolExecution } from '../case1/tools.js'
+
+export interface ToolOutput {
+  open(meta: {
+    readonly turnId: string
+    readonly callId: string
+    readonly toolName: string
+    readonly command: string
+  }): {
+    write(update: { readonly stream: 'stdout' | 'stderr'; readonly text: string }): void | Promise<void>
+    close(result: { readonly exitCode: number }): void | Promise<void>
+  } | undefined
+}
 
 function textArgument(arguments_: Record<string, unknown>, name: string): string {
   const value = arguments_[name]
@@ -22,7 +34,15 @@ function result(data: Record<string, unknown>): ToolExecution {
   return { content: JSON.stringify(data) }
 }
 
-export function codingTools(cwd: string): readonly ToolDefinition[] {
+function present(action: () => void | Promise<void>): void {
+  try {
+    void Promise.resolve(action()).catch(() => undefined)
+  } catch {
+    // Presentation cannot change tool execution.
+  }
+}
+
+export function codingTools(cwd: string, output?: ToolOutput): readonly ToolDefinition[] {
   const read: ToolDefinition = {
     name: 'read',
     schema: {
@@ -123,12 +143,35 @@ export function codingTools(cwd: string): readonly ToolDefinition[] {
         },
       },
     },
-    execute(arguments_) {
+    execute(arguments_, context) {
       const command = textArgument(arguments_, 'command')
       return new Promise(resolveResult => {
-        exec(command, { cwd }, (error, stdout, stderr) => {
-          const exitCode = typeof error?.code === 'number' ? error.code : error === null ? 0 : 1
-          resolveResult(result({ ok: error === null, exitCode, stdout, stderr }))
+        let channel: ReturnType<ToolOutput['open']>
+        try {
+          channel = output?.open({ ...context, toolName: 'bash', command })
+        } catch {
+          // Presentation cannot change tool execution.
+        }
+        const child = spawn(command, { cwd, shell: true })
+        let stdout = ''
+        let stderr = ''
+        child.stdout.on('data', chunk => {
+          const text = String(chunk)
+          stdout += text
+          if (channel !== undefined) present(() => channel.write({ stream: 'stdout', text }))
+        })
+        child.stderr.on('data', chunk => {
+          const text = String(chunk)
+          stderr += text
+          if (channel !== undefined) present(() => channel.write({ stream: 'stderr', text }))
+        })
+        child.once('error', error => {
+          stderr += error.message
+        })
+        child.once('close', code => {
+          const exitCode = code ?? 1
+          if (channel !== undefined) present(() => channel.close({ exitCode }))
+          resolveResult(result({ ok: exitCode === 0, exitCode, stdout, stderr }))
         })
       })
     },

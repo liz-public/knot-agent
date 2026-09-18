@@ -34,9 +34,9 @@ test('CASE1 persists one process and continues the session in a fresh process', 
     const provider = mockLlmProvider()
     const countingBash: ToolDefinition = {
       ...cli.bash,
-      async execute(arguments_) {
+      async execute(arguments_, context) {
         executions += 1
-        return cli.bash.execute(arguments_)
+        return cli.bash.execute(arguments_, context)
       },
     }
     return createPersistentCase1Agent({

@@ -8,7 +8,7 @@ import { llmPlugin, type LiveOutput, type LlmProvider } from '../case1/llm.js'
 import { outputPlugin, type OutputSinks } from '../case1/output.js'
 import { SESSION_START, USER_MESSAGE } from '../case1/protocol.js'
 import { toolsPlugin, type ToolDefinition } from '../case1/tools.js'
-import { codingTools } from './coding-tools.js'
+import { codingTools, type ToolOutput } from './coding-tools.js'
 import { codingSystemPromptPlugin } from './system-prompt.js'
 import { workspaceContextPlugin } from './workspace-context.js'
 import { todoTool } from './todo-tool.js'
@@ -28,6 +28,7 @@ export interface Case2Options {
   readonly cwd: string
   readonly llm: LlmProvider
   readonly liveOutput?: LiveOutput
+  readonly toolOutput?: ToolOutput
   readonly output?: OutputSinks
   readonly trace?: (event: Event) => void
   readonly permissionPolicy?: PermissionPolicy
@@ -55,7 +56,7 @@ function assembleCase2Agent(
   const { journal, runUntilIdle } = runtime
   const boundary = controlledEventBoundary()
   const baseTools = [
-    ...codingTools(options.cwd),
+    ...codingTools(options.cwd, options.toolOutput),
     todoTool(),
     goalTool(),
     ...(options.subagentFactory === undefined
