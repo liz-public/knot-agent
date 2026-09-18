@@ -272,7 +272,14 @@ test('DeepSeek provider supplies required reasoning history without changing can
   globalThis.fetch = async (_input, init) => {
     requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
     return new Response(JSON.stringify({
-      choices: [{ message: { content: '完成。' } }],
+      choices: [{ message: {
+        content: null,
+        reasoning_content: '更新待办。',
+        tool_calls: [{
+          id: 'todo-1',
+          function: { name: 'todo_write', arguments: '{"todos":[]}' },
+        }],
+      } }],
       usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 },
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
@@ -286,7 +293,7 @@ test('DeepSeek provider supplies required reasoning history without changing can
         tool_calls: [{
           id: 'shortcut-call',
           type: 'function',
-          function: { name: 'bash', arguments: '{"command":"date"}' },
+          function: { name: 'todo.write', arguments: '{"todos":[]}' },
         }],
       },
       { role: 'tool', tool_call_id: 'shortcut-call', content: '2026-09-18' },
@@ -301,15 +308,22 @@ test('DeepSeek provider supplies required reasoning history without changing can
       contextWindow: 1_000_000,
     })
 
-    await provider.generate({
+    const result = await provider.generate({
       request: { purpose: 'agent', turnId: 'turn-1' },
       messages,
-      tools: [{ type: 'function', function: { name: 'bash' } }],
+      tools: [{ type: 'function', function: { name: 'todo.write' } }],
     })
 
     const sent = requestBody?.['messages'] as Array<{ role: string; reasoning_content?: string }>
     assert.equal(sent[1]?.reasoning_content, '')
     assert.equal(sent[3]?.reasoning_content, '检查工具结果。')
+    const sentTools = requestBody?.['tools'] as Array<{ function: { name: string } }>
+    const sentCalls = (requestBody?.['messages'] as Array<{
+      tool_calls?: Array<{ function: { name: string } }>
+    }>)[1]?.tool_calls
+    assert.equal(sentTools[0]?.function.name, 'todo_write')
+    assert.equal(sentCalls?.[0]?.function.name, 'todo_write')
+    assert.equal(result.generated.toolCalls[0]?.name, 'todo.write')
     assert.deepEqual(requestBody?.['thinking'], { type: 'enabled' })
     assert.equal(requestBody?.['reasoning_effort'], 'high')
     assert.equal(messages[1]?.reasoning, undefined)
