@@ -32,7 +32,13 @@ interface LiveDraft {
   readonly requestId: string
   readonly reasoning: string
   readonly content: string
-  readonly toolCalls: readonly string[]
+  readonly toolCalls: readonly LiveToolCallDraft[]
+}
+
+interface LiveToolCallDraft {
+  readonly name?: string
+  readonly argumentsPreview: string
+  readonly argumentChars: number
 }
 
 interface LiveToolDraft {
@@ -48,7 +54,16 @@ interface UsageSummary {
   readonly output: number
   readonly total: number
   readonly window: number
+  readonly outputRate?: number
 }
+
+interface TodoItem {
+  readonly id: string
+  readonly content: string
+  readonly status: string
+}
+
+const liveArgumentPreviewLimit = 4_096
 
 interface ProjectFixture {
   readonly id: string
@@ -137,7 +152,56 @@ function usageFrom(events: readonly ReadEvent[]): UsageSummary | undefined {
   const total = Number(value['totalTokens'])
   const window = Number(value['contextWindow'])
   if (![input, output, total, window].every(Number.isFinite)) return undefined
-  return { input, output, total, window }
+  const requestId = (generated.data as Record<string, unknown>)['requestId']
+  const invoke = typeof requestId === 'string'
+    ? [...events].reverse().find(event => event.type === 'llm.invoke'
+      && typeof event.data === 'object'
+      && event.data !== null
+      && (event.data as Record<string, unknown>)['requestId'] === requestId)
+    : undefined
+  const startedAt = invoke?.observedAt === undefined ? Number.NaN : Date.parse(invoke.observedAt)
+  const completedAt = generated.observedAt === undefined ? Number.NaN : Date.parse(generated.observedAt)
+  const durationSeconds = (completedAt - startedAt) / 1_000
+  const outputRate = Number.isFinite(durationSeconds) && durationSeconds > 0
+    ? output / durationSeconds
+    : undefined
+  return { input, output, total, window, ...(outputRate === undefined ? {} : { outputRate }) }
+}
+
+function todosFrom(events: readonly ReadEvent[]): readonly TodoItem[] {
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex]
+    if (event?.type !== 'tool.result' || typeof event.data !== 'object' || event.data === null) continue
+    const results = (event.data as Record<string, unknown>)['results']
+    if (!Array.isArray(results)) continue
+    for (let resultIndex = results.length - 1; resultIndex >= 0; resultIndex -= 1) {
+      const result = results[resultIndex]
+      if (typeof result !== 'object' || result === null) continue
+      const state = (result as Record<string, unknown>)['state']
+      if (typeof state !== 'object' || state === null) continue
+      const record = state as Record<string, unknown>
+      if (record['key'] !== 'todo' || !Array.isArray(record['value'])) continue
+      return record['value'].flatMap((item, index) => {
+        if (typeof item !== 'object' || item === null) return []
+        const candidate = item as Record<string, unknown>
+        if (typeof candidate['content'] !== 'string' || typeof candidate['status'] !== 'string') return []
+        return [{
+          id: typeof candidate['id'] === 'string' ? candidate['id'] : String(index + 1),
+          content: candidate['content'],
+          status: candidate['status'],
+        }]
+      })
+    }
+  }
+  return []
+}
+
+function liveToolSummary(call: LiveToolCallDraft): string {
+  const path = call.argumentsPreview.match(/"path"\s*:\s*"([^"]*)/)?.[1]
+  const command = call.argumentsPreview.match(/"command"\s*:\s*"([^"]*)/)?.[1]
+  const subject = path ?? command
+  const detail = subject === undefined ? '' : ` · ${subject.slice(0, 110)}`
+  return `${call.name ?? 'tool'}${detail} · ${call.argumentChars.toLocaleString()} chars`
 }
 
 function workspaceFrom(events: readonly ReadEvent[], fallback: string): string {
@@ -196,9 +260,15 @@ function WorkbenchHeader({ mode, project, session, currentCase, workspace, model
   </header>
 }
 
-function InteractionCard({ interaction, onRespond }: { interaction: InteractionRequest; onRespond: (interaction: InteractionRequest, value: string) => Promise<void> }) {
+function InteractionCard({ interaction, waiting, onRespond }: { interaction: InteractionRequest; waiting: number; onRespond: (interaction: InteractionRequest, value: string) => Promise<void> }) {
   const [answer, setAnswer] = useState('')
-  return <div className="interaction-card"><strong>{interaction.kind === 'approval' ? `Allow ${interaction.toolName}?` : interaction.question}</strong>{interaction.kind === 'approval' && <pre>{JSON.stringify(interaction.arguments, null, 2)}</pre>}{interaction.kind === 'ask' && interaction.choices === undefined && <input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Your answer"/>}<div>{interaction.kind === 'approval' ? <><button onClick={() => void onRespond(interaction, 'deny')}>Deny</button><button className="primary" onClick={() => void onRespond(interaction, 'allow')}>Allow</button></> : interaction.choices === undefined ? <button className="primary" disabled={answer.trim().length === 0} onClick={() => void onRespond(interaction, answer.trim())}>Answer</button> : interaction.choices.map(choice => <button key={choice} onClick={() => void onRespond(interaction, choice)}>{choice}</button>)}</div></div>
+  return <div className="interaction-card"><header><strong>{interaction.kind === 'approval' ? `Allow ${interaction.toolName}?` : interaction.question}</strong>{waiting > 0 && <span>{waiting} waiting</span>}</header>{interaction.kind === 'approval' && <pre>{JSON.stringify(interaction.arguments, null, 2)}</pre>}{interaction.kind === 'ask' && interaction.choices === undefined && <input value={answer} onChange={event => setAnswer(event.target.value)} placeholder="Your answer"/>}<div>{interaction.kind === 'approval' ? <><button onClick={() => void onRespond(interaction, 'deny')}>Deny</button><button className="primary" onClick={() => void onRespond(interaction, 'allow')}>Allow</button></> : interaction.choices === undefined ? <button className="primary" disabled={answer.trim().length === 0} onClick={() => void onRespond(interaction, answer.trim())}>Answer</button> : interaction.choices.map(choice => <button key={choice} onClick={() => void onRespond(interaction, choice)}>{choice}</button>)}</div></div>
+}
+
+function TodoCard({ todos }: { todos: readonly TodoItem[] }) {
+  const completed = todos.filter(todo => todo.status === 'completed').length
+  const [open, setOpen] = useState(completed < todos.length)
+  return <details className="todo-card" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary><span><Icon name="check" size={14}/><strong>Todo</strong><b>{completed}/{todos.length}</b></span><span className="disclosure"/></summary><ol>{todos.map(todo => <li className={todo.status === 'completed' ? 'completed' : ''} key={todo.id}><i/><span>{todo.content}</span><code>{todo.status}</code></li>)}</ol></details>
 }
 
 function MarkdownContent({ content, live = false }: { content: string; live?: boolean }) {
@@ -239,6 +309,8 @@ function RunView({ snapshot, workspace, live, liveTools, interactions, error, on
   const session = snapshot?.session
   const events = snapshot?.events ?? []
   const usage = usageFrom(events)
+  const todos = todosFrom(events)
+  const todoStateKey = todos.map(todo => `${todo.id}:${todo.status}:${todo.content}`).join('|')
   const visibleEvents = events.filter(event => ['user.message', 'assistant.reasoning', 'assistant.message', 'tool.call', 'tool.result'].includes(event.type))
   const commands = new Map<string, string>()
   for (const event of events) {
@@ -266,6 +338,7 @@ function RunView({ snapshot, workspace, live, liveTools, interactions, error, on
   }, [session?.runState, queued, onSend])
   const liveOutputSize = (live?.content.length ?? 0)
     + (live?.reasoning.length ?? 0)
+    + (live?.toolCalls.reduce((size, tool) => size + tool.argumentChars, 0) ?? 0)
     + liveTools.reduce((size, tool) => size + tool.output.length, 0)
   useLayoutEffect(() => {
     const element = conversationRef.current
@@ -278,7 +351,7 @@ function RunView({ snapshot, workspace, live, liveTools, interactions, error, on
   }
   const percent = usage === undefined || usage.window === 0 ? 0 : Math.min(100, usage.input / usage.window * 100)
   return <main className="run-view">
-    <div className="session-strip"><div><span className={`run-state ${session?.runState ?? 'offline'}`}/><strong>{session?.runState ?? 'offline'}</strong><span>{session?.eventCount ?? 0} facts</span></div><div className="workspace-compact" title={workspace}><Icon name="folder" size={12}/><span>main</span><b>/</b><code>{workspace}</code></div><div className="usage-compact"><span>Context</span><div><i style={{ width: `${percent}%` }}/></div><strong>{usage === undefined ? 'unknown' : `${usage.input.toLocaleString()} / ${usage.window.toLocaleString()}`}</strong></div><div><span>Last output</span><strong>{usage === undefined ? '—' : `${usage.output} tk`}</strong></div></div>
+    <div className="session-strip"><div><span className={`run-state ${session?.runState ?? 'offline'}`}/><strong>{session?.runState ?? 'offline'}</strong><span>{session?.eventCount ?? 0} facts</span></div><div className="workspace-compact" title={workspace}><Icon name="folder" size={12}/><span>main</span><b>/</b><code>{workspace}</code></div><div className="usage-compact"><span>Context</span><div><i style={{ width: `${percent}%` }}/></div><strong>{usage === undefined ? 'unknown' : `${usage.input.toLocaleString()} / ${usage.window.toLocaleString()}`}</strong></div><div className="model-metrics"><span><small>Last output</small><strong>{usage === undefined ? '—' : `${usage.output} tk`}</strong></span><span title="Output tokens divided by llm.invoke → llm.generated elapsed time"><small>Output rate</small><strong>{usage?.outputRate === undefined ? '—' : `${usage.outputRate.toFixed(1)} tk/s`}</strong></span></div></div>
     <div className="conversation-scroll" ref={conversationRef} onScroll={trackScroll}><div className="run-intro"><span className="eyebrow">{session?.assembly.toUpperCase() ?? 'CASE2'} · {session?.writable ? 'LIVE SESSION' : 'COMPLETED SESSION'}</span><h1>{session?.title ?? 'Select a session'}</h1><p>{session?.writable ? 'Commands advance the persistent Journal shown in the inspector.' : 'This completed Journal is available for read-only inspection.'}</p></div>
       {visibleEvents.map(event => {
         const data = event.data as Record<string, unknown>
@@ -293,10 +366,11 @@ function RunView({ snapshot, workspace, live, liveTools, interactions, error, on
         const results = Array.isArray(data['results']) ? data['results'] as Array<Record<string, unknown>> : []
         return <div className="timeline-tool" key={event.position}>{results.map(result => <ToolResult key={String(result['callId'])} result={result} command={commands.get(String(result['callId']))}/>)}</div>
       })}
-      {live !== undefined && <section className="turn assistant-turn live-turn"><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><span className="working"><i/>generating</span></div>{live.reasoning.length > 0 && <details className="reasoning" open><summary>Reasoning · live</summary><p>{live.reasoning}</p></details>}{live.content.length > 0 && <MarkdownContent content={live.content} live/>}{live.toolCalls.map((call, index) => <div className="live-tool" key={`${call}-${index}`}><Icon name="terminal" size={13}/>{call}</div>)}</div></section>}
-      {liveTools.map(tool => <div className="timeline-tool" key={tool.callId}><div className="terminal-card live-terminal"><header><span className="terminal-lights"><i/><i/><i/></span><code>$ {tool.command}</code><span className={tool.exitCode === undefined ? 'working' : tool.exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>{tool.exitCode === undefined ? 'running' : `exit ${tool.exitCode}`}</span></header><pre>{tool.output || '(waiting for output)'}</pre></div></div>)}
-      {interactions.map(interaction => <InteractionCard key={interaction.id} interaction={interaction} onRespond={onRespond}/>)}{error !== undefined && <div className="run-error">{error}</div>}
+      {live !== undefined && <section className="turn assistant-turn live-turn"><div className="avatar agent"><Icon name="knot" size={16}/></div><div className="turn-body"><div className="message-meta"><strong>Knot</strong><span className="working"><i/>generating</span></div>{live.reasoning.length > 0 && <details className="reasoning"><summary>Reasoning · live · {live.reasoning.length.toLocaleString()} chars</summary><p>{live.reasoning}</p></details>}{live.content.length > 0 && <MarkdownContent content={live.content} live/>}{live.toolCalls.map((call, index) => <details className="tool-card collapsible-tool live-tool-card" key={index}><summary className="tool-heading"><span className="tool-icon"><Icon name="terminal" size={13}/></span><strong>{liveToolSummary(call)}</strong><span className="disclosure"/></summary><pre>{call.argumentsPreview}{call.argumentChars > call.argumentsPreview.length ? `\n… ${call.argumentChars - call.argumentsPreview.length} additional chars not rendered` : ''}</pre></details>)}</div></section>}
+      {liveTools.map(tool => <div className="timeline-tool" key={tool.callId}><details className="terminal-card live-terminal collapsible-tool"><summary><span className="terminal-lights"><i/><i/><i/></span><code>$ {tool.command}</code><span className={tool.exitCode === undefined ? 'working' : tool.exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>{tool.exitCode === undefined ? 'running' : `exit ${tool.exitCode}`}</span><span className="disclosure"/></summary><pre>{tool.output || '(waiting for output)'}</pre></details></div>)}
+      {error !== undefined && <div className="run-error">{error}</div>}
     </div>
+    <div className="runtime-dock">{todos.length > 0 && <TodoCard key={todoStateKey} todos={todos}/>} {interactions[0] !== undefined && <InteractionCard key={interactions[0].id} interaction={interactions[0]} waiting={Math.max(0, interactions.length - 1)} onRespond={onRespond}/>}</div>
     <div className="composer-wrap"><div className="composer"><textarea value={draft} disabled={session?.writable !== true} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }} placeholder={session?.writable ? 'Ask Knot to inspect or change the workspace…' : 'This session is read only'} rows={3}/><div className="composer-actions"><div>{session?.runState === 'running' ? <button className="small-action" onClick={() => setDelivery(value => value === 'steer' ? 'follow_up' : 'steer')}>{delivery === 'steer' ? 'Steer now' : 'Follow up'}</button> : <button className="small-action" disabled>New turn</button>}<button className="small-action" onClick={() => setDraft(value => `${value}@`)}>@ Files</button></div><div>{session?.runState === 'paused' ? <button className="pause-button" onClick={() => void onResume()}><Icon name="play" size={14}/>Resume</button> : <button className="pause-button" disabled={session?.runState !== 'running'} onClick={() => void onPause()}><Icon name="pause" size={14}/>Pause</button>}<button className="send-button" disabled={draft.trim().length === 0 || session?.writable !== true} onClick={() => void send()}><Icon name="send" size={15}/></button></div></div></div><div className="fixture-note">{queued === undefined ? session?.writable ? 'LiveOutput is transient · completed facts are committed to JSONL' : 'Read-only persisted Journal' : `Queued follow-up: ${queued}`}</div></div>
   </main>
 }
@@ -433,7 +507,7 @@ export function App() {
       if (event.kind === 'journal.changed') { setLiveTools(current => current.filter(tool => tool.exitCode === undefined)); refreshSoon(); return }
       if (event.kind === 'state.changed') { setSessions(current => current.map(session => session.id === selected ? { ...session, runState: event.runState } : session)); setJournal(current => current.status === 'ready' ? { status: 'ready', snapshot: { ...current.snapshot, session: { ...current.snapshot.session, runState: event.runState } } } : current); if (event.runState === 'idle') { setLive(undefined); refreshSoon() }; return }
       if (event.kind === 'generation.open') { setLive({ requestId: event.requestId, reasoning: '', content: '', toolCalls: [] }); return }
-      if (event.kind === 'generation.update') { setLive(current => { const base = current?.requestId === event.requestId ? current : { requestId: event.requestId, reasoning: '', content: '', toolCalls: [] }; const update: GenerationUpdate = event.update; if (update.kind === 'reasoning') return { ...base, reasoning: base.reasoning + update.text }; if (update.kind === 'content') return { ...base, content: base.content + update.text }; const calls = [...base.toolCalls]; calls[update.index] = [calls[update.index], update.name, update.argumentsDelta].filter(Boolean).join(' '); return { ...base, toolCalls: calls } }); return }
+      if (event.kind === 'generation.update') { setLive(current => { const base = current?.requestId === event.requestId ? current : { requestId: event.requestId, reasoning: '', content: '', toolCalls: [] }; const update: GenerationUpdate = event.update; if (update.kind === 'reasoning') return { ...base, reasoning: base.reasoning + update.text }; if (update.kind === 'content') return { ...base, content: base.content + update.text }; const calls = [...base.toolCalls]; const previous = calls[update.index] ?? { argumentsPreview: '', argumentChars: 0 }; const delta = update.argumentsDelta ?? ''; calls[update.index] = { name: previous.name ?? update.name, argumentsPreview: `${previous.argumentsPreview}${delta}`.slice(0, liveArgumentPreviewLimit), argumentChars: previous.argumentChars + delta.length }; return { ...base, toolCalls: calls } }); return }
       if (event.kind === 'tool.open') { setLiveTools(current => [...current.filter(tool => tool.callId !== event.callId), { callId: event.callId, toolName: event.toolName, command: event.command, output: '' }]); return }
       if (event.kind === 'tool.update') { setLiveTools(current => current.map(tool => tool.callId === event.callId ? { ...tool, output: tool.output + event.update.text } : tool)); return }
       if (event.kind === 'tool.close') { setLiveTools(current => current.map(tool => tool.callId === event.callId ? { ...tool, exitCode: event.exitCode } : tool)); return }
