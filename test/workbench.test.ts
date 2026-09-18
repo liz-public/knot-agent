@@ -102,3 +102,31 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
   const unknown = await fetch(`http://127.0.0.1:${address.port}/api/workbench/other`)
   assert.equal(unknown.status, 404)
 })
+
+test('workbench host serves the built web shell without changing API routing', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-web-'))
+  await writeFile(join(directory, 'index.html'), '<main>Knot Workbench</main>', 'utf8')
+  await writeFile(join(directory, 'app.js'), 'globalThis.knot = true', 'utf8')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+
+  const server = createWorkbenchServer({ sessions: [], webRoot: directory })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  t.after(() => new Promise<void>((resolve, reject) => {
+    server.close(error => error === undefined ? resolve() : reject(error))
+  }))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('expected TCP address')
+  const base = `http://127.0.0.1:${address.port}`
+
+  const shell = await fetch(`${base}/sessions/case2`)
+  assert.equal(shell.status, 200)
+  assert.match(shell.headers.get('content-type') ?? '', /^text\/html/)
+  assert.equal(await shell.text(), '<main>Knot Workbench</main>')
+  const asset = await fetch(`${base}/app.js`)
+  assert.match(asset.headers.get('content-type') ?? '', /^text\/javascript/)
+  const api = await fetch(`${base}/api/workbench/sessions`)
+  assert.deepEqual(await api.json(), { sessions: [] })
+})

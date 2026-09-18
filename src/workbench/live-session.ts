@@ -1,6 +1,4 @@
-import type { LlmProvider } from '../cases/case1/llm.js'
-import { createPersistentCase2Agent } from '../cases/case2/case2.js'
-import type { PermissionPolicy } from '../cases/case2/tool-interaction.js'
+import type { AgentAssemblyFactory } from './assembly.js'
 import { createEventHub } from './event-hub.js'
 import { createInteractionBroker } from './interactions.js'
 import { journalChangePlugin } from './journal-bridge.js'
@@ -8,35 +6,23 @@ import { workbenchLiveOutput } from './live-output.js'
 import { JournalReadError, readJournalSnapshot } from './read-journal.js'
 import type { LiveSessionEvent, SessionRunState, WorkbenchSession } from './session.js'
 
-export interface LiveCase2SessionOptions {
+export interface LiveSessionOptions {
   readonly id: string
   readonly title: string
   readonly cwd: string
   readonly journalPath: string
-  readonly llm: LlmProvider
-  readonly permissionPolicy?: PermissionPolicy
+  readonly assembly: AgentAssemblyFactory
 }
 
-const defaultPermissionPolicy: PermissionPolicy = {
-  evaluate({ toolName }) {
-    return toolName === 'write' || toolName === 'edit' || toolName === 'bash'
-      ? 'ask'
-      : 'allow'
-  },
-}
-
-export async function createLiveCase2Session(
-  options: LiveCase2SessionOptions,
+export async function createLiveSession(
+  options: LiveSessionOptions,
 ): Promise<WorkbenchSession> {
   const hub = createEventHub<LiveSessionEvent>()
   const interactions = createInteractionBroker(event => hub.emit(event))
-  const agent = await createPersistentCase2Agent({
+  const agent = await options.assembly.create({
     cwd: options.cwd,
     journalPath: options.journalPath,
-    llm: options.llm,
     liveOutput: workbenchLiveOutput(event => hub.emit(event)),
-    output: { content: () => undefined },
-    permissionPolicy: options.permissionPolicy ?? defaultPermissionPolicy,
     approvalPort: interactions.approval,
     askPort: interactions.ask,
     platformPlugins: [journalChangePlugin(() => hub.emit({ kind: 'journal.changed' }))],
@@ -57,7 +43,9 @@ export async function createLiveCase2Session(
       session: {
         id: options.id,
         title: options.title,
-        assembly: 'case2',
+        assembly: options.assembly.id,
+        workspace: options.cwd,
+        model: options.assembly.model,
         runState,
         eventCount: journal.eventCount,
         ...(updatedAt === undefined ? {} : { updatedAt }),

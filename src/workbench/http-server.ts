@@ -1,10 +1,48 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { readFile } from 'node:fs/promises'
+import { extname, isAbsolute, relative, resolve } from 'node:path'
 import { JournalReadError } from './read-journal.js'
 import type { WorkbenchSession } from './session.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
   readonly createSession?: (input: { title?: string; cwd?: string }) => Promise<WorkbenchSession>
+  readonly webRoot?: string
+}
+
+const contentTypes: Readonly<Record<string, string>> = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+}
+
+async function serveWeb(response: ServerResponse, root: string, pathname: string): Promise<boolean> {
+  const requested = resolve(root, `.${pathname === '/' ? '/index.html' : pathname}`)
+  const fromRoot = relative(root, requested)
+  if (fromRoot.startsWith('..') || isAbsolute(fromRoot)) return false
+  let body: Buffer
+  let served = requested
+  try {
+    body = await readFile(requested)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    try {
+      served = resolve(root, 'index.html')
+      body = await readFile(served)
+    } catch (fallbackError) {
+      if ((fallbackError as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw fallbackError
+    }
+  }
+  response.writeHead(200, {
+    'content-type': contentTypes[extname(served)] ?? 'application/octet-stream',
+    'content-length': body.byteLength,
+    'cache-control': served.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000, immutable',
+  })
+  response.end(body)
+  return true
 }
 
 function sendJson(response: ServerResponse, status: number, data: unknown): void {
@@ -44,6 +82,10 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+
+      if (request.method === 'GET' && !url.pathname.startsWith('/api/') && options.webRoot !== undefined) {
+        if (await serveWeb(response, options.webRoot, decodeURIComponent(url.pathname))) return
+      }
 
       if (request.method === 'GET' && url.pathname === '/api/workbench/sessions') {
         sendJson(response, 200, { sessions: await Promise.all([...byId.values()].map(session => session.summary())) })

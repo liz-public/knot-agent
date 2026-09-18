@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import type { LlmProvider } from '../src/cases/case1/llm.js'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import { createInteractionBroker } from '../src/workbench/interactions.js'
-import { createLiveCase2Session } from '../src/workbench/live-session.js'
+import { case2AssemblyFactory } from '../src/workbench/case2-assembly.js'
+import { createLiveSession } from '../src/workbench/live-session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from '../src/workbench/session-catalog.js'
 import type { InteractionRequestDto, LiveSessionEvent } from '../src/workbench/session.js'
 
@@ -33,6 +34,8 @@ test('workbench session descriptors preserve new sessions for host restart', asy
     title: 'Persistent session',
     cwd: directory,
     journalPath: join(directory, 'case2-one.jsonl'),
+    assembly: 'case2',
+    model: 'mock',
   }
   await saveSessionDescriptor(directory, descriptor)
   assert.deepEqual(await loadSessionDescriptors(directory), [descriptor])
@@ -79,12 +82,12 @@ test('live CASE2 session streams generation, resolves approval, and persists aut
       }
     },
   }
-  const session = await createLiveCase2Session({
+  const session = await createLiveSession({
     id: 'live',
     title: 'Live CASE2',
     cwd: directory,
     journalPath: join(directory, 'session.jsonl'),
-    llm,
+    assembly: case2AssemblyFactory({ llm, model: 'mock' }),
   })
   const events: LiveSessionEvent[] = []
   const subscribe = session.subscribe!
@@ -113,17 +116,17 @@ test('live CASE2 session streams generation, resolves approval, and persists aut
 test('workbench HTTP commands drive one injected live session', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-live-http-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
-  const session = await createLiveCase2Session({
+  const session = await createLiveSession({
     id: 'live',
     title: 'Live CASE2',
     cwd: directory,
     journalPath: join(directory, 'session.jsonl'),
-    llm: {
+    assembly: case2AssemblyFactory({ llm: {
       async generate(_call, onUpdate) {
         await onUpdate?.({ kind: 'content', text: 'Done.' })
         return { generated: { content: 'Done.', toolCalls: [] }, usage }
       },
-    },
+    }, model: 'mock' }),
   })
   const server = createWorkbenchServer({ sessions: [session] })
   await new Promise<void>((resolve, reject) => {
@@ -163,4 +166,83 @@ test('workbench HTTP commands drive one injected live session', async t => {
   await idle
   const snapshot = await (await fetch(base)).json() as { events: Array<{ type: string }> }
   assert.ok(snapshot.events.some(event => event.type === 'assistant.message'))
+})
+
+test('live CASE2 completes a coding turn and continues it after host reconstruction', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-coding-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const journalPath = join(directory, 'session.jsonl')
+  await writeFile(join(directory, 'value.txt'), 'before\n', 'utf8')
+  let generation = 0
+  const firstProvider: LlmProvider = {
+    async generate() {
+      generation += 1
+      if (generation === 1) return {
+        generated: { toolCalls: [{ id: 'read-1', name: 'read', arguments: { path: 'value.txt' } }] },
+        usage,
+      }
+      if (generation === 2) return {
+        generated: { toolCalls: [{ id: 'edit-1', name: 'edit', arguments: { path: 'value.txt', oldText: 'before', newText: 'after' } }] },
+        usage,
+      }
+      if (generation === 3) return {
+        generated: { toolCalls: [{ id: 'bash-1', name: 'bash', arguments: { command: 'test "$(cat value.txt)" = after' } }] },
+        usage,
+      }
+      return { generated: { content: 'Changed value.txt and verified it.', toolCalls: [] }, usage }
+    },
+  }
+  const first = await createLiveSession({
+    id: 'coding',
+    title: 'Coding session',
+    cwd: directory,
+    journalPath,
+    assembly: case2AssemblyFactory({ llm: firstProvider, model: 'mock-coder' }),
+  })
+  const firstEvents: LiveSessionEvent[] = []
+  first.subscribe!(event => {
+    firstEvents.push(event)
+    if (event.kind === 'interaction.request' && event.interaction.kind === 'approval') {
+      assert.equal(first.respond!(event.interaction.id, 'allow'), true)
+    }
+  })
+  const firstIdle = nextEvent(firstEvents, first.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  first.submit!('Read value.txt, change before to after, and verify it with bash.')
+  await firstIdle
+
+  assert.equal(await readFile(join(directory, 'value.txt'), 'utf8'), 'after\n')
+  const firstSnapshot = await first.snapshot()
+  const calls = firstSnapshot.events
+    .filter(event => event.type === 'tool.call')
+    .flatMap(event => (event.data as { calls: Array<{ name: string }> }).calls.map(call => call.name))
+  assert.deepEqual(calls, ['read', 'edit', 'bash'])
+  assert.equal(firstSnapshot.session.workspace, directory)
+  assert.equal(firstSnapshot.session.model, 'mock-coder')
+
+  let restoredMessages: unknown
+  const restored = await createLiveSession({
+    id: 'coding',
+    title: 'Coding session',
+    cwd: directory,
+    journalPath,
+    assembly: case2AssemblyFactory({
+      model: 'mock-coder',
+      llm: {
+        async generate(call) {
+          restoredMessages = call.messages
+          return { generated: { content: 'The previous edit and verification are in this session.', toolCalls: [] }, usage }
+        },
+      },
+    }),
+  })
+  const restoredEvents: LiveSessionEvent[] = []
+  const restoredIdle = nextEvent(restoredEvents, restored.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  restored.subscribe!(event => restoredEvents.push(event))
+  restored.submit!('What did you just verify?')
+  await restoredIdle
+
+  assert.match(JSON.stringify(restoredMessages), /value\.txt/)
+  const restoredSnapshot = await restored.snapshot()
+  assert.equal(restoredSnapshot.events.filter(event => event.type === 'session.start').length, 1)
+  assert.equal(restoredSnapshot.events.filter(event => event.type === 'assistant.message').length, 2)
 })

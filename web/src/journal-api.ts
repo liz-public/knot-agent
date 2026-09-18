@@ -10,6 +10,8 @@ export interface SessionSummary {
   readonly id: string
   readonly title: string
   readonly assembly: string
+  readonly workspace?: string
+  readonly model?: string
   readonly runState: 'completed' | 'idle' | 'running' | 'paused'
   readonly eventCount: number
   readonly updatedAt?: string

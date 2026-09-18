@@ -21,15 +21,17 @@ export function createInteractionBroker(
     approval: {
       async request(input) {
         const id = randomUUID()
+        const response = wait(id)
         emit({ kind: 'interaction.request', interaction: { id, kind: 'approval', ...input } })
-        return await wait(id) === 'allow' ? 'allow' : 'deny'
+        return await response === 'allow' ? 'allow' : 'deny'
       },
     },
     ask: {
       async ask(input) {
         const id = randomUUID()
+        const response = wait(id)
         emit({ kind: 'interaction.request', interaction: { id, kind: 'ask', ...input } })
-        return { answer: await wait(id) }
+        return { answer: await response }
       },
     },
     respond(id, value) {
