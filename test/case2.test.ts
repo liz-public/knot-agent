@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createCase2Agent, createPersistentCase2Agent } from '../src/cases/case2/case2.js'
+import { codingTools } from '../src/cases/case2/coding-tools.js'
 import type { LlmProvider } from '../src/cases/case1/llm.js'
 import type { ToolDefinition } from '../src/cases/case1/tools.js'
 import {
@@ -40,6 +41,50 @@ function waitingTool(started: ReturnType<typeof deferred>, release: ReturnType<t
     },
   }
 }
+
+test('CASE2 read exposes bounded, resumable pages', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-read-page-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const lines = Array.from({ length: 2105 }, (_, index) => `line-${index + 1}`)
+  await writeFile(join(cwd, 'large.txt'), lines.join('\n'), 'utf8')
+  const read = codingTools(cwd).find(tool => tool.name === 'read')!
+
+  const first = JSON.parse((await read.execute({ path: 'large.txt' }, {
+    turnId: 'turn-1',
+    callId: 'read-1',
+  })).content) as Record<string, unknown>
+  assert.equal(first['startLine'], 1)
+  assert.equal(first['ok'], true)
+  assert.equal(first['endLine'], 2000)
+  assert.equal(first['totalLines'], 2105)
+  assert.equal(first['truncated'], true)
+  assert.equal(first['nextOffset'], 2001)
+  assert.match(String(first['content']), /line-2000$/)
+
+  const second = JSON.parse((await read.execute({
+    path: 'large.txt',
+    offset: 2001,
+    limit: 5,
+  }, {
+    turnId: 'turn-1',
+    callId: 'read-2',
+  })).content) as Record<string, unknown>
+  assert.equal(second['startLine'], 2001)
+  assert.equal(second['endLine'], 2005)
+  assert.equal(second['nextOffset'], 2006)
+  assert.equal(String(second['content']).split('\n').length, 5)
+
+  await writeFile(join(cwd, 'wide.txt'), `${'x'.repeat(1024)}\n`.repeat(100), 'utf8')
+  const byteBounded = JSON.parse((await read.execute({ path: 'wide.txt' }, {
+    turnId: 'turn-1',
+    callId: 'read-3',
+  })).content) as Record<string, unknown>
+  assert.equal(byteBounded['truncated'], true)
+  assert.equal(byteBounded['ok'], true)
+  assert.ok(Number(byteBounded['endLine']) < 100)
+  assert.equal(byteBounded['nextOffset'], Number(byteBounded['endLine']) + 1)
+  assert.ok(Buffer.byteLength(String(byteBounded['content'])) <= 50 * 1024)
+})
 
 test('CASE2.0 edits and verifies a real workspace through the four coding tools', async t => {
   const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-'))

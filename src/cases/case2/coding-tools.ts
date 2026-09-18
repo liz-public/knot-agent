@@ -3,6 +3,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import type { ToolDefinition, ToolExecution } from '../case1/tools.js'
 
+const READ_MAX_LINES = 2000
+const READ_MAX_BYTES = 50 * 1024
+
 export interface ToolOutput {
   open(meta: {
     readonly turnId: string
@@ -19,6 +22,63 @@ function textArgument(arguments_: Record<string, unknown>, name: string): string
   const value = arguments_[name]
   if (typeof value !== 'string') throw new TypeError(`${name} must be a string`)
   return value
+}
+
+function positiveIntegerArgument(
+  arguments_: Record<string, unknown>,
+  name: string,
+): number | undefined {
+  const value = arguments_[name]
+  if (value === undefined) return undefined
+  if (!Number.isSafeInteger(value) || Number(value) < 1) {
+    throw new TypeError(`${name} must be a positive integer`)
+  }
+  return Number(value)
+}
+
+function readTextPage(content: string, offset = 1, limit?: number) {
+  const lines = content.split('\n')
+  const totalLines = lines.length
+  const startIndex = offset - 1
+  if (startIndex >= totalLines) {
+    throw new RangeError(`offset ${offset} is beyond end of file (${totalLines} lines)`)
+  }
+
+  const requestedLines = Math.min(limit ?? READ_MAX_LINES, READ_MAX_LINES)
+  const selected: string[] = []
+  let bytes = 0
+  for (let index = startIndex; index < totalLines && selected.length < requestedLines; index += 1) {
+    const line = lines[index]!
+    const lineBytes = Buffer.byteLength(`${selected.length === 0 ? '' : '\n'}${line}`)
+    if (bytes + lineBytes > READ_MAX_BYTES) break
+    selected.push(line)
+    bytes += lineBytes
+  }
+
+  if (selected.length === 0) {
+    return {
+      ok: false,
+      content: '',
+      startLine: offset,
+      endLine: offset - 1,
+      totalLines,
+      truncated: true,
+      nextOffset: offset,
+      error: `line ${offset} exceeds the ${READ_MAX_BYTES}-byte read limit; use bash with a byte range`,
+    }
+  }
+
+  const endLine = startIndex + selected.length
+  const truncated = endLine < totalLines
+  return {
+    ok: true,
+    content: selected.join('\n'),
+    startLine: offset,
+    endLine,
+    totalLines,
+    truncated,
+    ...(truncated ? { nextOffset: endLine + 1 } : {}),
+  }
 }
 
 function workspacePath(cwd: string, path: string): string {
@@ -49,10 +109,14 @@ export function codingTools(cwd: string, output?: ToolOutput): readonly ToolDefi
       type: 'function',
       function: {
         name: 'read',
-        description: 'Read a UTF-8 text file from the workspace.',
+        description: 'Read a UTF-8 text file from the workspace. Returns at most 2000 lines or 50 KiB; use offset and limit to continue.',
         parameters: {
           type: 'object',
-          properties: { path: { type: 'string' } },
+          properties: {
+            path: { type: 'string' },
+            offset: { type: 'integer', minimum: 1, description: '1-based first line to read.' },
+            limit: { type: 'integer', minimum: 1, description: 'Maximum lines to read.' },
+          },
           required: ['path'],
           additionalProperties: false,
         },
@@ -60,8 +124,11 @@ export function codingTools(cwd: string, output?: ToolOutput): readonly ToolDefi
     },
     async execute(arguments_) {
       const path = textArgument(arguments_, 'path')
+      const offset = positiveIntegerArgument(arguments_, 'offset')
+      const limit = positiveIntegerArgument(arguments_, 'limit')
       const content = await readFile(workspacePath(cwd, path), 'utf8')
-      return result({ ok: true, path, content })
+      const page = readTextPage(content, offset, limit)
+      return result({ path, ...page })
     },
   }
 
