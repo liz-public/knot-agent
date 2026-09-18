@@ -163,6 +163,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .todo-card li { min-height: 26px; display: grid; grid-template-columns: 8px minmax(0,1fr) auto; align-items: center; gap: 7px; color: var(--ink); font-size: 10px; }
 .todo-card li > i { width: 7px; height: 7px; border: 1px solid #aaa3d8; border-radius: 50%; }.todo-card li.completed > i { border-color: var(--green); background: var(--green); }
 .todo-card li.completed > span { color: var(--muted); text-decoration: line-through; }.todo-card li code { color: var(--faint); font-size: 9px; }
+.goal-card .goal-body { padding: 9px 10px; border-top: .5px solid var(--line); font-size: 10px; line-height: 1.5; }
+.goal-card .goal-body > strong { display: block; font-size: 11px; }
+.goal-card .goal-body ol { margin-top: 7px; padding-top: 4px; border-top: 0; }
 .interaction-card { margin: 12px 0 12px 37px; padding: 12px; border: .5px solid #dfcfb9; border-radius: 9px; background: #fffaf4; }
 .interaction-card header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.interaction-card header span { padding: 2px 6px; border-radius: 6px; color: var(--amber); background: var(--amber-soft); font-size: 9px; white-space: nowrap; }
 .interaction-card strong { font-size: 11px; }.interaction-card pre { max-height: 150px; margin: 7px 0; overflow: auto; color: var(--muted); font: 10px/1.5 ui-monospace, monospace; }

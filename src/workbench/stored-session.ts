@@ -1,5 +1,6 @@
 import { readJournalSnapshot, type JournalReadLimits } from './read-journal.js'
 import type { SessionSnapshotDto, WorkbenchSession } from './session.js'
+import type { ApprovalMode, ReasoningEffort } from './session.js'
 
 export interface StoredSessionConfig {
   readonly id: string
@@ -9,6 +10,8 @@ export interface StoredSessionConfig {
   readonly workspace?: string
   readonly model?: string
   readonly providerProfileId?: string
+  readonly reasoningEffort?: ReasoningEffort
+  readonly approvalMode?: ApprovalMode
 }
 
 export function storedSession(
@@ -28,6 +31,8 @@ export function storedSession(
         ...(config.providerProfileId === undefined
           ? {}
           : { providerProfileId: config.providerProfileId }),
+        ...(config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort }),
+        ...(config.approvalMode === undefined ? {} : { approvalMode: config.approvalMode }),
         runState: 'completed',
         eventCount: journal.eventCount,
         ...(updatedAt === undefined ? {} : { updatedAt }),

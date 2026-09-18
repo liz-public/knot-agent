@@ -4,7 +4,7 @@ import { createInteractionBroker } from './interactions.js'
 import { journalChangePlugin } from './journal-bridge.js'
 import { workbenchLiveOutput } from './live-output.js'
 import { JournalReadError, readJournalSnapshot } from './read-journal.js'
-import type { LiveSessionEvent, SessionRunState, WorkbenchSession } from './session.js'
+import type { ApprovalMode, LiveSessionEvent, ReasoningEffort, SessionRunState, WorkbenchSession } from './session.js'
 import { workbenchToolOutput } from './tool-output.js'
 
 export interface LiveSessionOptions {
@@ -14,6 +14,8 @@ export interface LiveSessionOptions {
   readonly journalPath: string
   readonly assembly: AgentAssemblyFactory
   readonly providerProfileId?: string
+  readonly reasoningEffort?: ReasoningEffort
+  readonly approvalMode?: ApprovalMode
 }
 
 export async function createLiveSession(
@@ -52,6 +54,8 @@ export async function createLiveSession(
         ...(options.providerProfileId === undefined
           ? {}
           : { providerProfileId: options.providerProfileId }),
+        ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
+        ...(options.approvalMode === undefined ? {} : { approvalMode: options.approvalMode }),
         runState,
         eventCount: journal.eventCount,
         ...(updatedAt === undefined ? {} : { updatedAt }),

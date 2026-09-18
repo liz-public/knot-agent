@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { ApprovalMode, ReasoningEffort } from './session.js'
 
 export interface LiveSessionDescriptor {
   readonly id: string
@@ -9,6 +10,8 @@ export interface LiveSessionDescriptor {
   readonly assembly: string
   readonly model?: string
   readonly providerProfileId?: string
+  readonly reasoningEffort?: ReasoningEffort
+  readonly approvalMode?: ApprovalMode
 }
 
 function descriptor(value: unknown, file: string): LiveSessionDescriptor {
@@ -29,6 +32,12 @@ function descriptor(value: unknown, file: string): LiveSessionDescriptor {
     ...(typeof item['model'] === 'string' ? { model: item['model'] } : {}),
     ...(typeof item['providerProfileId'] === 'string'
       ? { providerProfileId: item['providerProfileId'] }
+      : {}),
+    ...(['none', 'low', 'high', 'max'].includes(String(item['reasoningEffort']))
+      ? { reasoningEffort: item['reasoningEffort'] as ReasoningEffort }
+      : {}),
+    ...(['ask', 'auto'].includes(String(item['approvalMode']))
+      ? { approvalMode: item['approvalMode'] as ApprovalMode }
       : {}),
   }
 }

@@ -17,6 +17,8 @@ import {
   type JournalSnapshot,
   type ProviderProfileSummary,
   type ReadEvent,
+  type ReasoningEffort,
+  type ApprovalMode,
   type SessionSummary,
 } from './journal-api'
 
@@ -61,6 +63,12 @@ interface TodoItem {
   readonly id: string
   readonly content: string
   readonly status: string
+}
+
+interface GoalState {
+  readonly objective: string
+  readonly status: string
+  readonly successCriteria: readonly string[]
 }
 
 const liveArgumentPreviewLimit = 4_096
@@ -196,6 +204,33 @@ function todosFrom(events: readonly ReadEvent[]): readonly TodoItem[] {
   return []
 }
 
+function goalFrom(events: readonly ReadEvent[]): GoalState | undefined {
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex]
+    if (event?.type !== 'tool.result' || typeof event.data !== 'object' || event.data === null) continue
+    const results = (event.data as Record<string, unknown>)['results']
+    if (!Array.isArray(results)) continue
+    for (let resultIndex = results.length - 1; resultIndex >= 0; resultIndex -= 1) {
+      const result = results[resultIndex]
+      if (typeof result !== 'object' || result === null) continue
+      const state = (result as Record<string, unknown>)['state']
+      if (typeof state !== 'object' || state === null) continue
+      const record = state as Record<string, unknown>
+      if (record['key'] !== 'goal' || typeof record['value'] !== 'object' || record['value'] === null) continue
+      const value = record['value'] as Record<string, unknown>
+      if (typeof value['objective'] !== 'string' || typeof value['status'] !== 'string') continue
+      return {
+        objective: value['objective'],
+        status: value['status'],
+        successCriteria: Array.isArray(value['successCriteria'])
+          ? value['successCriteria'].filter((item): item is string => typeof item === 'string')
+          : [],
+      }
+    }
+  }
+  return undefined
+}
+
 function liveToolSummary(call: LiveToolCallDraft): string {
   const path = call.argumentsPreview.match(/"path"\s*:\s*"([^"]*)/)?.[1]
   const command = call.argumentsPreview.match(/"command"\s*:\s*"([^"]*)/)?.[1]
@@ -272,6 +307,11 @@ function TodoCard({ todos }: { todos: readonly TodoItem[] }) {
   return <details className="todo-card" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary><span><Icon name="check" size={14}/><strong>Todo</strong><b>{completed}/{todos.length}</b></span><span className="disclosure"/></summary><ol>{todos.map(todo => <li className={todo.status === 'completed' ? 'completed' : ''} key={todo.id}><i/><span>{todo.content}</span><code>{todo.status}</code></li>)}</ol></details>
 }
 
+function GoalCard({ goal }: { goal: GoalState }) {
+  const [open, setOpen] = useState(goal.status !== 'completed')
+  return <details className="todo-card goal-card" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary><span><Icon name="case" size={14}/><strong>Goal</strong><b>{goal.status}</b></span><span className="disclosure"/></summary><div className="goal-body"><strong>{goal.objective}</strong>{goal.successCriteria.length > 0 && <ol>{goal.successCriteria.map((criterion, index) => <li key={index}><i/><span>{criterion}</span></li>)}</ol>}</div></details>
+}
+
 function MarkdownContent({ content, live = false }: { content: string; live?: boolean }) {
   return <div className={`markdown-content ${live ? 'live-markdown' : ''}`}><ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></div>
 }
@@ -311,7 +351,9 @@ function RunView({ snapshot, workspace, live, liveTools, interactions, error, on
   const events = snapshot?.events ?? []
   const usage = usageFrom(events)
   const todos = todosFrom(events)
+  const goal = goalFrom(events)
   const todoStateKey = todos.map(todo => `${todo.id}:${todo.status}:${todo.content}`).join('|')
+  const goalStateKey = goal === undefined ? '' : `${goal.status}:${goal.objective}:${goal.successCriteria.join('|')}`
   const visibleEvents = events.filter(event => ['user.message', 'assistant.reasoning', 'assistant.message', 'tool.call', 'tool.result'].includes(event.type))
   const commands = new Map<string, string>()
   for (const event of events) {
@@ -371,7 +413,7 @@ function RunView({ snapshot, workspace, live, liveTools, interactions, error, on
       {liveTools.map(tool => <div className="timeline-tool" key={tool.callId}><details className="terminal-card live-terminal collapsible-tool"><summary><span className="terminal-lights"><i/><i/><i/></span><code>$ {tool.command}</code><span className={tool.exitCode === undefined ? 'working' : tool.exitCode === 0 ? 'terminal-ok' : 'terminal-fail'}>{tool.exitCode === undefined ? 'running' : `exit ${tool.exitCode}`}</span><span className="disclosure"/></summary><pre>{tool.output || '(waiting for output)'}</pre></details></div>)}
       {error !== undefined && <div className="run-error">{error}</div>}
     </div>
-    <div className="runtime-dock">{todos.length > 0 && <TodoCard key={todoStateKey} todos={todos}/>} {interactions[0] !== undefined && <InteractionCard key={interactions[0].id} interaction={interactions[0]} waiting={Math.max(0, interactions.length - 1)} onRespond={onRespond}/>}</div>
+    <div className="runtime-dock">{goal !== undefined && <GoalCard key={goalStateKey} goal={goal}/>} {todos.length > 0 && <TodoCard key={todoStateKey} todos={todos}/>} {interactions[0] !== undefined && <InteractionCard key={interactions[0].id} interaction={interactions[0]} waiting={Math.max(0, interactions.length - 1)} onRespond={onRespond}/>}</div>
     <div className="composer-wrap"><div className="composer"><textarea value={draft} disabled={session?.writable !== true} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() } }} placeholder={session?.writable ? 'Ask Knot to inspect or change the workspace…' : 'This session is read only'} rows={3}/><div className="composer-actions"><div>{session?.runState === 'running' ? <button className="small-action" onClick={() => setDelivery(value => value === 'steer' ? 'follow_up' : 'steer')}>{delivery === 'steer' ? 'Steer now' : 'Follow up'}</button> : <button className="small-action" disabled>New turn</button>}<button className="small-action" onClick={() => setDraft(value => `${value}@`)}>@ Files</button></div><div>{session?.runState === 'paused' ? <button className="pause-button" onClick={() => void onResume()}><Icon name="play" size={14}/>Resume</button> : <button className="pause-button" disabled={session?.runState !== 'running'} onClick={() => void onPause()}><Icon name="pause" size={14}/>Pause</button>}<button className="send-button" disabled={draft.trim().length === 0 || session?.writable !== true} onClick={() => void send()}><Icon name="send" size={15}/></button></div></div></div><div className="fixture-note">{queued === undefined ? session?.writable ? 'LiveOutput is transient · completed facts are committed to JSONL' : 'Read-only persisted Journal' : `Queued follow-up: ${queued}`}</div></div>
   </main>
 }
@@ -442,12 +484,17 @@ function StudioView({ currentCase, provider, onProvider, validation, onValidate,
   </main>
 }
 
-function Dialog({ kind, project, projects, currentCase, providerProfiles, providerProfileId, onClose, onCreateSession, onCreateCase, onCreateProject, onSelectProject, onProviderProfile }: { kind: DialogKind; project: ProjectFixture; projects: readonly ProjectFixture[]; currentCase: CaseFixture; providerProfiles: readonly ProviderProfileSummary[]; providerProfileId: string; onClose: () => void; onCreateSession: (title: string, cwd: string, providerProfileId: string) => void; onCreateCase: (title: string) => void; onCreateProject: (name: string, root: string) => void; onSelectProject: (id: string) => void; onProviderProfile: (providerProfileId: string) => void }) {
+function Dialog({ kind, project, projects, currentCase, providerProfiles, providerProfileId, onClose, onCreateSession, onCreateCase, onCreateProject, onSelectProject, onProviderProfile }: { kind: DialogKind; project: ProjectFixture; projects: readonly ProjectFixture[]; currentCase: CaseFixture; providerProfiles: readonly ProviderProfileSummary[]; providerProfileId: string; onClose: () => void; onCreateSession: (title: string, cwd: string, providerProfileId: string, reasoningEffort: ReasoningEffort | undefined, approvalMode: ApprovalMode) => void; onCreateCase: (title: string) => void; onCreateProject: (name: string, root: string) => void; onSelectProject: (id: string) => void; onProviderProfile: (providerProfileId: string) => void }) {
   const [title, setTitle] = useState(kind === 'new-session' ? `${currentCase.title} run` : kind === 'projects' ? 'Untitled agent project' : 'Untitled case')
   const [cwd, setCwd] = useState(kind === 'projects' ? '/Users/lizhe/workspace' : currentCase.workspace)
-  const providerSelect = <label>Provider profile<select value={providerProfileId} onChange={event => onProviderProfile(event.target.value)}>{providerProfiles.map(profile => <option key={profile.id} value={profile.id} disabled={!profile.configured}>{profile.label}{profile.configured ? '' : ' · not configured'}</option>)}</select></label>
   const selectedProvider = providerProfiles.find(profile => profile.id === providerProfileId)
-  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className="dialog"><header><div><span className="eyebrow">{kind === 'settings' || kind === 'projects' ? 'PROJECT' : kind === 'plugin-library' ? 'STUDIO' : 'CREATE'}</span><h2>{kind === 'new-session' ? 'New CASE2 session' : kind === 'new-case' ? 'New simulation case' : kind === 'projects' ? 'Projects' : kind === 'settings' ? 'Project settings' : 'Component library'}</h2></div><button className="icon-button" onClick={onClose}><Icon name="close" size={16}/></button></header>{kind === 'new-session' && <><label>Session title<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Working directory<input value={cwd} onChange={event => setCwd(event.target.value)}/></label>{providerSelect}<div className="dialog-summary"><span>Assembly</span><strong>CASE2 coding agent</strong><span>Model</span><strong>{selectedProvider?.model ?? 'No configured provider'}</strong></div><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === '' || selectedProvider?.configured !== true} onClick={() => onCreateSession(title.trim(), cwd.trim(), providerProfileId)}>Create session</button></footer></>}{kind === 'new-case' && <><label>Case name<input value={title} onChange={event => setTitle(event.target.value)}/></label><p className="dialog-copy">Creates a local blueprint by copying the current CASE2 assembly. Persistence will be connected after the project format is frozen.</p><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === ''} onClick={() => onCreateCase(title.trim())}>Create fixture</button></footer></>}{kind === 'projects' && <><div className="project-list">{projects.map(item => <button key={item.id} className={item.id === project.id ? 'active' : ''} onClick={() => onSelectProject(item.id)}><span className="project-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span><strong>{item.name}</strong><small>{item.root}</small></span>{item.id === project.id && <Icon name="check" size={14}/>}</button>)}</div><div className="dialog-divider"><span>New fixture project</span></div><label>Project name<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Workspace root<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateProject(title.trim(), cwd.trim())}>Create project</button></footer></>}{kind === 'settings' && <><div className="settings-list"><div><span>Project root</span><code>{project.root}</code></div><div><span>Runtime</span><strong>Local Node.js · connected</strong></div><div><span>Storage</span><strong>Append-only JSONL</strong></div><div><span>Default case</span><strong>{currentCase.title}</strong></div></div>{providerSelect}<footer><button className="primary" onClick={onClose}>Done</button></footer></>}{kind === 'plugin-library' && <><div className="library-grid">{plugins.slice(2, 8).map(plugin => <button key={plugin.id} onClick={onClose}><span className={`category ${plugin.category}`}>{plugin.category}</span><strong>{plugin.name}</strong><small>{plugin.responsibility}</small><i>Already assembled</i></button>)}</div><p className="dialog-copy">Dynamic installation is intentionally a UI fixture until plugin identity, metadata and runtime mutation semantics are frozen.</p></>}</section></div>
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | undefined>(selectedProvider?.defaultReasoningEffort)
+  const [approvalMode, setApprovalMode] = useState<ApprovalMode>('ask')
+  useEffect(() => setReasoningEffort(selectedProvider?.defaultReasoningEffort), [providerProfileId, selectedProvider?.defaultReasoningEffort])
+  const providerSelect = <label>Provider profile<select value={providerProfileId} onChange={event => onProviderProfile(event.target.value)}>{providerProfiles.map(profile => <option key={profile.id} value={profile.id} disabled={!profile.configured}>{profile.label}{profile.configured ? '' : ' · not configured'}</option>)}</select></label>
+  const reasoningSelect = <label>Reasoning effort<select value={reasoningEffort ?? ''} disabled={selectedProvider?.reasoningEfforts === undefined} onChange={event => setReasoningEffort(event.target.value === '' ? undefined : event.target.value as ReasoningEffort)}><option value="">Provider default</option>{selectedProvider?.reasoningEfforts?.map(effort => <option key={effort} value={effort}>{effort}</option>)}</select></label>
+  const approvalSelect = <label>Tool approval<select value={approvalMode} onChange={event => setApprovalMode(event.target.value as ApprovalMode)}><option value="ask">Ask before write, edit, and bash</option><option value="auto">Auto approve all tools (unsafe)</option></select></label>
+  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className="dialog"><header><div><span className="eyebrow">{kind === 'settings' || kind === 'projects' ? 'PROJECT' : kind === 'plugin-library' ? 'STUDIO' : 'CREATE'}</span><h2>{kind === 'new-session' ? 'New CASE2 session' : kind === 'new-case' ? 'New simulation case' : kind === 'projects' ? 'Projects' : kind === 'settings' ? 'Project settings' : 'Component library'}</h2></div><button className="icon-button" onClick={onClose}><Icon name="close" size={16}/></button></header>{kind === 'new-session' && <><label>Session title<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Working directory<input value={cwd} onChange={event => setCwd(event.target.value)}/></label>{providerSelect}{reasoningSelect}{approvalSelect}<div className="dialog-summary"><span>Assembly</span><strong>CASE2 coding agent</strong><span>Model</span><strong>{selectedProvider?.model ?? 'No configured provider'}</strong><span>Reasoning</span><strong>{reasoningEffort ?? 'provider default'}</strong><span>Approval</span><strong>{approvalMode}</strong></div><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === '' || selectedProvider?.configured !== true} onClick={() => onCreateSession(title.trim(), cwd.trim(), providerProfileId, reasoningEffort, approvalMode)}>Create session</button></footer></>}{kind === 'new-case' && <><label>Case name<input value={title} onChange={event => setTitle(event.target.value)}/></label><p className="dialog-copy">Creates a local blueprint by copying the current CASE2 assembly. Persistence will be connected after the project format is frozen.</p><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === ''} onClick={() => onCreateCase(title.trim())}>Create fixture</button></footer></>}{kind === 'projects' && <><div className="project-list">{projects.map(item => <button key={item.id} className={item.id === project.id ? 'active' : ''} onClick={() => onSelectProject(item.id)}><span className="project-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span><strong>{item.name}</strong><small>{item.root}</small></span>{item.id === project.id && <Icon name="check" size={14}/>}</button>)}</div><div className="dialog-divider"><span>New fixture project</span></div><label>Project name<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Workspace root<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateProject(title.trim(), cwd.trim())}>Create project</button></footer></>}{kind === 'settings' && <><div className="settings-list"><div><span>Project root</span><code>{project.root}</code></div><div><span>Runtime</span><strong>Local Node.js · connected</strong></div><div><span>Storage</span><strong>Append-only JSONL</strong></div><div><span>Default case</span><strong>{currentCase.title}</strong></div></div>{providerSelect}<footer><button className="primary" onClick={onClose}>Done</button></footer></>}{kind === 'plugin-library' && <><div className="library-grid">{plugins.slice(2, 8).map(plugin => <button key={plugin.id} onClick={onClose}><span className={`category ${plugin.category}`}>{plugin.category}</span><strong>{plugin.name}</strong><small>{plugin.responsibility}</small><i>Already assembled</i></button>)}</div><p className="dialog-copy">Dynamic installation is intentionally a UI fixture until plugin identity, metadata and runtime mutation semantics are frozen.</p></>}</section></div>
 }
 
 export function App() {
@@ -521,8 +568,8 @@ export function App() {
   async function command(action: () => Promise<void>): Promise<void> {
     try { setRunError(undefined); await action() } catch (error) { setRunError(error instanceof Error ? error.message : String(error)) }
   }
-  async function makeSession(title: string, cwd: string, profileId = providerProfileId): Promise<void> {
-    await command(async () => { const session = await createSession({ title, cwd, ...(profileId === '' ? {} : { providerProfileId: profileId }) }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) })
+  async function makeSession(title: string, cwd: string, profileId = providerProfileId, reasoningEffort?: ReasoningEffort, approvalMode: ApprovalMode = 'ask'): Promise<void> {
+    await command(async () => { const session = await createSession({ title, cwd, ...(profileId === '' ? {} : { providerProfileId: profileId }), ...(reasoningEffort === undefined ? {} : { reasoningEffort }), approvalMode }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) })
   }
   function makeCase(title: string): void {
     const item: CaseFixture = { ...currentCase, id: `fixture-${Date.now()}`, title, runs: 0, provider: 'mock', providerLabel: 'mock provider' }
@@ -554,7 +601,7 @@ export function App() {
       providerProfileId={providerProfileId}
       onProviderProfile={setProviderProfileId}
       onClose={() => setDialog(undefined)}
-      onCreateSession={(title, cwd, profileId) => void makeSession(title, cwd, profileId)}
+      onCreateSession={(title, cwd, profileId, reasoningEffort, approvalMode) => void makeSession(title, cwd, profileId, reasoningEffort, approvalMode)}
       onCreateCase={makeCase}
       onCreateProject={makeProject}
       onSelectProject={id => { setSelectedProject(id); setDialog(undefined) }}

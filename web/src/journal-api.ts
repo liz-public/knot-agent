@@ -13,11 +13,16 @@ export interface SessionSummary {
   readonly workspace?: string
   readonly model?: string
   readonly providerProfileId?: string
+  readonly reasoningEffort?: ReasoningEffort
+  readonly approvalMode?: ApprovalMode
   readonly runState: 'completed' | 'idle' | 'running' | 'paused'
   readonly eventCount: number
   readonly updatedAt?: string
   readonly writable: boolean
 }
+
+export type ReasoningEffort = 'none' | 'low' | 'high' | 'max'
+export type ApprovalMode = 'ask' | 'auto'
 
 export interface ProviderProfileSummary {
   readonly id: string
@@ -25,6 +30,8 @@ export interface ProviderProfileSummary {
   readonly adapter: 'openai-compatible' | 'deepseek'
   readonly model: string
   readonly configured: boolean
+  readonly reasoningEfforts?: readonly ReasoningEffort[]
+  readonly defaultReasoningEffort?: ReasoningEffort
 }
 
 export interface JournalSnapshot {
@@ -104,6 +111,8 @@ export async function createSession(input: {
   title?: string
   cwd?: string
   providerProfileId?: string
+  reasoningEffort?: ReasoningEffort
+  approvalMode?: ApprovalMode
 } = {}): Promise<SessionSummary> {
   return (await post<{ session: SessionSummary }>('/api/workbench/sessions', input)).session
 }

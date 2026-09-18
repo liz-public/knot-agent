@@ -4,6 +4,7 @@ import { extname, isAbsolute, relative, resolve } from 'node:path'
 import { JournalReadError } from './read-journal.js'
 import type { ProviderProfileSummary } from './provider-profile.js'
 import type { WorkbenchSession } from './session.js'
+import type { ApprovalMode, ReasoningEffort } from './session.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
@@ -12,6 +13,8 @@ export interface WorkbenchServerOptions {
     title?: string
     cwd?: string
     providerProfileId?: string
+    reasoningEffort?: ReasoningEffort
+    approvalMode?: ApprovalMode
   }) => Promise<WorkbenchSession>
   readonly webRoot?: string
 }
@@ -114,6 +117,12 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           ...(typeof body['cwd'] === 'string' ? { cwd: body['cwd'] } : {}),
           ...(typeof body['providerProfileId'] === 'string'
             ? { providerProfileId: body['providerProfileId'] }
+            : {}),
+          ...(['none', 'low', 'high', 'max'].includes(String(body['reasoningEffort']))
+            ? { reasoningEffort: body['reasoningEffort'] as ReasoningEffort }
+            : {}),
+          ...(['ask', 'auto'].includes(String(body['approvalMode']))
+            ? { approvalMode: body['approvalMode'] as ApprovalMode }
             : {}),
         })
         if (byId.has(session.id)) throw new Error(`duplicate workbench session id ${session.id}`)

@@ -1,6 +1,7 @@
 import { deepSeekLlmProvider } from '../cases/case1/llm-deepseek.js'
 import type { LlmProvider } from '../cases/case1/llm.js'
 import { openAiLlmProvider } from '../cases/case1/llm-openai.js'
+import type { ReasoningEffort } from './session.js'
 
 export type ProviderAdapter = 'openai-compatible' | 'deepseek'
 
@@ -10,10 +11,12 @@ export interface ProviderProfileSummary {
   readonly adapter: ProviderAdapter
   readonly model: string
   readonly configured: boolean
+  readonly reasoningEfforts?: readonly ReasoningEffort[]
+  readonly defaultReasoningEffort?: ReasoningEffort
 }
 
 export interface ProviderProfile extends ProviderProfileSummary {
-  create(): LlmProvider
+  create(options?: { readonly reasoningEffort?: ReasoningEffort }): LlmProvider
 }
 
 function optionalNumber(value: string | undefined, name: string): number | undefined {
@@ -76,6 +79,10 @@ export function providerProfilesFromEnvironment(
     label: environment['KNOT_DEEPSEEK_LABEL'] ?? `DeepSeek · ${deepSeekModel}`,
     adapter: 'deepseek' as const,
     model: deepSeekModel,
+    reasoningEfforts: ['none', 'low', 'high', 'max'] as const,
+    defaultReasoningEffort: (environment['KNOT_DEEPSEEK_THINKING'] === 'disabled'
+      ? 'none'
+      : environment['KNOT_DEEPSEEK_REASONING_EFFORT'] ?? 'high') as ReasoningEffort,
   }
   const deepSeekKey = environment['DEEPSEEK_API_KEY']
   if (deepSeekKey === undefined || deepSeekKey.length === 0) {
@@ -96,18 +103,19 @@ export function providerProfilesFromEnvironment(
     profiles.push({
       ...deepSeekSummary,
       configured: true,
-      create: () => deepSeekLlmProvider({
-        apiKey: deepSeekKey,
-        model: deepSeekModel,
-        contextWindow,
-        ...(environment['KNOT_DEEPSEEK_BASE_URL'] === undefined
-          ? {}
-          : { baseUrl: environment['KNOT_DEEPSEEK_BASE_URL'] }),
-        ...(thinking === undefined ? {} : { thinking }),
-        ...(effort === undefined
-          ? {}
-          : { reasoningEffort: effort as 'none' | 'low' | 'high' | 'max' }),
-      }),
+      create: options => {
+        const selectedEffort = options?.reasoningEffort ?? deepSeekSummary.defaultReasoningEffort
+        return deepSeekLlmProvider({
+          apiKey: deepSeekKey,
+          model: deepSeekModel,
+          contextWindow,
+          ...(environment['KNOT_DEEPSEEK_BASE_URL'] === undefined
+            ? {}
+            : { baseUrl: environment['KNOT_DEEPSEEK_BASE_URL'] }),
+          thinking: selectedEffort === 'none' ? 'disabled' : 'enabled',
+          ...(selectedEffort === 'none' ? {} : { reasoningEffort: selectedEffort }),
+        })
+      },
     })
   }
   return profiles

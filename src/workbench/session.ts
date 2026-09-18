@@ -1,6 +1,8 @@
 import type { ReadEvent } from './read-journal.js'
 
 export type SessionRunState = 'completed' | 'idle' | 'running' | 'paused' | 'failed'
+export type ReasoningEffort = 'none' | 'low' | 'high' | 'max'
+export type ApprovalMode = 'ask' | 'auto'
 
 export interface SessionSummaryDto {
   readonly id: string
@@ -9,6 +11,8 @@ export interface SessionSummaryDto {
   readonly workspace?: string
   readonly model?: string
   readonly providerProfileId?: string
+  readonly reasoningEffort?: ReasoningEffort
+  readonly approvalMode?: ApprovalMode
   readonly runState: SessionRunState
   readonly eventCount: number
   readonly updatedAt?: string

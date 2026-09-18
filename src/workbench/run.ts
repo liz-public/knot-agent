@@ -9,7 +9,7 @@ import {
   publicProviderProfile,
   type ProviderProfile,
 } from './provider-profile.js'
-import type { WorkbenchSession } from './session.js'
+import type { ApprovalMode, ReasoningEffort, WorkbenchSession } from './session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from './session-catalog.js'
 import { storedSession, type StoredSessionConfig } from './stored-session.js'
 
@@ -25,8 +25,16 @@ const providerProfiles = providerProfilesFromEnvironment(process.env)
 const profilesById = new Map(providerProfiles.map(profile => [profile.id, profile]))
 const defaultProfile = providerProfiles.find(profile => profile.configured)
 
-function assemblyFor(profile: ProviderProfile) {
-  return case2AssemblyFactory({ llm: profile.create(), model: profile.model })
+function assemblyFor(
+  profile: ProviderProfile,
+  reasoningEffort?: ReasoningEffort,
+  approvalMode: ApprovalMode = 'ask',
+) {
+  return case2AssemblyFactory({
+    llm: profile.create({ reasoningEffort }),
+    model: profile.model,
+    approvalMode,
+  })
 }
 
 function profileForDescriptor(input: { model?: string; providerProfileId?: string }) {
@@ -44,13 +52,21 @@ async function newLiveSession(input: {
   title?: string
   cwd?: string
   providerProfileId?: string
+  reasoningEffort?: ReasoningEffort
+  approvalMode?: ApprovalMode
 } = {}): Promise<WorkbenchSession> {
   const profile = input.providerProfileId === undefined
     ? defaultProfile
     : profilesById.get(input.providerProfileId)
   if (profile === undefined) throw new Error(`Unknown provider profile ${input.providerProfileId}`)
   if (!profile.configured) throw new Error(`Provider profile ${profile.id} is not configured`)
-  const assembly = assemblyFor(profile)
+  if (input.reasoningEffort !== undefined
+    && !profile.reasoningEfforts?.includes(input.reasoningEffort)) {
+    throw new Error(`Provider profile ${profile.id} does not support reasoning effort ${input.reasoningEffort}`)
+  }
+  const reasoningEffort = input.reasoningEffort ?? profile.defaultReasoningEffort
+  const approvalMode = input.approvalMode ?? 'ask'
+  const assembly = assemblyFor(profile, reasoningEffort, approvalMode)
   const id = `case2-${randomUUID().slice(0, 8)}`
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
@@ -61,6 +77,8 @@ async function newLiveSession(input: {
     assembly: assembly.id,
     model: assembly.model,
     providerProfileId: profile.id,
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    approvalMode,
   }
   const session = await createLiveSession({ ...descriptor, assembly })
   await saveSessionDescriptor(sessionDirectory, descriptor)
@@ -76,7 +94,7 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
     : await createLiveSession({
       ...descriptor,
       providerProfileId: profile.id,
-      assembly: assemblyFor(profile),
+      assembly: assemblyFor(profile, descriptor.reasoningEffort, descriptor.approvalMode),
     }))
 }
 if (configuredJournal !== undefined) {
@@ -95,7 +113,9 @@ if (configuredJournal !== undefined) {
         cwd: defaultCwd,
         journalPath: configuredJournal,
         providerProfileId: defaultProfile.id,
-        assembly: assemblyFor(defaultProfile),
+        reasoningEffort: defaultProfile.defaultReasoningEffort,
+        approvalMode: 'ask',
+        assembly: assemblyFor(defaultProfile, defaultProfile.defaultReasoningEffort, 'ask'),
       }))
   }
 }

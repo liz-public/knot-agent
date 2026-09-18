@@ -25,6 +25,8 @@ test('provider profiles keep credentials server-side and expose configuration st
       label: 'DeepSeek · deepseek-flash',
       adapter: 'deepseek',
       model: 'deepseek-flash',
+      reasoningEfforts: ['none', 'low', 'high', 'max'],
+      defaultReasoningEffort: 'high',
       configured: false,
     },
   ])
@@ -42,5 +44,7 @@ test('DeepSeek becomes a selectable profile only when its server credential exis
 
   assert.equal(deepSeek?.configured, true)
   assert.equal(deepSeek?.model, 'deepseek-v4-pro')
-  assert.ok(deepSeek?.create())
+  assert.deepEqual(deepSeek?.reasoningEfforts, ['none', 'low', 'high', 'max'])
+  assert.equal(deepSeek?.defaultReasoningEffort, 'high')
+  assert.ok(deepSeek?.create({ reasoningEffort: 'low' }))
 })

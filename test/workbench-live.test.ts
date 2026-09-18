@@ -37,6 +37,8 @@ test('workbench session descriptors preserve new sessions for host restart', asy
     assembly: 'case2',
     model: 'mock',
     providerProfileId: 'default',
+    reasoningEffort: 'low' as const,
+    approvalMode: 'auto' as const,
   }
   await saveSessionDescriptor(directory, descriptor)
   assert.deepEqual(await loadSessionDescriptors(directory), [descriptor])
@@ -114,6 +116,33 @@ test('live CASE2 session streams generation, resolves approval, and persists aut
   assert.ok(snapshot.events.every(event => event.observedAt !== undefined))
 })
 
+test('auto approval is assembly policy and does not create browser interactions', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-auto-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  let generation = 0
+  const session = await createLiveSession({
+    id: 'auto', title: 'Auto approval', cwd: directory,
+    journalPath: join(directory, 'session.jsonl'), approvalMode: 'auto',
+    assembly: case2AssemblyFactory({
+      model: 'mock', approvalMode: 'auto',
+      llm: { async generate() {
+        generation += 1
+        return generation === 1
+          ? { generated: { toolCalls: [{ id: 'write-1', name: 'write', arguments: { path: 'auto.txt', content: 'ok\n' } }] }, usage }
+          : { generated: { content: 'Done.', toolCalls: [] }, usage }
+      } },
+    }),
+  })
+  const events: LiveSessionEvent[] = []
+  session.subscribe!(event => events.push(event))
+  const idle = nextEvent(events, session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  session.submit!('Write auto.txt.')
+  await idle
+  assert.equal(await readFile(join(directory, 'auto.txt'), 'utf8'), 'ok\n')
+  assert.equal(events.some(event => event.kind === 'interaction.request'), false)
+  assert.equal((await session.summary()).approvalMode, 'auto')
+})
+
 test('workbench HTTP commands drive one injected live session', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-live-http-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
@@ -129,7 +158,7 @@ test('workbench HTTP commands drive one injected live session', async t => {
       },
     }, model: 'mock' }),
   })
-  let createInput: { title?: string; cwd?: string; providerProfileId?: string } | undefined
+  let createInput: { title?: string; cwd?: string; providerProfileId?: string; reasoningEffort?: string; approvalMode?: string } | undefined
   const createdSession: WorkbenchSession = {
     id: 'created',
     summary: async () => ({
@@ -179,13 +208,15 @@ test('workbench HTTP commands drive one injected live session', async t => {
   const created = await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'DeepSeek run', cwd: directory, providerProfileId: 'deepseek' }),
+    body: JSON.stringify({ title: 'DeepSeek run', cwd: directory, providerProfileId: 'deepseek', reasoningEffort: 'low', approvalMode: 'auto' }),
   })
   assert.equal(created.status, 201)
   assert.deepEqual(createInput, {
     title: 'DeepSeek run',
     cwd: directory,
     providerProfileId: 'deepseek',
+    reasoningEffort: 'low',
+    approvalMode: 'auto',
   })
   const idle = nextEvent([], session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
   const streamAbort = new AbortController()
