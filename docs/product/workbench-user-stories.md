@@ -2,7 +2,7 @@
 
 Status: product capability ledger for review, not a frozen public contract
 
-Baseline: `1ab130a` (`main`, 2026-09-20)
+Baseline: `8df9514` (`main`, 2026-09-20)
 
 Scope: the two primary product surfaces, **Run** and **Studio**
 
@@ -107,7 +107,7 @@ Evidence abbreviations:
 | RUN-C04 | As a user, I can choose ask or automatic tool approval. | The selected policy is assembly-owned and persists across restart; auto mode creates no approval interaction. | **Implemented** | `ApprovalMode`; CASE2 assembly policy; auto-approval test. |
 | RUN-C05 | As a user, I can choose a Case/Assembly/Preset for a new Session. | Selection resolves a healthy immutable assembly generation and is recorded with the Session. | **Partial** | Descriptor records `assembly`, but Host creation is hard-wired to CASE2. Studio case selection does not select a real assembly. |
 | RUN-C06 | As a user, I can change configuration on an empty Session safely. | Change is persisted before any model-visible content and rebuilds the runtime deterministically. | **Missing** | New Session options work only at creation. |
-| RUN-C07 | As a user, I understand which configuration is pinned for this Session. | Header/settings show provider, model, reasoning, approval, assembly id and generation. | **Partial** | Model and workspace are visible; reasoning/approval/assembly generation require opening/inferring other surfaces and generation does not exist. |
+| RUN-C07 | As a user, I understand which configuration is pinned for this Session. | Header/settings show provider, model, reasoning, approval, assembly id and generation. | **Partial** | Model and workspace are visible; other settings require inference, and the recorded Generation identity does not yet pin an executable artifact. |
 | RUN-C08 | As a local user, I can add a Provider profile without restarting or editing environment variables. | Host validates and persists adapter/base URL/model/key; browser receives only a redacted summary; a new Session can use it immediately. | **Implemented** | Local `0600` Provider store, redacted GET/POST API, settings form, restart and HTTP tests. Editing/deletion remain absent. |
 
 ### 4.4 Conversation and control
