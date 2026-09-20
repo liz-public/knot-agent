@@ -30,7 +30,7 @@ interface BuildContext {
 }
 
 const boundary: Definition = {
-  metadata: { id: 'controlled-boundary', name: 'ControlledEventBoundary', category: 'platform', responsibility: 'Pause delivery only between complete Journal events.', listens: ['*'], emits: [], source: 'src/cases/case2/controlled-boundary.ts' },
+  metadata: { id: 'controlled-boundary', name: 'ControlledEventBoundary', category: 'platform', responsibility: 'Pause delivery only between complete Journal events.', listens: ['*'], emits: [], source: 'src/plugins/controlled-boundary.ts' },
   create: context => context.boundary,
 }
 

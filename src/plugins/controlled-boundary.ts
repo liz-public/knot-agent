@@ -1,4 +1,4 @@
-import type { Plugin } from '../../journal.js'
+import type { Plugin } from '../journal.js'
 
 export interface EventBoundaryControl {
   pause(): void

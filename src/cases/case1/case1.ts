@@ -1,7 +1,7 @@
 import type { PluginNode } from '../../assembly-definition.js'
 import { createJournal, type Event, type Plugin } from '../../journal.js'
 import { JSONL_LOAD, JSONL_STORE_METADATA, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
-import { controlledEventBoundary } from '../case2/controlled-boundary.js'
+import { controlledEventBoundary } from '../../plugins/controlled-boundary.js'
 import type { CompressHistoryOptions } from './compress-history.js'
 import type { ContentSource } from './content.js'
 import type { CliCatalog } from './cli.js'
