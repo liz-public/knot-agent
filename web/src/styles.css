@@ -37,6 +37,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .project-picker { margin: 3px 9px 11px; padding: 8px; display: grid; grid-template-columns: 31px 1fr 15px; align-items: center; gap: 8px; border: 0; border-radius: 9px; background: rgba(255,255,255,.58); text-align: left; cursor: pointer; }
 .project-picker:hover { background: white; }
 .project-picker > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.locale-toggle { margin-left: auto; padding: 2px 6px; border: .5px solid var(--line); border-radius: 5px; color: var(--muted); background: white; font-size: 9px; cursor: pointer; }
 .project-picker strong { font-size: 13px; }
 .project-picker small { color: var(--muted); font-size: 11px; }
 .project-avatar { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 7px; color: #453795; background: #ded9fa; font-size: 13px; font-weight: 750; }
