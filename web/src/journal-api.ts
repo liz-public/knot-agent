@@ -125,12 +125,14 @@ export interface StudioRun {
 }
 
 export interface StudioSnapshot {
+  readonly assemblies: readonly StudioAssembly[]
   readonly assembly: StudioAssembly
   readonly cases: readonly StudioCase[]
   readonly validations: readonly StudioValidation[]
   readonly generations: readonly StudioGeneration[]
   readonly runs: readonly StudioRun[]
   readonly activeGenerationId: string
+  readonly activeGenerationIds: Readonly<Record<string, string>>
 }
 
 interface ErrorResponse {
@@ -213,6 +215,7 @@ export async function createSession(input: {
   providerProfileId?: string
   reasoningEffort?: ReasoningEffort
   approvalMode?: ApprovalMode
+  assemblyId?: string
   assemblyGenerationId?: string
 } = {}): Promise<SessionSummary> {
   return (await post<{ session: SessionSummary }>('/api/workbench/sessions', input)).session
@@ -224,6 +227,7 @@ export async function loadStudio(signal?: AbortSignal): Promise<StudioSnapshot> 
 
 export async function createStudioCase(input: {
   title: string
+  assemblyId?: string
   workspace?: string
   prompt?: string
 }): Promise<StudioCase> {

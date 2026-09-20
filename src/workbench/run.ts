@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { LlmProvider } from '../cases/case1/llm.js'
 import type { AgentAssemblyFactory } from './assembly.js'
-import { case2AssemblyFactory } from './case2-assembly.js'
+import { createAssemblyCatalog } from './assembly-catalog.js'
 import { createWorkbenchServer } from './http-server.js'
 import { createLiveSession } from './live-session.js'
 import {
@@ -28,22 +28,27 @@ function configuredStoredSessions(): readonly StoredSessionConfig[] {
 }
 
 const registry = createSessionRegistry()
+const assemblies = createAssemblyCatalog()
 let studio: StudioController | undefined
 
 function assemblyFor(
+  assemblyId: string,
   profile: ProviderProfile,
   reasoningEffort?: ReasoningEffort,
   approvalMode: ApprovalMode = 'ask',
   parent?: { readonly id: string; readonly delegationDepth: number },
 ) {
-  return case2AssemblyFactory({
+  const definition = assemblies.get(assemblyId)
+  if (definition === undefined) throw new Error(`Unknown assembly ${assemblyId}`)
+  return definition.create({
     llm: profile.create({ reasoningEffort }),
     model: profile.model,
     approvalMode,
-    ...(parent === undefined || parent.delegationDepth >= 1 ? {} : {
+    ...(assemblyId !== 'case2' || parent === undefined || parent.delegationDepth >= 1 ? {} : {
       subagentFactory: {
         run: input => runSubagent({
           parentSessionId: parent.id,
+          assemblyId,
           parentProfile: profile,
           parentReasoningEffort: reasoningEffort,
           approvalMode,
@@ -78,15 +83,20 @@ async function newLiveSession(input: {
   providerProfileId?: string
   reasoningEffort?: ReasoningEffort
   approvalMode?: ApprovalMode
+  assemblyId?: string
   parentSessionId?: string
   delegationDepth?: number
   assemblyGenerationId?: string
   assemblyOverride?: AgentAssemblyFactory
 } = {}): Promise<WorkbenchSession> {
-  const assemblyGenerationId = input.assemblyGenerationId ?? await studio?.activeGenerationId()
+  const assemblyId = input.assemblyOverride?.id ?? input.assemblyId ?? 'case2'
+  if (input.assemblyOverride === undefined && assemblies.get(assemblyId) === undefined) {
+    throw new Error(`Unknown assembly ${assemblyId}`)
+  }
+  const assemblyGenerationId = input.assemblyGenerationId ?? await studio?.activeGenerationId(assemblyId)
   if (assemblyGenerationId !== undefined
     && studio !== undefined
-    && !await studio.hasGeneration(assemblyGenerationId)) {
+    && !await studio.hasGeneration(assemblyGenerationId, assemblyId)) {
     throw new Error(`Unknown assembly generation ${assemblyGenerationId}`)
   }
   const profile = input.assemblyOverride === undefined
@@ -104,10 +114,10 @@ async function newLiveSession(input: {
   }
   const reasoningEffort = input.reasoningEffort ?? profile?.defaultReasoningEffort
   const approvalMode = input.approvalMode ?? 'ask'
-  const id = input.id ?? `case2-${randomUUID().slice(0, 8)}`
+  const id = input.id ?? `${assemblyId}-${randomUUID().slice(0, 8)}`
   const delegationDepth = input.delegationDepth ?? 0
   const assembly = input.assemblyOverride
-    ?? assemblyFor(profile!, reasoningEffort, approvalMode, { id, delegationDepth })
+    ?? assemblyFor(assemblyId, profile!, reasoningEffort, approvalMode, { id, delegationDepth })
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
     id,
@@ -150,6 +160,18 @@ function mockStudioProvider(): LlmProvider {
   }
 }
 
+function mockProviderFor(assemblyId: string): LlmProvider {
+  if (assemblyId === 'case2') return mockStudioProvider()
+  return {
+    async generate() {
+      return {
+        generated: { content: 'Mock CASE1 run completed the mobile-assistant action.', toolCalls: [] },
+        usage: { inputTokens: 120, outputTokens: 12, totalTokens: 132, contextWindow: 32_768 },
+      }
+    },
+  }
+}
+
 function waitUntilIdle(session: WorkbenchSession): Promise<void> {
   return new Promise(resolve => {
     const unsubscribe = session.subscribe?.(event => {
@@ -167,19 +189,19 @@ async function createStudioRunSession(input: StudioRunInput): Promise<WorkbenchS
       id: input.id,
       title: input.title,
       cwd: input.workspace,
+      assemblyId: input.assemblyId,
       assemblyGenerationId: input.generationId,
       approvalMode: 'auto',
       delegationDepth: 0,
-      assemblyOverride: case2AssemblyFactory({
-        llm: mockStudioProvider(),
-        model: 'deterministic-mock',
-        approvalMode: 'auto',
+      assemblyOverride: assemblies.get(input.assemblyId)!.create({
+        llm: mockProviderFor(input.assemblyId), model: 'deterministic-mock', approvalMode: 'auto',
       }),
     })
     : await newLiveSession({
       id: input.id,
       title: input.title,
       cwd: input.workspace,
+      assemblyId: input.assemblyId,
       assemblyGenerationId: input.generationId,
       ...(input.providerProfileId === undefined ? {} : { providerProfileId: input.providerProfileId }),
       ...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
@@ -199,6 +221,7 @@ async function runSubagent(input: {
   readonly model?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly parentSessionId: string
+  readonly assemblyId: string
   readonly parentProfile: ProviderProfile
   readonly parentReasoningEffort?: ReasoningEffort
   readonly approvalMode: ApprovalMode
@@ -217,6 +240,7 @@ async function runSubagent(input: {
   const child = await newLiveSession({
     title: `Subagent · ${input.task.slice(0, 60)}`,
     cwd: input.cwd,
+    assemblyId: input.assemblyId,
     providerProfileId: profile.id,
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     approvalMode: input.approvalMode,
@@ -230,7 +254,8 @@ for (const session of configuredStoredSessions()) registry.add(storedSession(ses
 for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
   if (registry.get(descriptor.id) !== undefined) continue
   const profile = profileForDescriptor(descriptor)
-  registry.add(profile === undefined || !profile.configured
+  const definition = assemblies.get(descriptor.assembly)
+  registry.add(profile === undefined || !profile.configured || definition === undefined
     ? storedSession(descriptor)
     : await createLiveSession({
       ...descriptor,
@@ -238,7 +263,7 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
       ...(descriptor.assemblyGenerationId === undefined
         ? {}
         : { assemblyGenerationId: descriptor.assemblyGenerationId }),
-      assembly: assemblyFor(profile, descriptor.reasoningEffort, descriptor.approvalMode, {
+      assembly: assemblyFor(descriptor.assembly, profile, descriptor.reasoningEffort, descriptor.approvalMode, {
         id: descriptor.id,
         delegationDepth: descriptor.delegationDepth ?? 0,
       }),
@@ -252,6 +277,7 @@ studio = await createStudioController({
   defaultWorkspace: defaultCwd,
   session: id => registry.get(id),
   createRunSession: createStudioRunSession,
+  assemblies: assemblies.list().map(definition => definition.description),
 })
 if (configuredJournal !== undefined) {
   if (registry.get('case2-main') === undefined) {
@@ -273,7 +299,7 @@ if (configuredJournal !== undefined) {
         reasoningEffort: profile.defaultReasoningEffort,
         approvalMode: 'ask',
         delegationDepth: 0,
-        assembly: assemblyFor(profile, profile.defaultReasoningEffort, 'ask', {
+        assembly: assemblyFor('case2', profile, profile.defaultReasoningEffort, 'ask', {
           id: 'case2-main',
           delegationDepth: 0,
         }),
@@ -282,7 +308,8 @@ if (configuredJournal !== undefined) {
 }
 if (registry.list().length === 0 && providerStore.default() !== undefined) registry.add(await newLiveSession({
   title: 'CASE2 coding session',
-  assemblyGenerationId: await studio.activeGenerationId(),
+  assemblyId: 'case2',
+  assemblyGenerationId: await studio.activeGenerationId('case2'),
 }))
 
 const port = Number(process.env['KNOT_WORKBENCH_PORT'] ?? '4317')

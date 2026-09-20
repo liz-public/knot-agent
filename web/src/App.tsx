@@ -50,10 +50,10 @@ export function App() {
   }, [selected, activeSession?.writable, t])
 
   async function command(action: () => Promise<void>) { try { setRunError(undefined); await action() } catch (error) { setRunError(error instanceof Error ? error.message : String(error)) } }
-  async function makeSession(title: string, cwd: string, profileId = providerProfileId, reasoningEffort?: ReasoningEffort, approvalMode: ApprovalMode = 'ask') { await command(async () => { const session = await createSession({ title, cwd, ...(profileId === '' ? {} : { providerProfileId: profileId }), ...(reasoningEffort === undefined ? {} : { reasoningEffort }), approvalMode }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) }) }
+  async function makeSession(title: string, cwd: string, profileId = providerProfileId, reasoningEffort?: ReasoningEffort, approvalMode: ApprovalMode = 'ask', assemblyId = currentCase.assemblyId) { await command(async () => { const session = await createSession({ title, cwd, assemblyId, ...(profileId === '' ? {} : { providerProfileId: profileId }), ...(reasoningEffort === undefined ? {} : { reasoningEffort }), approvalMode }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) }) }
   async function makeProvider(input: ProviderProfileDraft) { await command(async () => { const created = await createProviderProfile(input); const profiles = await listProviderProfiles(); setProviderProfiles(profiles); setProviderProfileId(created.id) }) }
   async function studioCommand(name: string, action: () => Promise<void>) { try { setStudioBusy(name); setStudioError(undefined); await action(); setStudio(await loadStudio()); setReload(value => value + 1) } catch (error) { setStudioError(error instanceof Error ? error.message : String(error)) } finally { setStudioBusy(undefined) } }
-  async function makeCase(title: string) { await studioCommand('create', async () => { const item = await createStudioCase({ title, workspace: currentProject.root }); setSelectedCase(item.id); setMode('studio'); setDialog(undefined) }) }
+  async function makeCase(title: string, assemblyId: string) { await studioCommand('create', async () => { const item = await createStudioCase({ title, assemblyId, workspace: currentProject.root }); setSelectedCase(item.id); setMode('studio'); setDialog(undefined) }) }
   function makeProject(name: string, root: string) { const item: ProjectFixture = { id: `fixture-${Date.now()}`, name, summary: t('project.localFixture'), root }; setProjects(current => [...current, item]); setSelectedProject(item.id); setDialog(undefined) }
   const checkAssembly = () => { void studioCommand('check', async () => { await checkStudioAssembly(currentCase.id) }) }
   const publishGeneration = () => { void studioCommand('publish', async () => { await publishStudioGeneration(currentCase.id) }) }
@@ -69,11 +69,11 @@ export function App() {
     <Inspector journal={journal} open={inspectorOpen} width={inspectorWidth} onWidth={setInspectorWidth} onClose={() => setInspectorOpen(false)} onRefresh={() => setReload(value => value + 1)}/>
     {dialog !== undefined && <Dialog
       kind={dialog} project={currentProject} projects={projects} currentCase={currentCase}
-      providerProfiles={providerProfiles} providerProfileId={providerProfileId}
+      providerProfiles={providerProfiles} providerProfileId={providerProfileId} assemblies={studio?.assemblies ?? []}
       onProviderProfile={setProviderProfileId} onClose={() => setDialog(undefined)}
-      onCreateSession={(title, cwd, profileId, reasoningEffort, approvalMode) => void makeSession(title, cwd, profileId, reasoningEffort, approvalMode)}
+      onCreateSession={(title, cwd, profileId, reasoningEffort, approvalMode, assemblyId) => void makeSession(title, cwd, profileId, reasoningEffort, approvalMode, assemblyId)}
       onCreateProvider={input => { void makeProvider(input) }}
-      onCreateCase={title => { void makeCase(title) }} onCreateProject={makeProject}
+      onCreateCase={(title, assemblyId) => { void makeCase(title, assemblyId) }} onCreateProject={makeProject}
       onSelectProject={id => { setSelectedProject(id); setDialog(undefined) }}
     />}
   </div>

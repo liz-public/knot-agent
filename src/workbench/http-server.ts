@@ -21,6 +21,7 @@ export interface WorkbenchServerOptions {
     providerProfileId?: string
     reasoningEffort?: ReasoningEffort
     approvalMode?: ApprovalMode
+    assemblyId?: string
     assemblyGenerationId?: string
   }) => Promise<WorkbenchSession>
   readonly webRoot?: string
@@ -184,6 +185,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         if (typeof body['title'] !== 'string') throw new Error('title must be a string')
         const value = await options.studio.createCase({
           title: body['title'],
+          ...(typeof body['assemblyId'] === 'string' ? { assemblyId: body['assemblyId'] } : {}),
           ...(typeof body['workspace'] === 'string' ? { workspace: body['workspace'] } : {}),
           ...(typeof body['prompt'] === 'string' ? { prompt: body['prompt'] } : {}),
         })
@@ -244,6 +246,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         const session = await options.createSession({
           ...(typeof body['title'] === 'string' ? { title: body['title'] } : {}),
           ...(typeof body['cwd'] === 'string' ? { cwd: body['cwd'] } : {}),
+          ...(typeof body['assemblyId'] === 'string' ? { assemblyId: body['assemblyId'] } : {}),
           ...(typeof body['providerProfileId'] === 'string'
             ? { providerProfileId: body['providerProfileId'] }
             : {}),

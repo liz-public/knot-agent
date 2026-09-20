@@ -265,7 +265,7 @@ test('workbench HTTP commands drive one injected live session', async t => {
       },
     }, model: 'mock' }),
   })
-  let createInput: { title?: string; cwd?: string; providerProfileId?: string; reasoningEffort?: string; approvalMode?: string } | undefined
+  let createInput: { title?: string; cwd?: string; assemblyId?: string; providerProfileId?: string; reasoningEffort?: string; approvalMode?: string } | undefined
   const createdSession: WorkbenchSession = {
     id: 'created',
     summary: async () => ({
@@ -315,12 +315,13 @@ test('workbench HTTP commands drive one injected live session', async t => {
   const created = await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'DeepSeek run', cwd: directory, providerProfileId: 'deepseek', reasoningEffort: 'low', approvalMode: 'auto' }),
+    body: JSON.stringify({ title: 'DeepSeek run', cwd: directory, assemblyId: 'case1', providerProfileId: 'deepseek', reasoningEffort: 'low', approvalMode: 'auto' }),
   })
   assert.equal(created.status, 201)
   assert.deepEqual(createInput, {
     title: 'DeepSeek run',
     cwd: directory,
+    assemblyId: 'case1',
     providerProfileId: 'deepseek',
     reasoningEffort: 'low',
     approvalMode: 'auto',

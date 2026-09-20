@@ -1,11 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { JSONL_STORE_METADATA } from '../plugins/jsonl.js'
-import { case2PluginMetadata } from '../cases/case2/plugin-definitions.js'
-import { CASE2_SYSTEM_PROMPT } from '../cases/case2/system-prompt.js'
-import { case2ToolDefinitions } from '../cases/case2/tool-definitions.js'
-import { JOURNAL_CHANGE_METADATA } from './journal-bridge.js'
+import { createAssemblyCatalog, type AssemblyDescription } from './assembly-catalog.js'
 import type { ReasoningEffort, WorkbenchSession } from './session.js'
 
 export interface StudioPluginDto {
@@ -24,7 +20,7 @@ export interface StudioToolDto {
 }
 
 export interface StudioAssemblyDto {
-  readonly id: 'case2'
+  readonly id: string
   readonly title: string
   readonly systemPrompt: string
   readonly plugins: readonly StudioPluginDto[]
@@ -37,7 +33,7 @@ export interface StudioCaseDto {
   readonly id: string
   readonly title: string
   readonly summary: string
-  readonly assemblyId: 'case2'
+  readonly assemblyId: string
   readonly workspace: string
   readonly prompt: string
   readonly assertions: readonly string[]
@@ -61,7 +57,7 @@ export interface StudioValidationDto {
 
 export interface StudioGenerationDto {
   readonly id: string
-  readonly assemblyId: 'case2'
+  readonly assemblyId: string
   readonly assemblyFingerprint: string
   readonly validationId: string
   readonly createdAt: string
@@ -95,12 +91,15 @@ export interface StudioRunDto {
 }
 
 export interface StudioSnapshotDto {
+  readonly assemblies: readonly StudioAssemblyDto[]
+  /** Backward-compatible default while the UI migrates to per-Case assembly selection. */
   readonly assembly: StudioAssemblyDto
   readonly cases: readonly StudioCaseDto[]
   readonly validations: readonly StudioValidationDto[]
   readonly generations: readonly StudioGenerationDto[]
   readonly runs: readonly StudioRunDto[]
   readonly activeGenerationId: string
+  readonly activeGenerationIds: Readonly<Record<string, string>>
 }
 
 interface StoredCase extends Omit<StudioCaseDto, 'runCount'> {}
@@ -120,7 +119,7 @@ interface StudioStore {
   readonly validations: readonly StudioValidationDto[]
   readonly generations: readonly Omit<StudioGenerationDto, 'active'>[]
   readonly runs: readonly StoredRun[]
-  readonly activeGenerationId: string
+  readonly activeGenerationIds: Readonly<Record<string, string>>
 }
 
 export interface StudioRunInput {
@@ -128,6 +127,7 @@ export interface StudioRunInput {
   readonly caseId: string
   readonly mode: 'mock' | 'real'
   readonly generationId: string
+  readonly assemblyId: string
   readonly title: string
   readonly workspace: string
   readonly prompt: string
@@ -137,7 +137,7 @@ export interface StudioRunInput {
 
 export interface StudioController {
   snapshot(): Promise<StudioSnapshotDto>
-  createCase(input: { readonly title: string; readonly workspace?: string; readonly prompt?: string }): Promise<StudioCaseDto>
+  createCase(input: { readonly title: string; readonly assemblyId?: string; readonly workspace?: string; readonly prompt?: string }): Promise<StudioCaseDto>
   check(caseId: string): Promise<StudioValidationDto>
   publish(caseId: string): Promise<StudioGenerationDto>
   run(input: {
@@ -146,8 +146,8 @@ export interface StudioController {
     readonly providerProfileId?: string
     readonly reasoningEffort?: ReasoningEffort
   }): Promise<StudioRunDto>
-  hasGeneration(generationId: string): Promise<boolean>
-  activeGenerationId(): Promise<string>
+  hasGeneration(generationId: string, assemblyId?: string): Promise<boolean>
+  activeGenerationId(assemblyId?: string): Promise<string>
 }
 
 export interface StudioControllerOptions {
@@ -155,65 +155,28 @@ export interface StudioControllerOptions {
   readonly defaultWorkspace: string
   readonly session: (id: string) => WorkbenchSession | undefined
   readonly createRunSession: (input: StudioRunInput) => Promise<WorkbenchSession>
+  readonly assemblies?: readonly AssemblyDescription[]
 }
 
-const plugins: readonly StudioPluginDto[] = case2PluginMetadata([
-  JSONL_STORE_METADATA,
-  JOURNAL_CHANGE_METADATA,
-])
-
-function toolMetadata(): readonly StudioToolDto[] {
-  const definitions = case2ToolDefinitions({
-    cwd: '/',
-    askPort: { ask: async () => ({ answer: '' }) },
-    subagentFactory: { run: async () => ({ summary: '' }) },
-  })
-  return definitions.map(definition => {
-    const fn = definition.schema['function'] as Record<string, unknown>
-    return {
-      name: String(fn['name']),
-      description: typeof fn['description'] === 'string' ? fn['description'] : '',
-    }
-  })
-}
-
-function assemblyMetadata(): StudioAssemblyDto {
-  const tools = toolMetadata()
-  const protocols = [...new Set(plugins.flatMap(plugin => [...plugin.listens, ...plugin.emits]))]
-    .filter(protocol => protocol !== '*')
-    .sort()
-  const source = { id: 'case2' as const, systemPrompt: CASE2_SYSTEM_PROMPT, plugins, tools, protocols }
-  return {
-    ...source,
-    title: 'CASE2 coding agent',
-    fingerprint: createHash('sha256').update(JSON.stringify(source)).digest('hex').slice(0, 16),
-  }
-}
-
-function initialStore(workspace: string, assembly: StudioAssemblyDto): StudioStore {
+function initialStore(workspace: string, assemblies: readonly StudioAssemblyDto[]): StudioStore {
   const createdAt = new Date().toISOString()
-  const baseline = 'case2-baseline'
+  const activeGenerationIds = Object.fromEntries(assemblies.map(assembly => [assembly.id, `${assembly.id}-baseline`]))
   return {
-    cases: [{
-      id: 'case2-coding',
-      title: 'CASE2 coding task',
-      summary: 'Real CASE2 assembly with native coding tools and Journal evidence.',
-      assemblyId: 'case2',
-      workspace,
-      prompt: 'Inspect the current workspace with a terminal command, then briefly report what you found. Do not modify files.',
-      assertions: ['tool.result', 'assistant.message'],
-      createdAt,
-    }],
+    cases: assemblies.map(assembly => assembly.id === 'case1' ? {
+      id: 'case1-mobile', title: 'CASE1 mobile assistant', summary: 'Mobile-assistant shortcut, dynamic context, tool, and LLM continuation.', assemblyId: assembly.id, workspace, prompt: '请打开手电筒', assertions: ['tool.result', 'assistant.message'], createdAt,
+    } : {
+      id: `${assembly.id}-coding`, title: `${assembly.id.toUpperCase()} coding task`, summary: 'Coding-agent workspace inspection with native tools and Journal evidence.', assemblyId: assembly.id, workspace, prompt: 'Inspect the current workspace with a terminal command, then briefly report what you found. Do not modify files.', assertions: ['tool.result', 'assistant.message'], createdAt,
+    }),
     validations: [],
-    generations: [{
-      id: baseline,
-      assemblyId: 'case2',
+    generations: assemblies.map(assembly => ({
+      id: `${assembly.id}-baseline`,
+      assemblyId: assembly.id,
       assemblyFingerprint: assembly.fingerprint,
       validationId: 'built-in',
       createdAt,
-    }],
+    })),
     runs: [],
-    activeGenerationId: baseline,
+    activeGenerationIds,
   }
 }
 
@@ -224,14 +187,23 @@ function isStore(value: unknown): value is StudioStore {
     && Array.isArray(item['validations'])
     && Array.isArray(item['generations'])
     && Array.isArray(item['runs'])
-    && typeof item['activeGenerationId'] === 'string'
+    && (typeof item['activeGenerationId'] === 'string'
+      || (typeof item['activeGenerationIds'] === 'object' && item['activeGenerationIds'] !== null))
 }
 
 async function loadStore(path: string, fallback: StudioStore): Promise<StudioStore> {
   try {
     const value = JSON.parse(await readFile(path, 'utf8')) as unknown
     if (!isStore(value)) throw new Error('invalid Studio store')
-    return value
+    const legacy = value as unknown as StudioStore & { readonly activeGenerationId?: string }
+    return {
+      cases: legacy.cases,
+      validations: legacy.validations,
+      generations: legacy.generations,
+      runs: legacy.runs,
+      activeGenerationIds: legacy.activeGenerationIds
+        ?? { case2: legacy.activeGenerationId ?? fallback.activeGenerationIds['case2']! },
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback
     throw error
@@ -281,9 +253,28 @@ function metrics(events: readonly { type: string; data: unknown; observedAt?: st
 }
 
 export async function createStudioController(options: StudioControllerOptions): Promise<StudioController> {
-  const assembly = assemblyMetadata()
+  const assemblies = options.assemblies
+    ?? createAssemblyCatalog().list().map(definition => definition.description)
+  const byAssemblyId = new Map(assemblies.map(assembly => [assembly.id, assembly]))
+  if (byAssemblyId.size !== assemblies.length || assemblies.length === 0) {
+    throw new Error('Studio requires unique assemblies')
+  }
+  const defaultAssembly = byAssemblyId.get('case2') ?? assemblies[0]!
   const storePath = join(options.directory, 'studio.json')
-  let store = await loadStore(storePath, initialStore(options.defaultWorkspace, assembly))
+  const defaults = initialStore(options.defaultWorkspace, assemblies)
+  let store = await loadStore(storePath, defaults)
+  store = {
+    ...store,
+    cases: [
+      ...store.cases,
+      ...defaults.cases.filter(candidate => !store.cases.some(item => item.id === candidate.id)),
+    ],
+    generations: [
+      ...store.generations,
+      ...defaults.generations.filter(candidate => !store.generations.some(item => item.id === candidate.id)),
+    ],
+    activeGenerationIds: { ...defaults.activeGenerationIds, ...store.activeGenerationIds },
+  }
   await saveStore(storePath, store)
 
   async function persist(next: StudioStore): Promise<void> {
@@ -294,6 +285,12 @@ export async function createStudioController(options: StudioControllerOptions): 
   function storedCase(caseId: string): StoredCase {
     const value = store.cases.find(item => item.id === caseId)
     if (value === undefined) throw new Error(`Unknown Studio case ${caseId}`)
+    return value
+  }
+
+  function assemblyForCase(testCase: StoredCase): StudioAssemblyDto {
+    const value = byAssemblyId.get(testCase.assemblyId)
+    if (value === undefined) throw new Error(`Unknown assembly ${testCase.assemblyId}`)
     return value
   }
 
@@ -325,7 +322,8 @@ export async function createStudioController(options: StudioControllerOptions): 
   async function snapshot(): Promise<StudioSnapshotDto> {
     const runs = await Promise.all(store.runs.map(runDto))
     return {
-      assembly,
+      assemblies,
+      assembly: defaultAssembly,
       cases: store.cases.map(item => ({
         ...item,
         runCount: runs.filter(run => run.caseId === item.id).length,
@@ -333,10 +331,11 @@ export async function createStudioController(options: StudioControllerOptions): 
       validations: store.validations,
       generations: store.generations.map(item => ({
         ...item,
-        active: item.id === store.activeGenerationId,
+        active: item.id === store.activeGenerationIds[item.assemblyId],
       })),
       runs,
-      activeGenerationId: store.activeGenerationId,
+      activeGenerationId: store.activeGenerationIds[defaultAssembly.id]!,
+      activeGenerationIds: store.activeGenerationIds,
     }
   }
 
@@ -345,11 +344,13 @@ export async function createStudioController(options: StudioControllerOptions): 
     async createCase(input) {
       const title = input.title.trim()
       if (title.length === 0) throw new Error('Case title must not be empty')
+      const assemblyId = input.assemblyId ?? defaultAssembly.id
+      if (!byAssemblyId.has(assemblyId)) throw new Error(`Unknown assembly ${assemblyId}`)
       const created: StoredCase = {
         id: `case-${randomUUID().slice(0, 8)}`,
         title,
-        summary: 'CASE2 case created from the current active generation.',
-        assemblyId: 'case2',
+        summary: `${assemblyId.toUpperCase()} case created from the current active generation.`,
+        assemblyId,
         workspace: input.workspace?.trim() || options.defaultWorkspace,
         prompt: input.prompt?.trim()
           || 'Inspect the current workspace with a terminal command, then briefly report what you found. Do not modify files.',
@@ -360,7 +361,8 @@ export async function createStudioController(options: StudioControllerOptions): 
       return { ...created, runCount: 0 }
     },
     async check(caseId) {
-      storedCase(caseId)
+      const testCase = storedCase(caseId)
+      const assembly = assemblyForCase(testCase)
       const pluginIds = assembly.plugins.map(plugin => plugin.id)
       const toolNames = assembly.tools.map(tool => tool.name)
       const checks = [
@@ -381,14 +383,15 @@ export async function createStudioController(options: StudioControllerOptions): 
       return validation
     },
     async publish(caseId) {
-      storedCase(caseId)
+      const testCase = storedCase(caseId)
+      const assembly = assemblyForCase(testCase)
       const validation = [...store.validations].reverse().find(item =>
         item.caseId === caseId && item.assemblyFingerprint === assembly.fingerprint && item.passed,
       )
       if (validation === undefined) throw new Error('Run Check Assembly successfully before publishing')
       const generation = {
-        id: `case2-${randomUUID().slice(0, 8)}`,
-        assemblyId: 'case2' as const,
+        id: `${assembly.id}-${randomUUID().slice(0, 8)}`,
+        assemblyId: assembly.id,
         assemblyFingerprint: assembly.fingerprint,
         validationId: validation.id,
         createdAt: new Date().toISOString(),
@@ -396,18 +399,21 @@ export async function createStudioController(options: StudioControllerOptions): 
       await persist({
         ...store,
         generations: [...store.generations, generation],
-        activeGenerationId: generation.id,
+        activeGenerationIds: { ...store.activeGenerationIds, [assembly.id]: generation.id },
       })
       return { ...generation, active: true }
     },
     async run(input) {
       const testCase = storedCase(input.caseId)
+      const generationId = store.activeGenerationIds[testCase.assemblyId]
+      if (generationId === undefined) throw new Error(`No active generation for ${testCase.assemblyId}`)
       const id = `run-${randomUUID().slice(0, 8)}`
       const session = await options.createRunSession({
         id,
         caseId: input.caseId,
         mode: input.mode,
-        generationId: store.activeGenerationId,
+        generationId,
+        assemblyId: testCase.assemblyId,
         title: `${testCase.title} · ${input.mode}`,
         workspace: testCase.workspace,
         prompt: testCase.prompt,
@@ -419,7 +425,7 @@ export async function createStudioController(options: StudioControllerOptions): 
         caseId: input.caseId,
         mode: input.mode,
         sessionId: session.id,
-        generationId: store.activeGenerationId,
+        generationId,
         ...(input.providerProfileId === undefined ? {} : { providerProfileId: input.providerProfileId }),
         ...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
         createdAt: new Date().toISOString(),
@@ -427,11 +433,14 @@ export async function createStudioController(options: StudioControllerOptions): 
       await persist({ ...store, runs: [...store.runs, run] })
       return await runDto(run)
     },
-    async hasGeneration(generationId) {
-      return store.generations.some(item => item.id === generationId)
+    async hasGeneration(generationId, assemblyId) {
+      return store.generations.some(item => item.id === generationId
+        && (assemblyId === undefined || item.assemblyId === assemblyId))
     },
-    async activeGenerationId() {
-      return store.activeGenerationId
+    async activeGenerationId(assemblyId = defaultAssembly.id) {
+      const value = store.activeGenerationIds[assemblyId]
+      if (value === undefined) throw new Error(`No active generation for ${assemblyId}`)
+      return value
     },
   }
 }

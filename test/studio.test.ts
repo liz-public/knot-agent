@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import type { PluginMetadata, PluginNode } from '../src/assembly-definition.js'
+import { buildCase1PluginNodes, case1PluginMetadata } from '../src/cases/case1/plugin-definitions.js'
 import { buildCase2PluginNodes, case2PluginMetadata } from '../src/cases/case2/plugin-definitions.js'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import type { WorkbenchSession } from '../src/workbench/session.js'
@@ -21,6 +22,21 @@ test('CASE2 executable nodes and Studio metadata share one registration source',
   assert.deepEqual(
     nodes.map(node => node.metadata.id),
     case2PluginMetadata([platformMetadata]).map(metadata => metadata.id),
+  )
+})
+
+test('CASE1 executable nodes and Studio metadata share one registration source', () => {
+  const platformMetadata: PluginMetadata = { id: 'platform-test', name: 'PlatformTest', category: 'platform', responsibility: 'test', listens: ['*'], emits: [], source: 'test' }
+  const platform: PluginNode = { metadata: platformMetadata, plugin: () => undefined }
+  const nodes = buildCase1PluginNodes({
+    boundary: () => undefined,
+    llm: () => undefined,
+    now: () => new Date(0),
+    tools: [],
+  }, [platform])
+  assert.deepEqual(
+    nodes.map(node => node.metadata.id),
+    case1PluginMetadata([platformMetadata]).map(metadata => metadata.id),
   )
 })
 
@@ -42,7 +58,7 @@ function completedSession(input: StudioRunInput): WorkbenchSession {
     summary: async () => ({
       id: input.id,
       title: input.title,
-      assembly: 'case2',
+      assembly: input.assemblyId,
       assemblyGenerationId: input.generationId,
       workspace: input.workspace,
       model: input.mode === 'mock' ? 'deterministic-mock' : 'real',
@@ -71,11 +87,13 @@ test('Studio persists a CASE2 check, fingerprinted generation, and Journal-deriv
   })
 
   const initial = await studio.snapshot()
-  assert.equal(initial.cases.length, 1)
+  assert.equal(initial.cases.length, 2)
+  assert.deepEqual(initial.assemblies.map(item => item.id), ['case1', 'case2'])
   assert.equal(initial.assembly.systemPrompt.length > 0, true)
   assert.deepEqual(initial.assembly.tools.map(tool => tool.name), [
     'read', 'write', 'edit', 'bash', 'todo.write', 'goal.write', 'spawn_agent', 'ask',
   ])
+  assert.deepEqual(initial.assemblies.find(item => item.id === 'case1')?.tools.map(tool => tool.name), ['bash'])
   assert.equal(initial.activeGenerationId, 'case2-baseline')
 
   const validation = await studio.check('case2-coding')
@@ -98,6 +116,12 @@ test('Studio persists a CASE2 check, fingerprinted generation, and Journal-deriv
     outputTokens: 20,
     durationMs: 1000,
   })
+  const case1Validation = await studio.check('case1-mobile')
+  assert.equal(case1Validation.passed, true)
+  const case1Generation = await studio.publish('case1-mobile')
+  const case1Run = await studio.run({ caseId: 'case1-mobile', mode: 'mock' })
+  assert.equal(case1Run.generationId, case1Generation.id)
+  assert.equal(case1Run.status, 'passed')
 
   const restored = await createStudioController({
     directory,
@@ -107,8 +131,9 @@ test('Studio persists a CASE2 check, fingerprinted generation, and Journal-deriv
   })
   const snapshot = await restored.snapshot()
   assert.equal(snapshot.activeGenerationId, generation.id)
+  assert.equal(snapshot.activeGenerationIds.case1, case1Generation.id)
   assert.equal(snapshot.runs[0]?.sessionId, run.sessionId)
-  assert.equal(snapshot.cases[0]?.runCount, 1)
+  assert.equal(snapshot.cases.find(item => item.id === 'case2-coding')?.runCount, 1)
 })
 
 test('Studio HTTP API drives check, publish, and a Journal-backed Mock run', async t => {

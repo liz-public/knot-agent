@@ -1,22 +1,15 @@
+import type { PluginNode } from '../../assembly-definition.js'
 import { createJournal, type Event, type Plugin } from '../../journal.js'
-import { JSONL_LOAD, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
-import { tracePlugin } from '../../plugins/trace.js'
-import { agentFlowPlugin } from './agent-flow.js'
-import { compressHistoryPlugin, type CompressHistoryOptions } from './compress-history.js'
-import { contentPlugin, llmContentSource, type ContentSource } from './content.js'
-import { contextAssemblerPlugin } from './context-assembler.js'
-import { createCliCatalog, type CliCatalog } from './cli.js'
-import { mockAndroidCliCommands } from './mock-android-tools.js'
-import { outputPlugin, type OutputSinks } from './output.js'
+import { JSONL_LOAD, JSONL_STORE_METADATA, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
+import { controlledEventBoundary } from '../case2/controlled-boundary.js'
+import type { CompressHistoryOptions } from './compress-history.js'
+import type { ContentSource } from './content.js'
+import type { CliCatalog } from './cli.js'
+import type { OutputSinks } from './output.js'
+import { buildCase1PluginNodes } from './plugin-definitions.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
-import { runtimeContextPlugin } from './runtime-context.js'
-import { androidCallRule, androidFlashlightRule, shortcutSource } from './shortcuts.js'
-import { systemPromptPlugin } from './system-prompt.js'
-import {
-  createAndroidDeviceSession,
-  toolsPlugin,
-  type ToolDefinition,
-} from './tools.js'
+import { case1ToolDefinitions } from './tool-definitions.js'
+import type { ToolDefinition } from './tools.js'
 
 export interface Case1Options {
   readonly llm: Plugin
@@ -28,6 +21,8 @@ export interface Case1Options {
   readonly trace?: (event: Event) => void
   readonly compression?: CompressHistoryOptions
   readonly now?: () => Date
+  /** Optional outward observers assembled before business plugins. */
+  readonly platformPlugins?: readonly PluginNode[]
 }
 
 export interface PersistentCase1Options extends Case1Options {
@@ -40,42 +35,35 @@ function assembleCase1Agent(
   options: Case1Options,
   runtime: JournalRuntime,
   restored: boolean,
-  platformPlugins: readonly Plugin[] = [],
+  platformPlugins: readonly PluginNode[] = [],
 ) {
   const { journal, runUntilIdle } = runtime
-  const device = createAndroidDeviceSession()
-  const cli = options.cli ?? (options.tools === undefined
-    ? createCliCatalog(mockAndroidCliCommands(device))
-    : undefined)
-  const tools = options.tools ?? [cli!.bash]
+  const boundary = controlledEventBoundary()
+  const defaults = options.cli === undefined && options.tools === undefined
+    ? case1ToolDefinitions()
+    : undefined
+  const cli = options.cli ?? defaults?.cli
+  const tools = options.tools ?? (cli === undefined ? undefined : [cli.bash])
+  if (tools === undefined) throw new Error('CASE1 requires tools or a CLI catalog')
   let started = restored
   let turnNumber = 0
+  let running = false
   const turnIds = new Set(journal.read()
     .filter(event => event.type === USER_MESSAGE)
     .map(event => (event.data as { turnId: string }).turnId))
 
-  const plugins: Plugin[] = [
-    ...platformPlugins,
-    ...(options.trace === undefined ? [] : [tracePlugin(options.trace)]),
-    systemPromptPlugin(),
-    runtimeContextPlugin({
-      now: options.now ?? (() => new Date()),
-      packages: { 电话: 'com.samsung.android.dialer' },
-      cli,
-    }),
-    compressHistoryPlugin(options.compression),
-    agentFlowPlugin(),
-    contentPlugin([
-      shortcutSource([androidCallRule, androidFlashlightRule]),
-      ...(options.contentSources ?? []),
-      llmContentSource,
-    ]),
-    contextAssemblerPlugin(),
-    options.llm,
-    toolsPlugin(tools),
-    outputPlugin(options.output ?? { content: () => undefined }),
-  ]
-  for (const plugin of plugins) plugin(journal)
+  const nodes = buildCase1PluginNodes({
+    boundary: boundary.plugin,
+    cli,
+    compression: options.compression,
+    contentSources: options.contentSources,
+    llm: options.llm,
+    now: options.now ?? (() => new Date()),
+    output: options.output,
+    tools,
+    trace: options.trace,
+  }, platformPlugins)
+  for (const node of nodes) node.plugin(journal)
 
   async function start(): Promise<void> {
     if (started) return
@@ -84,23 +72,48 @@ function assembleCase1Agent(
     await runUntilIdle()
   }
 
-  async function submit(content: string): Promise<void> {
-    await start()
+  function nextTurnId(prefix: 'turn' | 'steer'): string {
     let turnId: string
     do {
       turnNumber += 1
-      turnId = `turn-${turnNumber}`
+      turnId = `${prefix}-${turnNumber}`
     } while (turnIds.has(turnId))
     turnIds.add(turnId)
-    journal.append(USER_MESSAGE, { turnId, content })
-    await runUntilIdle()
+    return turnId
   }
 
-  return { journal, start, submit }
+  async function submit(content: string): Promise<void> {
+    if (running) throw new Error('CASE1 agent is already running')
+    await start()
+    running = true
+    journal.append(USER_MESSAGE, { turnId: nextTurnId('turn'), content })
+    try {
+      await runUntilIdle()
+    } finally {
+      running = false
+    }
+  }
+
+  function steer(content: string): void {
+    if (!running) throw new Error('CASE1 agent is idle; use submit instead')
+    journal.append(USER_MESSAGE, { turnId: nextTurnId('steer'), content })
+  }
+
+  return {
+    journal,
+    start,
+    submit,
+    steer,
+    pause: () => { if (running) boundary.control.pause() },
+    resume: () => boundary.control.resume(),
+    status: () => boundary.control.status() === 'paused'
+      ? 'paused' as const
+      : running ? 'running' as const : 'idle' as const,
+  }
 }
 
 export function createCase1Agent(options: Case1Options) {
-  return assembleCase1Agent(options, createJournal(), false)
+  return assembleCase1Agent(options, createJournal(), false, options.platformPlugins)
 }
 
 export async function createPersistentCase1Agent(options: PersistentCase1Options) {
@@ -120,6 +133,6 @@ export async function createPersistentCase1Agent(options: PersistentCase1Options
     caseOptions,
     runtime,
     restored,
-    [jsonlStorePlugin(journalPath)],
+    [{ plugin: jsonlStorePlugin(journalPath), metadata: JSONL_STORE_METADATA }, ...(caseOptions.platformPlugins ?? [])],
   )
 }
