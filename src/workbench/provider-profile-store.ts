@@ -162,8 +162,9 @@ export async function createProviderProfileStore(
         id: `provider-${randomUUID().slice(0, 8)}`,
         ...validate(draft),
       }
-      stored = [...stored, definition]
-      await save(path, stored)
+      const next = [...stored, definition]
+      await save(path, next)
+      stored = next
       const { create: _create, ...summary } = runtimeProfile(definition)
       return summary
     },
