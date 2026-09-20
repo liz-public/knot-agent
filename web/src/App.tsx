@@ -1,15 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cases as caseFixtures, contextMessages, plugins, protocols, sequence, type CaseFixture, type PluginFixture } from './fixtures'
+import { contextMessages, plugins, type PluginFixture } from './fixtures'
 import {
+  checkStudioAssembly,
+  createStudioCase,
   createSession,
   listProviderProfiles,
   listSessions,
   loadJournalSnapshot,
+  loadStudio,
   pauseSession,
+  publishStudioGeneration,
   respondToInteraction,
   resumeSession,
+  runStudioCase,
   submitMessage,
   subscribeSession,
   subscribeSessionCatalog,
@@ -21,6 +26,8 @@ import {
   type ReasoningEffort,
   type ApprovalMode,
   type SessionSummary,
+  type StudioCase,
+  type StudioSnapshot,
 } from './journal-api'
 
 type Mode = 'run' | 'studio'
@@ -85,6 +92,18 @@ const initialProjects: readonly ProjectFixture[] = [
   { id: 'knot-agent', name: 'knot-agent', summary: 'Agent workbench', root: '/Users/lizhe/workspace/knot-agent' },
   { id: 'android-agent', name: 'Android agent lab', summary: 'Imported blueprint', root: '/Users/lizhe/AndroidStudioProjects/lz-refactor' },
 ]
+
+const loadingCase: StudioCase = {
+  id: 'case2-coding',
+  title: 'CASE2 coding task',
+  summary: 'Loading the Host-owned Studio case…',
+  assemblyId: 'case2',
+  workspace: '/Users/lizhe/workspace/knot-agent',
+  prompt: '',
+  assertions: [],
+  createdAt: '',
+  runCount: 0,
+}
 
 function Icon({ name, size = 16 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
@@ -252,27 +271,54 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
   return <div className="mode-switch" aria-label="Workbench mode"><button className={mode === 'run' ? 'active' : ''} onClick={() => onChange('run')}><Icon name="play" size={14}/>Run</button><button className={mode === 'studio' ? 'active' : ''} onClick={() => onChange('studio')}><Icon name="studio" size={14}/>Studio</button></div>
 }
 
+function sessionTreeOrder(sessions: readonly SessionSummary[]): readonly SessionSummary[] {
+  const ids = new Set(sessions.map(session => session.id))
+  const children = new Map<string, SessionSummary[]>()
+  const roots: SessionSummary[] = []
+  for (const session of sessions) {
+    if (session.parentSessionId === undefined || !ids.has(session.parentSessionId)) {
+      roots.push(session)
+      continue
+    }
+    const siblings = children.get(session.parentSessionId) ?? []
+    siblings.push(session)
+    children.set(session.parentSessionId, siblings)
+  }
+  const ordered: SessionSummary[] = []
+  const seen = new Set<string>()
+  const append = (session: SessionSummary) => {
+    if (seen.has(session.id)) return
+    seen.add(session.id)
+    ordered.push(session)
+    for (const child of children.get(session.id) ?? []) append(child)
+  }
+  for (const root of roots) append(root)
+  for (const session of sessions) append(session)
+  return ordered
+}
+
 function ProjectRail({ mode, project, sessions, selectedSession, selectedCase, cases, onMode, onSelectSession, onSelectCase, onDialog }: {
   mode: Mode
   project: ProjectFixture
   sessions: readonly SessionSummary[]
   selectedSession?: string
   selectedCase: string
-  cases: readonly CaseFixture[]
+  cases: readonly StudioCase[]
   onMode: (mode: Mode) => void
   onSelectSession: (id: string) => void
   onSelectCase: (id: string) => void
   onDialog: (kind: DialogKind) => void
 }) {
+  const orderedSessions = sessionTreeOrder(sessions)
   return <aside className="project-rail">
     <div className="brand"><span className="brand-mark"><Icon name="knot" size={22}/></span><span>Knot</span><span className="alpha">alpha</span></div>
     <button className="project-picker" onClick={() => onDialog('projects')}><span className="project-avatar">{project.name.slice(0, 1).toUpperCase()}</span><span><strong>{project.name}</strong><small>{project.summary}</small></span><Icon name="down" size={13}/></button>
     <div className="rail-mode"><ModeSwitch mode={mode} onChange={onMode}/></div>
     <nav className="rail-scroll">
       <div className="section-heading"><span>Sessions</span><button aria-label="New session" onClick={() => onDialog('new-session')}><Icon name="plus" size={15}/></button></div>
-      <div className="session-list">{sessions.map(session => <button key={session.id} className={`session-row ${session.parentSessionId === undefined ? '' : 'subagent-session'} ${selectedSession === session.id && mode === 'run' ? 'active' : ''}`} onClick={() => onSelectSession(session.id)}><Icon name={session.parentSessionId === undefined ? 'message' : 'branch'} size={15}/><span><strong>{session.title}</strong><small>{session.parentSessionId === undefined ? session.assembly.toUpperCase() : 'SUBAGENT'} · {session.runState} · {session.eventCount} facts</small></span>{session.runState === 'running' && <i/>}</button>)}{sessions.length === 0 && <span className="empty-sessions">No configured sessions</span>}</div>
+      <div className="session-list">{orderedSessions.map(session => <button key={session.id} className={`session-row ${session.parentSessionId === undefined ? '' : 'subagent-session'} ${selectedSession === session.id && mode === 'run' ? 'active' : ''}`} onClick={() => onSelectSession(session.id)}><Icon name={session.parentSessionId === undefined ? 'message' : 'branch'} size={15}/><span><strong>{session.title}</strong><small>{session.parentSessionId === undefined ? session.assembly.toUpperCase() : 'SUBAGENT'} · {session.runState} · {session.eventCount} facts</small></span>{session.runState === 'running' && <i/>}</button>)}{sessions.length === 0 && <span className="empty-sessions">No configured sessions</span>}</div>
       <div className="section-heading cases-heading"><span>Cases</span><button aria-label="New case" onClick={() => onDialog('new-case')}><Icon name="plus" size={15}/></button></div>
-      {cases.map(item => <button key={item.id} className={`nav-row ${selectedCase === item.id && mode === 'studio' ? 'active' : ''}`} onClick={() => onSelectCase(item.id)}><Icon name="case" size={15}/><span>{item.title}</span><b>{item.runs}</b></button>)}
+      {cases.map(item => <button key={item.id} className={`nav-row ${selectedCase === item.id && mode === 'studio' ? 'active' : ''}`} onClick={() => onSelectCase(item.id)}><Icon name="case" size={15}/><span>{item.title}</span><b>{item.runCount}</b></button>)}
     </nav>
     <div className="rail-footer"><button className="nav-row" onClick={() => onDialog('settings')}><Icon name="settings" size={16}/><span>Project settings</span></button><div className="runtime"><span className="status-dot"/>Runtime ready <code>local</code></div></div>
   </aside>
@@ -282,7 +328,7 @@ function WorkbenchHeader({ mode, project, session, currentCase, workspace, model
   mode: Mode
   project: ProjectFixture
   session?: SessionSummary
-  currentCase: CaseFixture
+  currentCase: StudioCase
   workspace: string
   model: string
   inspectorOpen: boolean
@@ -485,20 +531,35 @@ function Inspector({ journal, open, width, onWidth, onClose, onRefresh }: { jour
   return <aside className="inspector"><div className="inspector-resizer" onPointerDown={startResize}/><div className="inspector-heading"><div><strong>Inspector</strong><span>{snapshot?.session.title ?? 'Journal read model'}</span></div><div><button className="width-button" onClick={() => onWidth(width < 520 ? 600 : 390)}>{width < 520 ? 'Wide' : 'Compact'}</button><button className="icon-button" onClick={onClose} aria-label="Close inspector"><Icon name="close" size={15}/></button></div></div><div className="inspector-tabs">{(['trace', 'context', 'journal', 'plugins'] as const).map(item => <button key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}{(item === 'context' || item === 'plugins') && <i/>}</button>)}</div><div className="inspector-content">{content}</div><footer className="inspector-footer"><span><i/>{snapshot?.session.eventCount ?? 0} facts</span><span>{tab === 'trace' || tab === 'journal' ? 'JSONL source' : 'fixture blueprint'}</span></footer></aside>
 }
 
-function StudioView({ currentCase, provider, onProvider, validation, onValidate, onRun, onAddPlugin }: { currentCase: CaseFixture; provider: 'mock' | 'real'; onProvider: (value: 'mock' | 'real') => void; validation: 'idle' | 'running' | 'passed'; onValidate: () => void; onRun: () => void; onAddPlugin: () => void }) {
-  const [section, setSection] = useState<'topology' | 'sequence' | 'protocols'>('topology')
-  const [selectedPlugin, setSelectedPlugin] = useState(plugins[5]!.id)
-  const plugin = plugins.find(item => item.id === selectedPlugin) ?? plugins[5]!
-  return <main className="studio-view"><div className="studio-heading"><div><span className="eyebrow">AGENT ASSEMBLY · BLUEPRINT</span><h1>{currentCase.title}</h1><p>{currentCase.summary}</p></div><div className="studio-actions"><button onClick={onValidate}>{validation === 'running' ? 'Validating…' : validation === 'passed' ? <><Icon name="check" size={14}/>Validated</> : 'Validate'}</button><button className="primary" onClick={onRun}><Icon name="play" size={14}/>Run case</button></div></div>
-    <div className="studio-tabs"><button className={section === 'topology' ? 'active' : ''} onClick={() => setSection('topology')}>Assembly</button><button className={section === 'sequence' ? 'active' : ''} onClick={() => setSection('sequence')}>Interaction sequence</button><button className={section === 'protocols' ? 'active' : ''} onClick={() => setSection('protocols')}>Protocol catalog</button></div>
-    {section === 'topology' && <><section className="studio-card assembly-map"><div className="card-heading"><div><h2>Registration order</h2><p>Every component is an ordinary Journal plugin; order is explicit assembly behavior.</p></div><span className="healthy"><i/>{plugins.length} components</span></div><div className="plugin-lanes">{(['platform', 'context', 'flow', 'content', 'effect', 'presentation'] as const).map(category => <div className="plugin-lane" key={category}><span>{category}</span><div>{plugins.filter(item => item.category === category).map((item, index) => <button key={item.id} className={selectedPlugin === item.id ? 'active' : ''} onClick={() => setSelectedPlugin(item.id)}><b>{plugins.indexOf(item) + 1}</b><strong>{item.name}</strong><small>{item.listens.join(' · ')}</small>{index < plugins.filter(candidate => candidate.category === category).length - 1 && <i/>}</button>)}</div></div>)}</div></section><div className="studio-detail-grid"><section className="studio-card plugin-table-card"><div className="card-heading"><div><h2>Assembly components</h2><p>Select a component to inspect its stable responsibility and protocols.</p></div><button className="subtle-button" onClick={onAddPlugin}><Icon name="plus" size={14}/>Add component</button></div><div className="plugin-table">{plugins.map((item, index) => <button className={`plugin-row ${selectedPlugin === item.id ? 'active' : ''}`} key={item.id} onClick={() => setSelectedPlugin(item.id)}><span className="order">{index + 1}</span><span><strong>{item.name}</strong><small>{item.responsibility}</small></span><span className={`category ${item.category}`}>{item.category}</span><code>{item.listens.join(' · ')}</code><span className="arrow">→</span><code>{item.emits.join(' · ') || '—'}</code></button>)}</div></section><section className="studio-card sticky-detail"><PluginDetail plugin={plugin}/><div className="contract-note"><Icon name="code" size={16}/><span><strong>Metadata contract candidate</strong><small>ID, version, author, responsibility and protocol declarations stay descriptive until frozen by later cases.</small></span></div></section></div></>}
-    {section === 'sequence' && <section className="studio-card sequence-card"><div className="card-heading"><div><h2>One complete coding turn</h2><p>An interactive fixture of the event path; it is the acceptance target for a future assembly read model.</p></div><span className="blueprint-pill">fixture</span></div><div className="sequence-head"><span>Producer</span><span>Journal event</span><span>Consumer</span><span>Meaning</span></div><div className="sequence-list">{sequence.map((step, index) => <button key={`${step.event}-${index}`}><b>{String(index + 1).padStart(2, '0')}</b><strong>{step.from}</strong><span><i/>→ <code>{step.event}</code> →<i/></span><strong>{step.to}</strong><small>{step.note}</small></button>)}</div></section>}
-    {section === 'protocols' && <section className="studio-card protocol-card"><div className="card-heading"><div><h2>Protocol catalog</h2><p>The vocabulary that lets plugins collaborate without naming one another.</p></div><span className="blueprint-pill">{protocols.length} contracts</span></div><div className="protocol-table"><header><span>Protocol</span><span>Kind</span><span>Purpose</span><span>Producer → consumers</span><span>Fields</span></header>{protocols.map(item => <article key={item.name}><code>{item.name}</code><span className={`protocol-kind ${item.kind}`}>{item.kind}</span><p>{item.summary}</p><span><strong>{item.producer}</strong><i>→</i>{item.consumers}</span><code>{item.fields}</code></article>)}</div></section>}
-    <div className="studio-bottom-grid"><section className="studio-card"><div className="card-heading"><div><h2>Case configuration</h2><p>Fixture configuration; Run creates a real CASE2 session.</p></div><code>{currentCase.assembly}</code></div><div className="field"><label>Content provider</label><div className="segmented"><button className={provider === 'mock' ? 'active' : ''} onClick={() => onProvider('mock')}>Mock</button><button className={provider === 'real' ? 'active' : ''} onClick={() => onProvider('real')}>Real model</button></div></div><div className="field"><label>Workspace</label><code>{currentCase.workspace}</code></div><div className="field"><label>Assertions</label><span>{currentCase.assertions.join(' · ')}</span></div></section><section className="studio-card"><div className="card-heading"><div><h2>Last validation</h2><p>Mock and real providers share the same assembly boundaries.</p></div><span className="success-pill"><Icon name="check" size={12}/>{validation === 'passed' ? 'passed now' : 'passed'}</span></div><div className="metrics"><div><strong>2.12s</strong><span>duration</span></div><div><strong>2</strong><span>model calls</span></div><div><strong>1</strong><span>tool batch</span></div><div><strong>1.4k</strong><span>tokens</span></div></div></section></div>
+function StudioView({ studio, currentCase, busy, error, onCheck, onRun, onPublish, onOpenSession }: {
+  studio?: StudioSnapshot
+  currentCase: StudioCase
+  busy?: string
+  error?: string
+  onCheck: () => void
+  onRun: (mode: 'mock' | 'real') => void
+  onPublish: () => void
+  onOpenSession: (sessionId: string) => void
+}) {
+  const [section, setSection] = useState<'assembly' | 'prompt' | 'test'>('assembly')
+  const assembly = studio?.assembly
+  const [selectedPlugin, setSelectedPlugin] = useState<string>()
+  const plugin = assembly?.plugins.find(item => item.id === selectedPlugin) ?? assembly?.plugins[0]
+  const validation = [...(studio?.validations ?? [])].reverse().find(item => item.caseId === currentCase.id)
+  const runs = [...(studio?.runs ?? [])].filter(item => item.caseId === currentCase.id).reverse()
+  const activeGeneration = studio?.generations.find(item => item.active)
+  if (assembly === undefined) return <main className="studio-view"><div className="journal-state"><i className="loading-dot"/><strong>Loading Studio…</strong><span>The Host is reading the CASE2 assembly and cases.</span></div></main>
+  return <main className="studio-view">
+    <div className="studio-heading"><div><span className="eyebrow">REAL CASE · {activeGeneration?.id ?? 'NO GENERATION'}</span><h1>{currentCase.title}</h1><p>{currentCase.summary}</p></div><div className="studio-actions"><button disabled={busy !== undefined} onClick={onCheck}>{busy === 'check' ? 'Checking…' : validation?.passed ? <><Icon name="check" size={14}/>Checked</> : 'Check assembly'}</button><button disabled={busy !== undefined || validation?.passed !== true} onClick={onPublish}>{busy === 'publish' ? 'Publishing…' : 'Publish generation'}</button><button className="primary" disabled={busy !== undefined} onClick={() => onRun('real')}><Icon name="play" size={14}/>{busy === 'real' ? 'Starting…' : 'Run real'}</button></div></div>
+    {error !== undefined && <div className="run-error studio-error">{error}</div>}
+    <div className="studio-tabs"><button className={section === 'assembly' ? 'active' : ''} onClick={() => setSection('assembly')}>Build · Assembly</button><button className={section === 'prompt' ? 'active' : ''} onClick={() => setSection('prompt')}>Build · Prompt & tools</button><button className={section === 'test' ? 'active' : ''} onClick={() => setSection('test')}>Test · Runs & compare</button></div>
+    {section === 'assembly' && <><section className="studio-card assembly-map"><div className="card-heading"><div><h2>Declared registration order</h2><p>Host-owned CASE2 metadata. Check Assembly validates this immutable source before publication.</p></div><span className="healthy"><i/>{assembly.plugins.length} plugins · {assembly.fingerprint}</span></div><div className="plugin-lanes">{(['platform', 'context', 'flow', 'content', 'effect', 'presentation'] as const).map(category => <div className="plugin-lane" key={category}><span>{category}</span><div>{assembly.plugins.filter(item => item.category === category).map(item => <button key={item.id} className={plugin?.id === item.id ? 'active' : ''} onClick={() => setSelectedPlugin(item.id)}><b>{assembly.plugins.indexOf(item) + 1}</b><strong>{item.name}</strong><small>{item.listens.join(' · ') || 'no subscriptions'}</small></button>)}</div></div>)}</div></section><div className="studio-detail-grid"><section className="studio-card plugin-table-card"><div className="card-heading"><div><h2>Assembly plugins</h2><p>Responsibilities and protocols come from the Host read model, not browser fixtures.</p></div><span className="blueprint-pill">declared</span></div><div className="plugin-table">{assembly.plugins.map((item, index) => <button className={`plugin-row ${plugin?.id === item.id ? 'active' : ''}`} key={item.id} onClick={() => setSelectedPlugin(item.id)}><span className="order">{index + 1}</span><span><strong>{item.name}</strong><small>{item.responsibility}</small></span><span className={`category ${item.category}`}>{item.category}</span><code>{item.listens.join(' · ') || '—'}</code><span className="arrow">→</span><code>{item.emits.join(' · ') || '—'}</code></button>)}</div></section>{plugin !== undefined && <section className="studio-card sticky-detail studio-plugin-detail"><span className={`category ${plugin.category}`}>{plugin.category}</span><h3>{plugin.name}</h3><p>{plugin.responsibility}</p><dl><div><dt>Listens</dt><dd>{plugin.listens.join(' · ') || '—'}</dd></div><div><dt>Emits</dt><dd>{plugin.emits.join(' · ') || '—'}</dd></div><div><dt>Source</dt><dd><code>{plugin.source}</code></dd></div></dl></section>}</div></>}
+    {section === 'prompt' && <div className="studio-detail-grid"><section className="studio-card"><div className="card-heading"><div><h2>Stable system prompt</h2><p>This is the configured prompt source. A concrete Run remains the authority for what was projected.</p></div><span className="blueprint-pill">{assembly.systemPrompt.length} chars</span></div><pre className="studio-prompt">{assembly.systemPrompt}</pre></section><section className="studio-card"><div className="card-heading"><div><h2>Native tools</h2><p>Actual schemas are installed by CASE2; Studio shows their identity and purpose.</p></div><span className="blueprint-pill">{assembly.tools.length}</span></div><div className="studio-tool-list">{assembly.tools.map(tool => <article key={tool.name}><code>{tool.name}</code><p>{tool.description}</p></article>)}</div><div className="field"><label>Protocol vocabulary</label><span>{assembly.protocols.join(' · ')}</span></div></section></div>}
+    {section === 'test' && <><div className="studio-detail-grid"><section className="studio-card"><div className="card-heading"><div><h2>Case input</h2><p>Both Mock and Real runs use this workspace, prompt, assertions and active generation.</p></div><code>{currentCase.assemblyId}</code></div><div className="field"><label>Workspace</label><code>{currentCase.workspace}</code></div><div className="field"><label>User request</label><span>{currentCase.prompt}</span></div><div className="field"><label>Journal assertions</label><span>{currentCase.assertions.join(' · ')}</span></div><div className="studio-actions inline-actions"><button disabled={busy !== undefined} onClick={() => onRun('mock')}><Icon name="play" size={14}/>{busy === 'mock' ? 'Running Mock…' : 'Run Mock Case'}</button><button className="primary" disabled={busy !== undefined} onClick={() => onRun('real')}><Icon name="play" size={14}/>{busy === 'real' ? 'Starting Real…' : 'Run Real Case'}</button></div></section><section className="studio-card"><div className="card-heading"><div><h2>Assembly check</h2><p>Static checks do not invoke a model or execute the Case.</p></div>{validation !== undefined && <span className={validation.passed ? 'success-pill' : 'blueprint-pill'}>{validation.passed ? 'passed' : 'failed'}</span>}</div>{validation === undefined ? <div className="empty-studio">Run Check Assembly before publishing.</div> : <div className="validation-list">{validation.checks.map(check => <div key={check.id}><Icon name={check.passed ? 'check' : 'close'} size={13}/><span><strong>{check.label}</strong><small>{check.detail}</small></span></div>)}</div>}<div className="field"><label>Active generation</label><code>{studio?.activeGenerationId}</code><small>Generation pins the assembly identity and fingerprint. Executable artifact export is deferred.</small></div></section></div><section className="studio-card"><div className="card-heading"><div><h2>Case runs</h2><p>Mock and Real sessions use the same CASE2 boundary; metrics are derived from their Journals.</p></div><span className="blueprint-pill">{runs.length} runs</span></div>{runs.length === 0 ? <div className="empty-studio">No run evidence yet.</div> : <div className="studio-runs"><header><span>Mode / status</span><span>Generation</span><span>Journal</span><span>Calls</span><span>Tokens</span><span>Assertions</span><span/></header>{runs.map(run => <article key={run.id}><span><b className={`run-status ${run.status}`}/><strong>{run.mode}</strong><small>{run.status}</small></span><code>{run.generationId}</code><span>{run.metrics.eventCount} facts</span><span>{run.metrics.modelCalls} model · {run.metrics.toolCalls} tools</span><span>{(run.metrics.inputTokens + run.metrics.outputTokens).toLocaleString()}</span><span>{run.assertions.filter(item => item.passed).length}/{run.assertions.length}</span><button onClick={() => onOpenSession(run.sessionId)}>Open trace</button></article>)}</div>}</section></>}
   </main>
 }
 
-function Dialog({ kind, project, projects, currentCase, providerProfiles, providerProfileId, onClose, onCreateSession, onCreateCase, onCreateProject, onSelectProject, onProviderProfile }: { kind: DialogKind; project: ProjectFixture; projects: readonly ProjectFixture[]; currentCase: CaseFixture; providerProfiles: readonly ProviderProfileSummary[]; providerProfileId: string; onClose: () => void; onCreateSession: (title: string, cwd: string, providerProfileId: string, reasoningEffort: ReasoningEffort | undefined, approvalMode: ApprovalMode) => void; onCreateCase: (title: string) => void; onCreateProject: (name: string, root: string) => void; onSelectProject: (id: string) => void; onProviderProfile: (providerProfileId: string) => void }) {
+function Dialog({ kind, project, projects, currentCase, providerProfiles, providerProfileId, onClose, onCreateSession, onCreateCase, onCreateProject, onSelectProject, onProviderProfile }: { kind: DialogKind; project: ProjectFixture; projects: readonly ProjectFixture[]; currentCase: StudioCase; providerProfiles: readonly ProviderProfileSummary[]; providerProfileId: string; onClose: () => void; onCreateSession: (title: string, cwd: string, providerProfileId: string, reasoningEffort: ReasoningEffort | undefined, approvalMode: ApprovalMode) => void; onCreateCase: (title: string) => void; onCreateProject: (name: string, root: string) => void; onSelectProject: (id: string) => void; onProviderProfile: (providerProfileId: string) => void }) {
   const [title, setTitle] = useState(kind === 'new-session' ? `${currentCase.title} run` : kind === 'projects' ? 'Untitled agent project' : 'Untitled case')
   const [cwd, setCwd] = useState(kind === 'projects' ? '/Users/lizhe/workspace' : currentCase.workspace)
   const selectedProvider = providerProfiles.find(profile => profile.id === providerProfileId)
@@ -508,17 +569,19 @@ function Dialog({ kind, project, projects, currentCase, providerProfiles, provid
   const providerSelect = <label>Provider profile<select value={providerProfileId} onChange={event => onProviderProfile(event.target.value)}>{providerProfiles.map(profile => <option key={profile.id} value={profile.id} disabled={!profile.configured}>{profile.label}{profile.configured ? '' : ' · not configured'}</option>)}</select></label>
   const reasoningSelect = <label>Reasoning effort<select value={reasoningEffort ?? ''} disabled={selectedProvider?.reasoningEfforts === undefined} onChange={event => setReasoningEffort(event.target.value === '' ? undefined : event.target.value as ReasoningEffort)}><option value="">Provider default</option>{selectedProvider?.reasoningEfforts?.map(effort => <option key={effort} value={effort}>{effort}</option>)}</select></label>
   const approvalSelect = <label>Tool approval<select value={approvalMode} onChange={event => setApprovalMode(event.target.value as ApprovalMode)}><option value="ask">Ask before write, edit, and bash</option><option value="auto">Auto approve all tools (unsafe)</option></select></label>
-  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className="dialog"><header><div><span className="eyebrow">{kind === 'settings' || kind === 'projects' ? 'PROJECT' : kind === 'plugin-library' ? 'STUDIO' : 'CREATE'}</span><h2>{kind === 'new-session' ? 'New CASE2 session' : kind === 'new-case' ? 'New simulation case' : kind === 'projects' ? 'Projects' : kind === 'settings' ? 'Project settings' : 'Component library'}</h2></div><button className="icon-button" onClick={onClose}><Icon name="close" size={16}/></button></header>{kind === 'new-session' && <><label>Session title<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Working directory<input value={cwd} onChange={event => setCwd(event.target.value)}/></label>{providerSelect}{reasoningSelect}{approvalSelect}<div className="dialog-summary"><span>Assembly</span><strong>CASE2 coding agent</strong><span>Model</span><strong>{selectedProvider?.model ?? 'No configured provider'}</strong><span>Reasoning</span><strong>{reasoningEffort ?? 'provider default'}</strong><span>Approval</span><strong>{approvalMode}</strong></div><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === '' || selectedProvider?.configured !== true} onClick={() => onCreateSession(title.trim(), cwd.trim(), providerProfileId, reasoningEffort, approvalMode)}>Create session</button></footer></>}{kind === 'new-case' && <><label>Case name<input value={title} onChange={event => setTitle(event.target.value)}/></label><p className="dialog-copy">Creates a local blueprint by copying the current CASE2 assembly. Persistence will be connected after the project format is frozen.</p><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === ''} onClick={() => onCreateCase(title.trim())}>Create fixture</button></footer></>}{kind === 'projects' && <><div className="project-list">{projects.map(item => <button key={item.id} className={item.id === project.id ? 'active' : ''} onClick={() => onSelectProject(item.id)}><span className="project-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span><strong>{item.name}</strong><small>{item.root}</small></span>{item.id === project.id && <Icon name="check" size={14}/>}</button>)}</div><div className="dialog-divider"><span>New fixture project</span></div><label>Project name<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Workspace root<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateProject(title.trim(), cwd.trim())}>Create project</button></footer></>}{kind === 'settings' && <><div className="settings-list"><div><span>Project root</span><code>{project.root}</code></div><div><span>Runtime</span><strong>Local Node.js · connected</strong></div><div><span>Storage</span><strong>Append-only JSONL</strong></div><div><span>Default case</span><strong>{currentCase.title}</strong></div></div>{providerSelect}<footer><button className="primary" onClick={onClose}>Done</button></footer></>}{kind === 'plugin-library' && <><div className="library-grid">{plugins.slice(2, 8).map(plugin => <button key={plugin.id} onClick={onClose}><span className={`category ${plugin.category}`}>{plugin.category}</span><strong>{plugin.name}</strong><small>{plugin.responsibility}</small><i>Already assembled</i></button>)}</div><p className="dialog-copy">Dynamic installation is intentionally a UI fixture until plugin identity, metadata and runtime mutation semantics are frozen.</p></>}</section></div>
+  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className="dialog"><header><div><span className="eyebrow">{kind === 'settings' || kind === 'projects' ? 'PROJECT' : kind === 'plugin-library' ? 'STUDIO' : 'CREATE'}</span><h2>{kind === 'new-session' ? 'New CASE2 session' : kind === 'new-case' ? 'New Studio case' : kind === 'projects' ? 'Projects' : kind === 'settings' ? 'Project settings' : 'Component library'}</h2></div><button className="icon-button" onClick={onClose}><Icon name="close" size={16}/></button></header>{kind === 'new-session' && <><label>Session title<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Working directory<input value={cwd} onChange={event => setCwd(event.target.value)}/></label>{providerSelect}{reasoningSelect}{approvalSelect}<div className="dialog-summary"><span>Assembly</span><strong>CASE2 coding agent</strong><span>Model</span><strong>{selectedProvider?.model ?? 'No configured provider'}</strong><span>Reasoning</span><strong>{reasoningEffort ?? 'provider default'}</strong><span>Approval</span><strong>{approvalMode}</strong></div><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === '' || selectedProvider?.configured !== true} onClick={() => onCreateSession(title.trim(), cwd.trim(), providerProfileId, reasoningEffort, approvalMode)}>Create session</button></footer></>}{kind === 'new-case' && <><label>Case name<input value={title} onChange={event => setTitle(event.target.value)}/></label><p className="dialog-copy">Creates a persistent CASE2 Case using the selected workspace, default request and Journal assertions.</p><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === ''} onClick={() => onCreateCase(title.trim())}>Create case</button></footer></>}{kind === 'projects' && <><div className="project-list">{projects.map(item => <button key={item.id} className={item.id === project.id ? 'active' : ''} onClick={() => onSelectProject(item.id)}><span className="project-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span><strong>{item.name}</strong><small>{item.root}</small></span>{item.id === project.id && <Icon name="check" size={14}/>}</button>)}</div><div className="dialog-divider"><span>New fixture project</span></div><label>Project name<input value={title} onChange={event => setTitle(event.target.value)}/></label><label>Workspace root<input value={cwd} onChange={event => setCwd(event.target.value)}/></label><footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={title.trim() === '' || cwd.trim() === ''} onClick={() => onCreateProject(title.trim(), cwd.trim())}>Create project</button></footer></>}{kind === 'settings' && <><div className="settings-list"><div><span>Project root</span><code>{project.root}</code></div><div><span>Runtime</span><strong>Local Node.js · connected</strong></div><div><span>Storage</span><strong>Append-only JSONL</strong></div><div><span>Default case</span><strong>{currentCase.title}</strong></div></div>{providerSelect}<footer><button className="primary" onClick={onClose}>Done</button></footer></>}{kind === 'plugin-library' && <><div className="library-grid">{plugins.slice(2, 8).map(plugin => <button key={plugin.id} onClick={onClose}><span className={`category ${plugin.category}`}>{plugin.category}</span><strong>{plugin.name}</strong><small>{plugin.responsibility}</small><i>Already assembled</i></button>)}</div><p className="dialog-copy">Dynamic installation remains deferred; the real Studio currently publishes immutable CASE2 generations.</p></>}</section></div>
 }
 
 export function App() {
   const [mode, setMode] = useState<Mode>('run')
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
   const [selected, setSelected] = useState<string>()
-  const [caseItems, setCaseItems] = useState<readonly CaseFixture[]>(caseFixtures)
+  const [studio, setStudio] = useState<StudioSnapshot>()
+  const [studioBusy, setStudioBusy] = useState<string>()
+  const [studioError, setStudioError] = useState<string>()
   const [projects, setProjects] = useState<readonly ProjectFixture[]>(initialProjects)
   const [selectedProject, setSelectedProject] = useState(initialProjects[0]!.id)
-  const [selectedCase, setSelectedCase] = useState(caseFixtures[0]!.id)
+  const [selectedCase, setSelectedCase] = useState('case2-coding')
   const [journal, setJournal] = useState<JournalState>({ status: 'loading' })
   const [live, setLive] = useState<LiveDraft>()
   const [liveTools, setLiveTools] = useState<readonly LiveToolDraft[]>([])
@@ -530,9 +593,7 @@ export function App() {
   const [inspectorWidth, setInspectorWidth] = useState(430)
   const [providerProfiles, setProviderProfiles] = useState<readonly ProviderProfileSummary[]>([])
   const [providerProfileId, setProviderProfileId] = useState('')
-  const [provider, setProvider] = useState<'mock' | 'real'>('real')
-  const [validation, setValidation] = useState<'idle' | 'running' | 'passed'>('idle')
-  const currentCase = caseItems.find(item => item.id === selectedCase) ?? caseItems[0]!
+  const currentCase = studio?.cases.find(item => item.id === selectedCase) ?? studio?.cases[0] ?? loadingCase
   const currentProject = projects.find(item => item.id === selectedProject) ?? projects[0]!
 
   useEffect(() => {
@@ -541,6 +602,14 @@ export function App() {
     return () => controller.abort()
   }, [reload])
   useEffect(() => subscribeSessionCatalog(() => setReload(value => value + 1)), [])
+  useEffect(() => {
+    const controller = new AbortController()
+    void loadStudio(controller.signal).then(next => {
+      setStudio(next)
+      setSelectedCase(current => next.cases.some(item => item.id === current) ? current : next.cases[0]?.id ?? current)
+    }, error => { if (!controller.signal.aborted) setStudioError(error instanceof Error ? error.message : String(error)) })
+    return () => controller.abort()
+  }, [reload])
   useEffect(() => {
     const controller = new AbortController()
     void listProviderProfiles(controller.signal).then(profiles => {
@@ -586,15 +655,49 @@ export function App() {
   async function makeSession(title: string, cwd: string, profileId = providerProfileId, reasoningEffort?: ReasoningEffort, approvalMode: ApprovalMode = 'ask'): Promise<void> {
     await command(async () => { const session = await createSession({ title, cwd, ...(profileId === '' ? {} : { providerProfileId: profileId }), ...(reasoningEffort === undefined ? {} : { reasoningEffort }), approvalMode }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) })
   }
-  function makeCase(title: string): void {
-    const item: CaseFixture = { ...currentCase, id: `fixture-${Date.now()}`, title, runs: 0, provider: 'mock', providerLabel: 'mock provider' }
-    setCaseItems(current => [...current, item]); setSelectedCase(item.id); setMode('studio'); setDialog(undefined)
+  async function makeCase(title: string): Promise<void> {
+    await studioCommand('create', async () => {
+      const item = await createStudioCase({ title, workspace: currentProject.root })
+      setSelectedCase(item.id)
+      setMode('studio')
+      setDialog(undefined)
+    })
   }
   function makeProject(name: string, root: string): void {
     const item: ProjectFixture = { id: `fixture-${Date.now()}`, name, summary: 'Local fixture project', root }
     setProjects(current => [...current, item]); setSelectedProject(item.id); setDialog(undefined)
   }
-  function validate(): void { setValidation('running'); window.setTimeout(() => setValidation('passed'), 700) }
+  async function reloadStudio(): Promise<void> {
+    setStudio(await loadStudio())
+  }
+  async function studioCommand(name: string, action: () => Promise<void>): Promise<void> {
+    try {
+      setStudioBusy(name)
+      setStudioError(undefined)
+      await action()
+      await reloadStudio()
+      setReload(value => value + 1)
+    } catch (error) {
+      setStudioError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setStudioBusy(undefined)
+    }
+  }
+  function checkAssembly(): void {
+    void studioCommand('check', async () => { await checkStudioAssembly(currentCase.id) })
+  }
+  function publishGeneration(): void {
+    void studioCommand('publish', async () => { await publishStudioGeneration(currentCase.id) })
+  }
+  function runCase(runMode: 'mock' | 'real'): void {
+    void studioCommand(runMode, async () => {
+      await runStudioCase({
+        caseId: currentCase.id,
+        mode: runMode,
+        ...(runMode === 'real' && providerProfileId !== '' ? { providerProfileId } : {}),
+      })
+    })
+  }
 
   const snapshot = journal.status === 'ready' ? journal.snapshot : undefined
   const workspace = activeSession?.workspace
@@ -604,8 +707,8 @@ export function App() {
     ?? 'No provider'
   const shellStyle = { '--inspector-width': `${inspectorOpen ? inspectorWidth : 0}px` } as CSSProperties
   return <div className={`app-shell ${inspectorOpen ? '' : 'inspector-closed'}`} style={shellStyle}>
-    <ProjectRail mode={mode} project={currentProject} sessions={sessions} selectedSession={selected} selectedCase={selectedCase} cases={caseItems} onMode={setMode} onSelectSession={id => { setSelected(id); setMode('run') }} onSelectCase={id => { setSelectedCase(id); setMode('studio') }} onDialog={setDialog}/>
-    <section className="center-column"><WorkbenchHeader mode={mode} project={currentProject} session={activeSession} currentCase={currentCase} workspace={workspace} model={activeModel} inspectorOpen={inspectorOpen} onModel={() => setDialog('settings')} onSettings={() => setDialog('settings')} onInspector={() => setInspectorOpen(true)}/>{mode === 'run' ? <RunView key={snapshot?.session.id} snapshot={snapshot} workspace={workspace} live={live} liveTools={liveTools} interactions={interactions} error={runError} onSend={content => command(async () => { if (selected !== undefined) await submitMessage(selected, content) })} onPause={() => command(async () => { if (selected !== undefined) await pauseSession(selected) })} onResume={() => command(async () => { if (selected !== undefined) await resumeSession(selected) })} onRespond={(interaction, value) => command(async () => { if (selected === undefined) return; await respondToInteraction(selected, interaction.id, value); setInteractions(current => current.filter(item => item.id !== interaction.id)) })}/> : <StudioView currentCase={currentCase} provider={provider} onProvider={setProvider} validation={validation} onValidate={validate} onRun={() => void makeSession(`${currentCase.title} run`, currentCase.workspace)} onAddPlugin={() => setDialog('plugin-library')}/>}</section>
+    <ProjectRail mode={mode} project={currentProject} sessions={sessions} selectedSession={selected} selectedCase={selectedCase} cases={studio?.cases ?? []} onMode={setMode} onSelectSession={id => { setSelected(id); setMode('run') }} onSelectCase={id => { setSelectedCase(id); setMode('studio') }} onDialog={setDialog}/>
+    <section className="center-column"><WorkbenchHeader mode={mode} project={currentProject} session={activeSession} currentCase={currentCase} workspace={workspace} model={activeModel} inspectorOpen={inspectorOpen} onModel={() => setDialog('settings')} onSettings={() => setDialog('settings')} onInspector={() => setInspectorOpen(true)}/>{mode === 'run' ? <RunView key={snapshot?.session.id} snapshot={snapshot} workspace={workspace} live={live} liveTools={liveTools} interactions={interactions} error={runError} onSend={content => command(async () => { if (selected !== undefined) await submitMessage(selected, content) })} onPause={() => command(async () => { if (selected !== undefined) await pauseSession(selected) })} onResume={() => command(async () => { if (selected !== undefined) await resumeSession(selected) })} onRespond={(interaction, value) => command(async () => { if (selected === undefined) return; await respondToInteraction(selected, interaction.id, value); setInteractions(current => current.filter(item => item.id !== interaction.id)) })}/> : <StudioView studio={studio} currentCase={currentCase} busy={studioBusy} error={studioError} onCheck={checkAssembly} onRun={runCase} onPublish={publishGeneration} onOpenSession={sessionId => { setSelected(sessionId); setMode('run'); setReload(value => value + 1) }}/>}</section>
     <Inspector journal={journal} open={inspectorOpen} width={inspectorWidth} onWidth={setInspectorWidth} onClose={() => setInspectorOpen(false)} onRefresh={() => setReload(value => value + 1)}/>
     {dialog !== undefined && <Dialog
       kind={dialog}
@@ -617,7 +720,7 @@ export function App() {
       onProviderProfile={setProviderProfileId}
       onClose={() => setDialog(undefined)}
       onCreateSession={(title, cwd, profileId, reasoningEffort, approvalMode) => void makeSession(title, cwd, profileId, reasoningEffort, approvalMode)}
-      onCreateCase={makeCase}
+      onCreateCase={title => { void makeCase(title) }}
       onCreateProject={makeProject}
       onSelectProject={id => { setSelectedProject(id); setDialog(undefined) }}
     />}

@@ -6,17 +6,20 @@ import type { ProviderProfileSummary } from './provider-profile.js'
 import type { WorkbenchSession } from './session.js'
 import type { ApprovalMode, ReasoningEffort } from './session.js'
 import { createSessionRegistry, type SessionRegistry } from './session-registry.js'
+import type { StudioController } from './studio.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
   readonly sessionRegistry?: SessionRegistry
   readonly providerProfiles?: readonly ProviderProfileSummary[]
+  readonly studio?: StudioController
   readonly createSession?: (input: {
     title?: string
     cwd?: string
     providerProfileId?: string
     reasoningEffort?: ReasoningEffort
     approvalMode?: ApprovalMode
+    assemblyGenerationId?: string
   }) => Promise<WorkbenchSession>
   readonly webRoot?: string
 }
@@ -125,6 +128,75 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         return
       }
 
+      if (request.method === 'GET' && url.pathname === '/api/workbench/studio') {
+        if (options.studio === undefined) {
+          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
+          return
+        }
+        sendJson(response, 200, await options.studio.snapshot())
+        return
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workbench/studio/cases') {
+        if (options.studio === undefined) {
+          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
+          return
+        }
+        const body = await readBody(request)
+        if (typeof body['title'] !== 'string') throw new Error('title must be a string')
+        const value = await options.studio.createCase({
+          title: body['title'],
+          ...(typeof body['workspace'] === 'string' ? { workspace: body['workspace'] } : {}),
+          ...(typeof body['prompt'] === 'string' ? { prompt: body['prompt'] } : {}),
+        })
+        sendJson(response, 201, { case: value })
+        return
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workbench/studio/check') {
+        if (options.studio === undefined) {
+          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
+          return
+        }
+        const body = await readBody(request)
+        if (typeof body['caseId'] !== 'string') throw new Error('caseId must be a string')
+        sendJson(response, 200, { validation: await options.studio.check(body['caseId']) })
+        return
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workbench/studio/publish') {
+        if (options.studio === undefined) {
+          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
+          return
+        }
+        const body = await readBody(request)
+        if (typeof body['caseId'] !== 'string') throw new Error('caseId must be a string')
+        sendJson(response, 201, { generation: await options.studio.publish(body['caseId']) })
+        return
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workbench/studio/runs') {
+        if (options.studio === undefined) {
+          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
+          return
+        }
+        const body = await readBody(request)
+        if (typeof body['caseId'] !== 'string') throw new Error('caseId must be a string')
+        if (body['mode'] !== 'mock' && body['mode'] !== 'real') throw new Error('mode must be mock or real')
+        const run = await options.studio.run({
+          caseId: body['caseId'],
+          mode: body['mode'],
+          ...(typeof body['providerProfileId'] === 'string'
+            ? { providerProfileId: body['providerProfileId'] }
+            : {}),
+          ...(['none', 'low', 'high', 'max'].includes(String(body['reasoningEffort']))
+            ? { reasoningEffort: body['reasoningEffort'] as ReasoningEffort }
+            : {}),
+        })
+        sendJson(response, 201, { run })
+        return
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/workbench/sessions') {
         if (options.createSession === undefined) {
           sendJson(response, 405, { error: { code: 'read_only', message: 'Session creation is unavailable' } })
@@ -142,6 +214,9 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
             : {}),
           ...(['ask', 'auto'].includes(String(body['approvalMode']))
             ? { approvalMode: body['approvalMode'] as ApprovalMode }
+            : {}),
+          ...(typeof body['assemblyGenerationId'] === 'string'
+            ? { assemblyGenerationId: body['assemblyGenerationId'] }
             : {}),
         })
         registry.add(session)

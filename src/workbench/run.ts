@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import type { LlmProvider } from '../cases/case1/llm.js'
+import type { AgentAssemblyFactory } from './assembly.js'
 import { case2AssemblyFactory } from './case2-assembly.js'
 import { createWorkbenchServer } from './http-server.js'
 import { createLiveSession } from './live-session.js'
@@ -14,6 +16,7 @@ import { loadSessionDescriptors, saveSessionDescriptor } from './session-catalog
 import { createSessionRegistry } from './session-registry.js'
 import { storedSession, type StoredSessionConfig } from './stored-session.js'
 import { runSubagentSession } from './subagent-session.js'
+import { createStudioController, type StudioController, type StudioRunInput } from './studio.js'
 
 function configuredStoredSessions(): readonly StoredSessionConfig[] {
   const value = process.env['KNOT_WORKBENCH_SESSIONS']
@@ -27,6 +30,7 @@ const providerProfiles = providerProfilesFromEnvironment(process.env)
 const profilesById = new Map(providerProfiles.map(profile => [profile.id, profile]))
 const defaultProfile = providerProfiles.find(profile => profile.configured)
 const registry = createSessionRegistry()
+let studio: StudioController | undefined
 
 function assemblyFor(
   profile: ProviderProfile,
@@ -64,6 +68,7 @@ const sessionDirectory = process.env['KNOT_WORKBENCH_SESSION_DIR']
   ?? (configuredJournal === undefined ? join(defaultCwd, '.knot', 'sessions') : dirname(configuredJournal))
 
 async function newLiveSession(input: {
+  id?: string
   title?: string
   cwd?: string
   providerProfileId?: string
@@ -71,21 +76,34 @@ async function newLiveSession(input: {
   approvalMode?: ApprovalMode
   parentSessionId?: string
   delegationDepth?: number
+  assemblyGenerationId?: string
+  assemblyOverride?: AgentAssemblyFactory
 } = {}): Promise<WorkbenchSession> {
-  const profile = input.providerProfileId === undefined
-    ? defaultProfile
-    : profilesById.get(input.providerProfileId)
-  if (profile === undefined) throw new Error(`Unknown provider profile ${input.providerProfileId}`)
-  if (!profile.configured) throw new Error(`Provider profile ${profile.id} is not configured`)
-  if (input.reasoningEffort !== undefined
-    && !profile.reasoningEfforts?.includes(input.reasoningEffort)) {
-    throw new Error(`Provider profile ${profile.id} does not support reasoning effort ${input.reasoningEffort}`)
+  const assemblyGenerationId = input.assemblyGenerationId ?? await studio?.activeGenerationId()
+  if (assemblyGenerationId !== undefined
+    && studio !== undefined
+    && !await studio.hasGeneration(assemblyGenerationId)) {
+    throw new Error(`Unknown assembly generation ${assemblyGenerationId}`)
   }
-  const reasoningEffort = input.reasoningEffort ?? profile.defaultReasoningEffort
+  const profile = input.assemblyOverride === undefined
+    ? input.providerProfileId === undefined
+      ? defaultProfile
+      : profilesById.get(input.providerProfileId)
+    : undefined
+  if (input.assemblyOverride === undefined) {
+    if (profile === undefined) throw new Error(`Unknown provider profile ${input.providerProfileId}`)
+    if (!profile.configured) throw new Error(`Provider profile ${profile.id} is not configured`)
+    if (input.reasoningEffort !== undefined
+      && !profile.reasoningEfforts?.includes(input.reasoningEffort)) {
+      throw new Error(`Provider profile ${profile.id} does not support reasoning effort ${input.reasoningEffort}`)
+    }
+  }
+  const reasoningEffort = input.reasoningEffort ?? profile?.defaultReasoningEffort
   const approvalMode = input.approvalMode ?? 'ask'
-  const id = `case2-${randomUUID().slice(0, 8)}`
+  const id = input.id ?? `case2-${randomUUID().slice(0, 8)}`
   const delegationDepth = input.delegationDepth ?? 0
-  const assembly = assemblyFor(profile, reasoningEffort, approvalMode, { id, delegationDepth })
+  const assembly = input.assemblyOverride
+    ?? assemblyFor(profile!, reasoningEffort, approvalMode, { id, delegationDepth })
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
     id,
@@ -93,8 +111,11 @@ async function newLiveSession(input: {
     cwd: input.cwd?.trim() || defaultCwd,
     journalPath: join(sessionDirectory, `${id}.jsonl`),
     assembly: assembly.id,
+    ...(assemblyGenerationId === undefined
+      ? {}
+      : { assemblyGenerationId }),
     model: assembly.model,
-    providerProfileId: profile.id,
+    ...(profile === undefined ? {} : { providerProfileId: profile.id }),
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     approvalMode,
     ...(input.parentSessionId === undefined ? {} : { parentSessionId: input.parentSessionId }),
@@ -102,6 +123,69 @@ async function newLiveSession(input: {
   }
   const session = await createLiveSession({ ...descriptor, assembly })
   await saveSessionDescriptor(sessionDirectory, descriptor)
+  return session
+}
+
+function mockStudioProvider(): LlmProvider {
+  let request = 0
+  return {
+    async generate() {
+      request += 1
+      return request === 1
+        ? {
+          generated: {
+            toolCalls: [{ id: 'mock-pwd', name: 'bash', arguments: { command: 'pwd' } }],
+          },
+          usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, contextWindow: 32_768 },
+        }
+        : {
+          generated: { content: 'Mock CASE2 run inspected the workspace and completed.', toolCalls: [] },
+          usage: { inputTokens: 160, outputTokens: 16, totalTokens: 176, contextWindow: 32_768 },
+        }
+    },
+  }
+}
+
+function waitUntilIdle(session: WorkbenchSession): Promise<void> {
+  return new Promise(resolve => {
+    const unsubscribe = session.subscribe?.(event => {
+      if (event.kind !== 'state.changed' || event.runState !== 'idle') return
+      unsubscribe?.()
+      resolve()
+    })
+    if (unsubscribe === undefined) resolve()
+  })
+}
+
+async function createStudioRunSession(input: StudioRunInput): Promise<WorkbenchSession> {
+  const session = input.mode === 'mock'
+    ? await newLiveSession({
+      id: input.id,
+      title: input.title,
+      cwd: input.workspace,
+      assemblyGenerationId: input.generationId,
+      approvalMode: 'auto',
+      delegationDepth: 0,
+      assemblyOverride: case2AssemblyFactory({
+        llm: mockStudioProvider(),
+        model: 'deterministic-mock',
+        approvalMode: 'auto',
+      }),
+    })
+    : await newLiveSession({
+      id: input.id,
+      title: input.title,
+      cwd: input.workspace,
+      assemblyGenerationId: input.generationId,
+      ...(input.providerProfileId === undefined ? {} : { providerProfileId: input.providerProfileId }),
+      ...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
+      approvalMode: 'ask',
+      delegationDepth: 0,
+    })
+  registry.add(session)
+  const idle = input.mode === 'mock' ? waitUntilIdle(session) : undefined
+  session.submit?.(input.prompt)
+  await idle
   return session
 }
 
@@ -147,12 +231,24 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
     : await createLiveSession({
       ...descriptor,
       providerProfileId: profile.id,
+      ...(descriptor.assemblyGenerationId === undefined
+        ? {}
+        : { assemblyGenerationId: descriptor.assemblyGenerationId }),
       assembly: assemblyFor(profile, descriptor.reasoningEffort, descriptor.approvalMode, {
         id: descriptor.id,
         delegationDepth: descriptor.delegationDepth ?? 0,
       }),
     }))
 }
+
+const studioDirectory = process.env['KNOT_STUDIO_DIR']
+  ?? join(dirname(sessionDirectory), 'studio')
+studio = await createStudioController({
+  directory: studioDirectory,
+  defaultWorkspace: defaultCwd,
+  session: id => registry.get(id),
+  createRunSession: createStudioRunSession,
+})
 if (configuredJournal !== undefined) {
   if (registry.get('case2-main') === undefined) {
     registry.add(defaultProfile === undefined
@@ -182,7 +278,10 @@ if (configuredJournal !== undefined) {
 if (registry.list().length === 0 && defaultProfile === undefined) {
   throw new Error('Configure KNOT_JOURNAL_PATH, KNOT_WORKBENCH_SESSIONS, or an LLM')
 }
-if (registry.list().length === 0) registry.add(await newLiveSession({ title: 'CASE2 coding session' }))
+if (registry.list().length === 0) registry.add(await newLiveSession({
+  title: 'CASE2 coding session',
+  assemblyGenerationId: await studio.activeGenerationId(),
+}))
 
 const port = Number(process.env['KNOT_WORKBENCH_PORT'] ?? '4317')
 if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -193,6 +292,7 @@ const server = createWorkbenchServer({
   sessions: [],
   sessionRegistry: registry,
   providerProfiles: providerProfiles.map(publicProviderProfile),
+  studio,
   ...(defaultProfile === undefined ? {} : { createSession: newLiveSession }),
   webRoot: process.env['KNOT_WEB_ROOT'] ?? join(process.cwd(), 'web', 'dist'),
 })

@@ -8,6 +8,7 @@ export interface SessionSummaryDto {
   readonly id: string
   readonly title: string
   readonly assembly: string
+  readonly assemblyGenerationId?: string
   readonly workspace?: string
   readonly model?: string
   readonly providerProfileId?: string

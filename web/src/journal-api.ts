@@ -10,6 +10,7 @@ export interface SessionSummary {
   readonly id: string
   readonly title: string
   readonly assembly: string
+  readonly assemblyGenerationId?: string
   readonly workspace?: string
   readonly model?: string
   readonly providerProfileId?: string
@@ -17,7 +18,7 @@ export interface SessionSummary {
   readonly approvalMode?: ApprovalMode
   readonly parentSessionId?: string
   readonly delegationDepth?: number
-  readonly runState: 'completed' | 'idle' | 'running' | 'paused'
+  readonly runState: 'completed' | 'idle' | 'running' | 'paused' | 'failed'
   readonly eventCount: number
   readonly updatedAt?: string
   readonly writable: boolean
@@ -39,6 +40,86 @@ export interface ProviderProfileSummary {
 export interface JournalSnapshot {
   readonly session: SessionSummary
   readonly events: readonly ReadEvent[]
+}
+
+export interface StudioPlugin {
+  readonly id: string
+  readonly name: string
+  readonly category: 'platform' | 'context' | 'flow' | 'content' | 'effect' | 'presentation'
+  readonly responsibility: string
+  readonly listens: readonly string[]
+  readonly emits: readonly string[]
+  readonly source: string
+}
+
+export interface StudioAssembly {
+  readonly id: string
+  readonly title: string
+  readonly systemPrompt: string
+  readonly plugins: readonly StudioPlugin[]
+  readonly tools: ReadonlyArray<{ readonly name: string; readonly description: string }>
+  readonly protocols: readonly string[]
+  readonly fingerprint: string
+}
+
+export interface StudioCase {
+  readonly id: string
+  readonly title: string
+  readonly summary: string
+  readonly assemblyId: string
+  readonly workspace: string
+  readonly prompt: string
+  readonly assertions: readonly string[]
+  readonly createdAt: string
+  readonly runCount: number
+}
+
+export interface StudioValidation {
+  readonly id: string
+  readonly caseId: string
+  readonly assemblyFingerprint: string
+  readonly createdAt: string
+  readonly passed: boolean
+  readonly checks: ReadonlyArray<{ readonly id: string; readonly label: string; readonly passed: boolean; readonly detail: string }>
+}
+
+export interface StudioGeneration {
+  readonly id: string
+  readonly assemblyId: string
+  readonly assemblyFingerprint: string
+  readonly validationId: string
+  readonly createdAt: string
+  readonly active: boolean
+}
+
+export interface StudioRun {
+  readonly id: string
+  readonly caseId: string
+  readonly mode: 'mock' | 'real'
+  readonly sessionId: string
+  readonly generationId: string
+  readonly providerProfileId?: string
+  readonly reasoningEffort?: ReasoningEffort
+  readonly createdAt: string
+  readonly status: 'running' | 'passed' | 'failed'
+  readonly assertions: ReadonlyArray<{ readonly eventType: string; readonly passed: boolean }>
+  readonly metrics: {
+    readonly eventCount: number
+    readonly modelCalls: number
+    readonly toolCalls: number
+    readonly inputTokens: number
+    readonly outputTokens: number
+    readonly durationMs?: number
+  }
+}
+
+export interface StudioSnapshot {
+  readonly assembly: StudioAssembly
+  readonly cases: readonly StudioCase[]
+  readonly validations: readonly StudioValidation[]
+  readonly generations: readonly StudioGeneration[]
+  readonly runs: readonly StudioRun[]
+  readonly activeGenerationId: string
 }
 
 interface ErrorResponse {
@@ -115,8 +196,38 @@ export async function createSession(input: {
   providerProfileId?: string
   reasoningEffort?: ReasoningEffort
   approvalMode?: ApprovalMode
+  assemblyGenerationId?: string
 } = {}): Promise<SessionSummary> {
   return (await post<{ session: SessionSummary }>('/api/workbench/sessions', input)).session
+}
+
+export async function loadStudio(signal?: AbortSignal): Promise<StudioSnapshot> {
+  return await readJson<StudioSnapshot>(await fetch('/api/workbench/studio', { signal }))
+}
+
+export async function createStudioCase(input: {
+  title: string
+  workspace?: string
+  prompt?: string
+}): Promise<StudioCase> {
+  return (await post<{ case: StudioCase }>('/api/workbench/studio/cases', input)).case
+}
+
+export async function checkStudioAssembly(caseId: string): Promise<StudioValidation> {
+  return (await post<{ validation: StudioValidation }>('/api/workbench/studio/check', { caseId })).validation
+}
+
+export async function publishStudioGeneration(caseId: string): Promise<StudioGeneration> {
+  return (await post<{ generation: StudioGeneration }>('/api/workbench/studio/publish', { caseId })).generation
+}
+
+export async function runStudioCase(input: {
+  caseId: string
+  mode: 'mock' | 'real'
+  providerProfileId?: string
+  reasoningEffort?: ReasoningEffort
+}): Promise<StudioRun> {
+  return (await post<{ run: StudioRun }>('/api/workbench/studio/runs', input)).run
 }
 
 export async function submitMessage(sessionId: string, content: string): Promise<void> {
