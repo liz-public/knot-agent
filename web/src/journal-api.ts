@@ -15,6 +15,8 @@ export interface SessionSummary {
   readonly providerProfileId?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly approvalMode?: ApprovalMode
+  readonly parentSessionId?: string
+  readonly delegationDepth?: number
   readonly runState: 'completed' | 'idle' | 'running' | 'paused'
   readonly eventCount: number
   readonly updatedAt?: string
@@ -143,5 +145,11 @@ export function subscribeSession(
     listener(JSON.parse((raw as MessageEvent<string>).data) as SessionStreamEvent)
   })
   source.onerror = onError
+  return () => source.close()
+}
+
+export function subscribeSessionCatalog(listener: () => void): () => void {
+  const source = new EventSource('/api/workbench/sessions/stream')
+  source.addEventListener('catalog', listener)
   return () => source.close()
 }

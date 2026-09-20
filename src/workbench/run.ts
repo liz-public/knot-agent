@@ -11,7 +11,9 @@ import {
 } from './provider-profile.js'
 import type { ApprovalMode, ReasoningEffort, WorkbenchSession } from './session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from './session-catalog.js'
+import { createSessionRegistry } from './session-registry.js'
 import { storedSession, type StoredSessionConfig } from './stored-session.js'
+import { runSubagentSession } from './subagent-session.js'
 
 function configuredStoredSessions(): readonly StoredSessionConfig[] {
   const value = process.env['KNOT_WORKBENCH_SESSIONS']
@@ -24,16 +26,29 @@ function configuredStoredSessions(): readonly StoredSessionConfig[] {
 const providerProfiles = providerProfilesFromEnvironment(process.env)
 const profilesById = new Map(providerProfiles.map(profile => [profile.id, profile]))
 const defaultProfile = providerProfiles.find(profile => profile.configured)
+const registry = createSessionRegistry()
 
 function assemblyFor(
   profile: ProviderProfile,
   reasoningEffort?: ReasoningEffort,
   approvalMode: ApprovalMode = 'ask',
+  parent?: { readonly id: string; readonly delegationDepth: number },
 ) {
   return case2AssemblyFactory({
     llm: profile.create({ reasoningEffort }),
     model: profile.model,
     approvalMode,
+    ...(parent === undefined || parent.delegationDepth >= 1 ? {} : {
+      subagentFactory: {
+        run: input => runSubagent({
+          parentSessionId: parent.id,
+          parentProfile: profile,
+          parentReasoningEffort: reasoningEffort,
+          approvalMode,
+          ...input,
+        }),
+      },
+    }),
   })
 }
 
@@ -54,6 +69,8 @@ async function newLiveSession(input: {
   providerProfileId?: string
   reasoningEffort?: ReasoningEffort
   approvalMode?: ApprovalMode
+  parentSessionId?: string
+  delegationDepth?: number
 } = {}): Promise<WorkbenchSession> {
   const profile = input.providerProfileId === undefined
     ? defaultProfile
@@ -66,8 +83,9 @@ async function newLiveSession(input: {
   }
   const reasoningEffort = input.reasoningEffort ?? profile.defaultReasoningEffort
   const approvalMode = input.approvalMode ?? 'ask'
-  const assembly = assemblyFor(profile, reasoningEffort, approvalMode)
   const id = `case2-${randomUUID().slice(0, 8)}`
+  const delegationDepth = input.delegationDepth ?? 0
+  const assembly = assemblyFor(profile, reasoningEffort, approvalMode, { id, delegationDepth })
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
     id,
@@ -79,27 +97,65 @@ async function newLiveSession(input: {
     providerProfileId: profile.id,
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     approvalMode,
+    ...(input.parentSessionId === undefined ? {} : { parentSessionId: input.parentSessionId }),
+    delegationDepth,
   }
   const session = await createLiveSession({ ...descriptor, assembly })
   await saveSessionDescriptor(sessionDirectory, descriptor)
   return session
 }
 
-const sessions: WorkbenchSession[] = configuredStoredSessions().map(session => storedSession(session))
+async function runSubagent(input: {
+  readonly task: string
+  readonly cwd: string
+  readonly model?: string
+  readonly reasoningEffort?: ReasoningEffort
+  readonly parentSessionId: string
+  readonly parentProfile: ProviderProfile
+  readonly parentReasoningEffort?: ReasoningEffort
+  readonly approvalMode: ApprovalMode
+}): Promise<{ summary: string; sessionId: string }> {
+  const profile = input.model === undefined
+    ? input.parentProfile
+    : profilesById.get(input.model)
+      ?? providerProfiles.find(candidate => candidate.configured && candidate.model === input.model)
+  if (profile === undefined || !profile.configured) {
+    throw new Error(`No configured provider profile or model matches ${input.model}`)
+  }
+  const reasoningEffort = input.reasoningEffort
+    ?? (profile.id === input.parentProfile.id
+      ? input.parentReasoningEffort
+      : profile.defaultReasoningEffort)
+  const child = await newLiveSession({
+    title: `Subagent · ${input.task.slice(0, 60)}`,
+    cwd: input.cwd,
+    providerProfileId: profile.id,
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    approvalMode: input.approvalMode,
+    parentSessionId: input.parentSessionId,
+    delegationDepth: 1,
+  })
+  return await runSubagentSession(child, registry, input.task)
+}
+
+for (const session of configuredStoredSessions()) registry.add(storedSession(session))
 for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
-  if (sessions.some(session => session.id === descriptor.id)) continue
+  if (registry.get(descriptor.id) !== undefined) continue
   const profile = profileForDescriptor(descriptor)
-  sessions.push(profile === undefined || !profile.configured
+  registry.add(profile === undefined || !profile.configured
     ? storedSession(descriptor)
     : await createLiveSession({
       ...descriptor,
       providerProfileId: profile.id,
-      assembly: assemblyFor(profile, descriptor.reasoningEffort, descriptor.approvalMode),
+      assembly: assemblyFor(profile, descriptor.reasoningEffort, descriptor.approvalMode, {
+        id: descriptor.id,
+        delegationDepth: descriptor.delegationDepth ?? 0,
+      }),
     }))
 }
 if (configuredJournal !== undefined) {
-  if (!sessions.some(session => session.id === 'case2-main')) {
-    sessions.unshift(defaultProfile === undefined
+  if (registry.get('case2-main') === undefined) {
+    registry.add(defaultProfile === undefined
       ? storedSession({
         id: 'case2-main',
         title: 'CASE2 coding session',
@@ -115,14 +171,18 @@ if (configuredJournal !== undefined) {
         providerProfileId: defaultProfile.id,
         reasoningEffort: defaultProfile.defaultReasoningEffort,
         approvalMode: 'ask',
-        assembly: assemblyFor(defaultProfile, defaultProfile.defaultReasoningEffort, 'ask'),
+        delegationDepth: 0,
+        assembly: assemblyFor(defaultProfile, defaultProfile.defaultReasoningEffort, 'ask', {
+          id: 'case2-main',
+          delegationDepth: 0,
+        }),
       }))
   }
 }
-if (sessions.length === 0 && defaultProfile === undefined) {
+if (registry.list().length === 0 && defaultProfile === undefined) {
   throw new Error('Configure KNOT_JOURNAL_PATH, KNOT_WORKBENCH_SESSIONS, or an LLM')
 }
-if (sessions.length === 0) sessions.push(await newLiveSession({ title: 'CASE2 coding session' }))
+if (registry.list().length === 0) registry.add(await newLiveSession({ title: 'CASE2 coding session' }))
 
 const port = Number(process.env['KNOT_WORKBENCH_PORT'] ?? '4317')
 if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -130,12 +190,13 @@ if (!Number.isInteger(port) || port < 0 || port > 65_535) {
 }
 
 const server = createWorkbenchServer({
-  sessions,
+  sessions: [],
+  sessionRegistry: registry,
   providerProfiles: providerProfiles.map(publicProviderProfile),
   ...(defaultProfile === undefined ? {} : { createSession: newLiveSession }),
   webRoot: process.env['KNOT_WEB_ROOT'] ?? join(process.cwd(), 'web', 'dist'),
 })
 server.listen(port, '127.0.0.1', () => {
   process.stdout.write(`Knot workbench: http://127.0.0.1:${port}\n`)
-  process.stdout.write(`Sessions: ${sessions.map(session => session.id).join(', ')}\n`)
+  process.stdout.write(`Sessions: ${registry.list().map(session => session.id).join(', ')}\n`)
 })

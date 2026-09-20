@@ -12,6 +12,8 @@ export interface LiveSessionDescriptor {
   readonly providerProfileId?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly approvalMode?: ApprovalMode
+  readonly parentSessionId?: string
+  readonly delegationDepth?: number
 }
 
 function descriptor(value: unknown, file: string): LiveSessionDescriptor {
@@ -38,6 +40,12 @@ function descriptor(value: unknown, file: string): LiveSessionDescriptor {
       : {}),
     ...(['ask', 'auto'].includes(String(item['approvalMode']))
       ? { approvalMode: item['approvalMode'] as ApprovalMode }
+      : {}),
+    ...(typeof item['parentSessionId'] === 'string'
+      ? { parentSessionId: item['parentSessionId'] }
+      : {}),
+    ...(typeof item['delegationDepth'] === 'number' && Number.isInteger(item['delegationDepth']) && item['delegationDepth'] >= 0
+      ? { delegationDepth: item['delegationDepth'] }
       : {}),
   }
 }

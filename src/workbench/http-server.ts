@@ -5,9 +5,11 @@ import { JournalReadError } from './read-journal.js'
 import type { ProviderProfileSummary } from './provider-profile.js'
 import type { WorkbenchSession } from './session.js'
 import type { ApprovalMode, ReasoningEffort } from './session.js'
+import { createSessionRegistry, type SessionRegistry } from './session-registry.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
+  readonly sessionRegistry?: SessionRegistry
   readonly providerProfiles?: readonly ProviderProfileSummary[]
   readonly createSession?: (input: {
     title?: string
@@ -85,8 +87,7 @@ function pathMatch(pathname: string, suffix: string): string | undefined {
 }
 
 export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
-  const byId = new Map(options.sessions.map(session => [session.id, session]))
-  if (byId.size !== options.sessions.length) throw new Error('duplicate workbench session id')
+  const registry = options.sessionRegistry ?? createSessionRegistry(options.sessions)
 
   return createServer(async (request, response) => {
     try {
@@ -97,7 +98,25 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
       }
 
       if (request.method === 'GET' && url.pathname === '/api/workbench/sessions') {
-        sendJson(response, 200, { sessions: await Promise.all([...byId.values()].map(session => session.summary())) })
+        sendJson(response, 200, { sessions: await Promise.all(registry.list().map(session => session.summary())) })
+        return
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/workbench/sessions/stream') {
+        response.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-store',
+          connection: 'keep-alive',
+        })
+        response.write(': connected\n\n')
+        const unsubscribe = registry.subscribe(() => {
+          response.write(`event: catalog\ndata: ${JSON.stringify({ kind: 'catalog.changed', emittedAt: new Date().toISOString() })}\n\n`)
+        })
+        const heartbeat = setInterval(() => response.write(': keepalive\n\n'), 15_000)
+        request.once('close', () => {
+          clearInterval(heartbeat)
+          unsubscribe()
+        })
         return
       }
 
@@ -125,15 +144,14 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
             ? { approvalMode: body['approvalMode'] as ApprovalMode }
             : {}),
         })
-        if (byId.has(session.id)) throw new Error(`duplicate workbench session id ${session.id}`)
-        byId.set(session.id, session)
+        registry.add(session)
         sendJson(response, 201, { session: await session.summary() })
         return
       }
 
       const snapshotId = pathMatch(url.pathname, '')
       if (request.method === 'GET' && snapshotId !== undefined) {
-        const session = byId.get(snapshotId)
+        const session = registry.get(snapshotId)
         if (session === undefined) {
           sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
           return
@@ -144,7 +162,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       const streamId = pathMatch(url.pathname, '/stream')
       if (request.method === 'GET' && streamId !== undefined) {
-        const session = byId.get(streamId)
+        const session = registry.get(streamId)
         if (session?.subscribe === undefined) {
           sendJson(response, session === undefined ? 404 : 405, {
             error: {
@@ -173,7 +191,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       const messageId = pathMatch(url.pathname, '/messages')
       if (request.method === 'POST' && messageId !== undefined) {
-        const session = byId.get(messageId)
+        const session = registry.get(messageId)
         if (session?.submit === undefined) {
           sendJson(response, session === undefined ? 404 : 405, { error: { code: 'session_not_writable', message: 'Session is not writable' } })
           return
@@ -191,7 +209,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       const pauseId = pathMatch(url.pathname, '/pause')
       if (request.method === 'POST' && pauseId !== undefined) {
-        const session = byId.get(pauseId)
+        const session = registry.get(pauseId)
         if (session?.pause === undefined) {
           sendJson(response, 405, { error: { code: 'session_not_controllable', message: 'Session cannot pause' } })
           return
@@ -203,7 +221,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       const resumeId = pathMatch(url.pathname, '/resume')
       if (request.method === 'POST' && resumeId !== undefined) {
-        const session = byId.get(resumeId)
+        const session = registry.get(resumeId)
         if (session?.resume === undefined) {
           sendJson(response, 405, { error: { code: 'session_not_controllable', message: 'Session cannot resume' } })
           return
@@ -215,7 +233,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       const interactionId = pathMatch(url.pathname, '/interactions')
       if (request.method === 'POST' && interactionId !== undefined) {
-        const session = byId.get(interactionId)
+        const session = registry.get(interactionId)
         if (session?.respond === undefined) {
           sendJson(response, 405, { error: { code: 'session_not_interactive', message: 'Session has no interactions' } })
           return

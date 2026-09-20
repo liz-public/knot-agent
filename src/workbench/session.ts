@@ -13,6 +13,8 @@ export interface SessionSummaryDto {
   readonly providerProfileId?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly approvalMode?: ApprovalMode
+  readonly parentSessionId?: string
+  readonly delegationDepth?: number
   readonly runState: SessionRunState
   readonly eventCount: number
   readonly updatedAt?: string

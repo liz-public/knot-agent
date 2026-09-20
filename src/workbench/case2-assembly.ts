@@ -1,5 +1,6 @@
 import type { LlmProvider } from '../cases/case1/llm.js'
 import { createPersistentCase2Agent } from '../cases/case2/case2.js'
+import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
 import type { PermissionPolicy } from '../cases/case2/tool-interaction.js'
 import type { AgentAssemblyFactory } from './assembly.js'
 import type { ApprovalMode } from './session.js'
@@ -9,6 +10,7 @@ export interface Case2AssemblyOptions {
   readonly model: string
   readonly permissionPolicy?: PermissionPolicy
   readonly approvalMode?: ApprovalMode
+  readonly subagentFactory?: SubagentFactory
 }
 
 const defaultPermissionPolicy: PermissionPolicy = {
@@ -39,6 +41,7 @@ export function case2AssemblyFactory(options: Case2AssemblyOptions): AgentAssemb
       permissionPolicy,
       approvalPort: input.approvalPort,
       askPort: input.askPort,
+      subagentFactory: options.subagentFactory,
       platformPlugins: input.platformPlugins,
     }),
   }

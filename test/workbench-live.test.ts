@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -9,7 +9,9 @@ import { createInteractionBroker } from '../src/workbench/interactions.js'
 import { case2AssemblyFactory } from '../src/workbench/case2-assembly.js'
 import { createLiveSession } from '../src/workbench/live-session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from '../src/workbench/session-catalog.js'
+import { createSessionRegistry } from '../src/workbench/session-registry.js'
 import type { InteractionRequestDto, LiveSessionEvent, WorkbenchSession } from '../src/workbench/session.js'
+import { runSubagentSession } from '../src/workbench/subagent-session.js'
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
 
@@ -26,6 +28,19 @@ test('workbench ask interaction waits for and returns the matching browser answe
   assert.equal(broker.respond(request.interaction.id, 'a'), false)
 })
 
+test('workbench interaction broker exposes only unresolved requests for replay', async () => {
+  const events: LiveSessionEvent[] = []
+  const broker = createInteractionBroker(event => events.push(event))
+  const answer = broker.ask.ask({ question: 'Still waiting?', choices: ['yes', 'no'] })
+  const request = events[0]
+  assert.equal(request?.kind, 'interaction.request')
+  if (request?.kind !== 'interaction.request') throw new Error('expected interaction')
+  assert.deepEqual(broker.pending(), [request.interaction])
+  assert.equal(broker.respond(request.interaction.id, 'yes'), true)
+  assert.deepEqual(await answer, { answer: 'yes' })
+  assert.deepEqual(broker.pending(), [])
+})
+
 test('workbench session descriptors preserve new sessions for host restart', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-catalog-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
@@ -39,6 +54,8 @@ test('workbench session descriptors preserve new sessions for host restart', asy
     providerProfileId: 'default',
     reasoningEffort: 'low' as const,
     approvalMode: 'auto' as const,
+    parentSessionId: 'case2-parent',
+    delegationDepth: 1,
   }
   await saveSessionDescriptor(directory, descriptor)
   assert.deepEqual(await loadSessionDescriptors(directory), [descriptor])
@@ -102,6 +119,10 @@ test('live CASE2 session streams generation, resolves approval, and persists aut
   const interaction = (requestEvent as { interaction: InteractionRequestDto }).interaction
   assert.equal(interaction.kind, 'approval')
   assert.equal(interaction.kind === 'approval' ? interaction.toolName : '', 'write')
+  const replayed: LiveSessionEvent[] = []
+  const stopReplay = session.subscribe!(event => replayed.push(event))
+  assert.deepEqual(replayed.find(event => event.kind === 'interaction.request'), requestEvent)
+  stopReplay()
   assert.equal(session.respond!(interaction.id, 'allow'), true)
   await nextEvent(events, subscribe, event => event.kind === 'state.changed' && event.runState === 'idle')
 
@@ -114,6 +135,92 @@ test('live CASE2 session streams generation, resolves approval, and persists aut
   assert.ok(snapshot.events.some(event => event.type === 'tool.registry'))
   assert.ok(snapshot.events.some(event => event.type === 'tool.result'))
   assert.ok(snapshot.events.every(event => event.observedAt !== undefined))
+})
+
+test('persistent subagent session registers independently and returns its committed summary', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-subagent-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const registry = createSessionRegistry()
+  let catalogChanges = 0
+  registry.subscribe(() => { catalogChanges += 1 })
+  const child = await createLiveSession({
+    id: 'child-1', title: 'Subagent · inspect', cwd: directory,
+    journalPath: join(directory, 'child.jsonl'), parentSessionId: 'parent-1', delegationDepth: 1,
+    providerProfileId: 'deepseek', reasoningEffort: 'low', approvalMode: 'auto',
+    assembly: case2AssemblyFactory({
+      model: 'mock-child', approvalMode: 'auto',
+      llm: { async generate() {
+        return { generated: { content: 'Child inspected the workspace.', toolCalls: [] }, usage }
+      } },
+    }),
+  })
+  const result = await runSubagentSession(child, registry, 'Inspect the workspace.')
+  assert.deepEqual(result, { summary: 'Child inspected the workspace.', sessionId: 'child-1' })
+  assert.equal(registry.get('child-1'), child)
+  assert.equal(catalogChanges, 1)
+  const snapshot = await child.snapshot()
+  assert.equal(snapshot.session.parentSessionId, 'parent-1')
+  assert.equal(snapshot.session.delegationDepth, 1)
+  assert.equal(snapshot.session.reasoningEffort, 'low')
+  assert.ok(snapshot.events.some(event => event.type === 'assistant.message'))
+  assert.match(await readFile(join(directory, 'child.jsonl'), 'utf8'), /assistant\.message/)
+})
+
+test('two live sessions run concurrently without crossing workspace, journal, or live events', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'knot-workbench-isolation-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const leftCwd = join(root, 'left')
+  const rightCwd = join(root, 'right')
+  await Promise.all([mkdir(leftCwd), mkdir(rightCwd)])
+
+  function provider(side: 'left' | 'right'): LlmProvider {
+    let generation = 0
+    return { async generate(_call, onUpdate) {
+      generation += 1
+      if (generation === 1) {
+        await onUpdate?.({ kind: 'tool_call', index: 0, id: `${side}-write`, name: 'write', argumentsDelta: JSON.stringify({ path: 'owner.txt', content: `${side}\n` }) })
+        return { generated: { toolCalls: [{ id: `${side}-write`, name: 'write', arguments: { path: 'owner.txt', content: `${side}\n` } }] }, usage }
+      }
+      await onUpdate?.({ kind: 'content', text: `${side} complete` })
+      return { generated: { content: `${side} complete`, toolCalls: [] }, usage }
+    } }
+  }
+  const left = await createLiveSession({
+    id: 'left', title: 'Left', cwd: leftCwd, journalPath: join(root, 'left.jsonl'),
+    assembly: case2AssemblyFactory({ llm: provider('left'), model: 'mock' }),
+  })
+  const right = await createLiveSession({
+    id: 'right', title: 'Right', cwd: rightCwd, journalPath: join(root, 'right.jsonl'),
+    assembly: case2AssemblyFactory({ llm: provider('right'), model: 'mock' }),
+  })
+  const leftEvents: LiveSessionEvent[] = []
+  const rightEvents: LiveSessionEvent[] = []
+  left.subscribe!(event => leftEvents.push(event))
+  right.subscribe!(event => rightEvents.push(event))
+  const leftIdle = nextEvent(leftEvents, left.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  const rightIdle = nextEvent(rightEvents, right.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  const leftApproval = nextEvent(leftEvents, left.subscribe!, event => event.kind === 'interaction.request')
+  const rightApproval = nextEvent(rightEvents, right.subscribe!, event => event.kind === 'interaction.request')
+  left.submit!('Write the left marker.')
+  right.submit!('Write the right marker.')
+  const [leftRequest, rightRequest] = await Promise.all([leftApproval, rightApproval])
+  if (leftRequest.kind !== 'interaction.request' || rightRequest.kind !== 'interaction.request') {
+    throw new Error('expected isolated approvals')
+  }
+  assert.equal(right.respond!(leftRequest.interaction.id, 'allow'), false)
+  assert.equal(left.respond!(rightRequest.interaction.id, 'allow'), false)
+  assert.equal(left.respond!(leftRequest.interaction.id, 'allow'), true)
+  assert.equal(right.respond!(rightRequest.interaction.id, 'allow'), true)
+  await Promise.all([leftIdle, rightIdle])
+
+  assert.equal(await readFile(join(leftCwd, 'owner.txt'), 'utf8'), 'left\n')
+  assert.equal(await readFile(join(rightCwd, 'owner.txt'), 'utf8'), 'right\n')
+  assert.equal(leftEvents.some(event => event.kind === 'generation.update' && JSON.stringify(event).includes('left')), true)
+  assert.equal(rightEvents.some(event => event.kind === 'generation.update' && JSON.stringify(event).includes('right')), true)
+  assert.equal(leftEvents.some(event => event.kind === 'generation.update' && JSON.stringify(event).includes('right')), false)
+  assert.equal(rightEvents.some(event => event.kind === 'generation.update' && JSON.stringify(event).includes('left')), false)
+  assert.doesNotMatch(await readFile(join(root, 'left.jsonl'), 'utf8'), /right-write/)
+  assert.doesNotMatch(await readFile(join(root, 'right.jsonl'), 'utf8'), /left-write/)
 })
 
 test('auto approval is assembly policy and does not create browser interactions', async t => {

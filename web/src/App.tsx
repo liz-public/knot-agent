@@ -12,6 +12,7 @@ import {
   resumeSession,
   submitMessage,
   subscribeSession,
+  subscribeSessionCatalog,
   type GenerationUpdate,
   type InteractionRequest,
   type JournalSnapshot,
@@ -269,7 +270,7 @@ function ProjectRail({ mode, project, sessions, selectedSession, selectedCase, c
     <div className="rail-mode"><ModeSwitch mode={mode} onChange={onMode}/></div>
     <nav className="rail-scroll">
       <div className="section-heading"><span>Sessions</span><button aria-label="New session" onClick={() => onDialog('new-session')}><Icon name="plus" size={15}/></button></div>
-      <div className="session-list">{sessions.map(session => <button key={session.id} className={`session-row ${selectedSession === session.id && mode === 'run' ? 'active' : ''}`} onClick={() => onSelectSession(session.id)}><Icon name="message" size={15}/><span><strong>{session.title}</strong><small>{session.assembly.toUpperCase()} · {session.runState} · {session.eventCount} facts</small></span>{session.runState === 'running' && <i/>}</button>)}{sessions.length === 0 && <span className="empty-sessions">No configured sessions</span>}</div>
+      <div className="session-list">{sessions.map(session => <button key={session.id} className={`session-row ${session.parentSessionId === undefined ? '' : 'subagent-session'} ${selectedSession === session.id && mode === 'run' ? 'active' : ''}`} onClick={() => onSelectSession(session.id)}><Icon name={session.parentSessionId === undefined ? 'message' : 'branch'} size={15}/><span><strong>{session.title}</strong><small>{session.parentSessionId === undefined ? session.assembly.toUpperCase() : 'SUBAGENT'} · {session.runState} · {session.eventCount} facts</small></span>{session.runState === 'running' && <i/>}</button>)}{sessions.length === 0 && <span className="empty-sessions">No configured sessions</span>}</div>
       <div className="section-heading cases-heading"><span>Cases</span><button aria-label="New case" onClick={() => onDialog('new-case')}><Icon name="plus" size={15}/></button></div>
       {cases.map(item => <button key={item.id} className={`nav-row ${selectedCase === item.id && mode === 'studio' ? 'active' : ''}`} onClick={() => onSelectCase(item.id)}><Icon name="case" size={15}/><span>{item.title}</span><b>{item.runs}</b></button>)}
     </nav>
@@ -526,6 +527,7 @@ export function App() {
     void listSessions(controller.signal).then(next => { setSessions(next); setSelected(current => current !== undefined && next.some(session => session.id === current) ? current : next[0]?.id) }, error => { if (!controller.signal.aborted) setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) }) })
     return () => controller.abort()
   }, [reload])
+  useEffect(() => subscribeSessionCatalog(() => setReload(value => value + 1)), [])
   useEffect(() => {
     const controller = new AbortController()
     void listProviderProfiles(controller.signal).then(profiles => {

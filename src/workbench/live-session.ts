@@ -16,6 +16,8 @@ export interface LiveSessionOptions {
   readonly providerProfileId?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly approvalMode?: ApprovalMode
+  readonly parentSessionId?: string
+  readonly delegationDepth?: number
 }
 
 export async function createLiveSession(
@@ -56,6 +58,8 @@ export async function createLiveSession(
           : { providerProfileId: options.providerProfileId }),
         ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
         ...(options.approvalMode === undefined ? {} : { approvalMode: options.approvalMode }),
+        ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
+        ...(options.delegationDepth === undefined ? {} : { delegationDepth: options.delegationDepth }),
         runState,
         eventCount: journal.eventCount,
         ...(updatedAt === undefined ? {} : { updatedAt }),
@@ -74,7 +78,13 @@ export async function createLiveSession(
     id: options.id,
     snapshot,
     summary: async () => (await snapshot()).session,
-    subscribe: listener => hub.subscribe(listener),
+    subscribe(listener) {
+      const unsubscribe = hub.subscribe(listener)
+      for (const interaction of interactions.pending()) {
+        listener({ kind: 'interaction.request', interaction })
+      }
+      return unsubscribe
+    },
     submit(content) {
       if (runState === 'running' || runState === 'paused') {
         agent.steer(content)

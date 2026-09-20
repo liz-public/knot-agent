@@ -12,6 +12,8 @@ export interface StoredSessionConfig {
   readonly providerProfileId?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly approvalMode?: ApprovalMode
+  readonly parentSessionId?: string
+  readonly delegationDepth?: number
 }
 
 export function storedSession(
@@ -33,6 +35,8 @@ export function storedSession(
           : { providerProfileId: config.providerProfileId }),
         ...(config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort }),
         ...(config.approvalMode === undefined ? {} : { approvalMode: config.approvalMode }),
+        ...(config.parentSessionId === undefined ? {} : { parentSessionId: config.parentSessionId }),
+        ...(config.delegationDepth === undefined ? {} : { delegationDepth: config.delegationDepth }),
         runState: 'completed',
         eventCount: journal.eventCount,
         ...(updatedAt === undefined ? {} : { updatedAt }),
