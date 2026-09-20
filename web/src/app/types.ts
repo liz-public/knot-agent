@@ -14,6 +14,5 @@ export interface ProjectFixture { readonly id: string; readonly name: string; re
 
 export const liveArgumentPreviewLimit = 4_096
 export const initialProjects: readonly ProjectFixture[] = [
-  { id: 'knot-agent', name: 'knot-agent', summary: 'Agent workbench', root: '/Users/lizhe/workspace/knot-agent' },
-  { id: 'android-agent', name: 'Android agent lab', summary: 'Imported blueprint', root: '/Users/lizhe/AndroidStudioProjects/lz-refactor' },
+  { id: 'local', name: 'Knot', summary: 'Local workbench', root: '.' },
 ]

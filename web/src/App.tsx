@@ -1,9 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import {
-  checkStudioAssembly, createStudioCase, createSession, listProviderProfiles, listSessions,
+  checkStudioAssembly, createProviderProfile, createStudioCase, createSession, listProviderProfiles, listSessions,
   loadJournalSnapshot, loadStudio, pauseSession, publishStudioGeneration, respondToInteraction,
   resumeSession, runStudioCase, submitMessage, subscribeSession, subscribeSessionCatalog,
-  type ApprovalMode, type GenerationUpdate, type InteractionRequest, type ProviderProfileSummary,
+  type ApprovalMode, type GenerationUpdate, type InteractionRequest, type ProviderProfileDraft, type ProviderProfileSummary,
   type ReasoningEffort, type SessionSummary, type StudioCase, type StudioSnapshot,
 } from './api/workbench-api'
 import { initialProjects, liveArgumentPreviewLimit, type DialogKind, type JournalState, type LiveDraft, type LiveToolDraft, type Mode, type ProjectFixture } from './app/types'
@@ -16,7 +16,7 @@ import { StudioView } from './studio/StudioView'
 
 export function App() {
   const { t } = useI18n()
-  const loadingCase: StudioCase = { id: 'case2-coding', title: 'CASE2 coding task', summary: t('studio.loadingDetail'), assemblyId: 'case2', workspace: '/Users/lizhe/workspace/knot-agent', prompt: '', assertions: [], createdAt: '', runCount: 0 }
+  const loadingCase: StudioCase = { id: 'case2-coding', title: 'CASE2 coding task', summary: t('studio.loadingDetail'), assemblyId: 'case2', workspace: '.', prompt: '', assertions: [], createdAt: '', runCount: 0 }
   const [mode, setMode] = useState<Mode>('run'); const [sessions, setSessions] = useState<readonly SessionSummary[]>([]); const [selected, setSelected] = useState<string>(); const [studio, setStudio] = useState<StudioSnapshot>(); const [studioBusy, setStudioBusy] = useState<string>(); const [studioError, setStudioError] = useState<string>()
   const [projects, setProjects] = useState<readonly ProjectFixture[]>(initialProjects); const [selectedProject, setSelectedProject] = useState(initialProjects[0]!.id); const [selectedCase, setSelectedCase] = useState('case2-coding'); const [journal, setJournal] = useState<JournalState>({ status: 'loading' })
   const [live, setLive] = useState<LiveDraft>(); const [liveTools, setLiveTools] = useState<readonly LiveToolDraft[]>([]); const [interactions, setInteractions] = useState<readonly InteractionRequest[]>([]); const [runError, setRunError] = useState<string>(); const [reload, setReload] = useState(0); const [dialog, setDialog] = useState<DialogKind>(); const [inspectorOpen, setInspectorOpen] = useState(true); const [inspectorWidth, setInspectorWidth] = useState(430)
@@ -51,6 +51,7 @@ export function App() {
 
   async function command(action: () => Promise<void>) { try { setRunError(undefined); await action() } catch (error) { setRunError(error instanceof Error ? error.message : String(error)) } }
   async function makeSession(title: string, cwd: string, profileId = providerProfileId, reasoningEffort?: ReasoningEffort, approvalMode: ApprovalMode = 'ask') { await command(async () => { const session = await createSession({ title, cwd, ...(profileId === '' ? {} : { providerProfileId: profileId }), ...(reasoningEffort === undefined ? {} : { reasoningEffort }), approvalMode }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) }) }
+  async function makeProvider(input: ProviderProfileDraft) { await command(async () => { const created = await createProviderProfile(input); const profiles = await listProviderProfiles(); setProviderProfiles(profiles); setProviderProfileId(created.id) }) }
   async function studioCommand(name: string, action: () => Promise<void>) { try { setStudioBusy(name); setStudioError(undefined); await action(); setStudio(await loadStudio()); setReload(value => value + 1) } catch (error) { setStudioError(error instanceof Error ? error.message : String(error)) } finally { setStudioBusy(undefined) } }
   async function makeCase(title: string) { await studioCommand('create', async () => { const item = await createStudioCase({ title, workspace: currentProject.root }); setSelectedCase(item.id); setMode('studio'); setDialog(undefined) }) }
   function makeProject(name: string, root: string) { const item: ProjectFixture = { id: `fixture-${Date.now()}`, name, summary: t('project.localFixture'), root }; setProjects(current => [...current, item]); setSelectedProject(item.id); setDialog(undefined) }
@@ -71,6 +72,7 @@ export function App() {
       providerProfiles={providerProfiles} providerProfileId={providerProfileId}
       onProviderProfile={setProviderProfileId} onClose={() => setDialog(undefined)}
       onCreateSession={(title, cwd, profileId, reasoningEffort, approvalMode) => void makeSession(title, cwd, profileId, reasoningEffort, approvalMode)}
+      onCreateProvider={input => { void makeProvider(input) }}
       onCreateCase={title => { void makeCase(title) }} onCreateProject={makeProject}
       onSelectProject={id => { setSelectedProject(id); setDialog(undefined) }}
     />}

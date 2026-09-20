@@ -11,6 +11,7 @@ import {
   publicProviderProfile,
   type ProviderProfile,
 } from './provider-profile.js'
+import { createProviderProfileStore } from './provider-profile-store.js'
 import type { ApprovalMode, ReasoningEffort, WorkbenchSession } from './session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from './session-catalog.js'
 import { createSessionRegistry } from './session-registry.js'
@@ -26,9 +27,6 @@ function configuredStoredSessions(): readonly StoredSessionConfig[] {
   return parsed as StoredSessionConfig[]
 }
 
-const providerProfiles = providerProfilesFromEnvironment(process.env)
-const profilesById = new Map(providerProfiles.map(profile => [profile.id, profile]))
-const defaultProfile = providerProfiles.find(profile => profile.configured)
 const registry = createSessionRegistry()
 let studio: StudioController | undefined
 
@@ -57,15 +55,21 @@ function assemblyFor(
 }
 
 function profileForDescriptor(input: { model?: string; providerProfileId?: string }) {
-  if (input.providerProfileId !== undefined) return profilesById.get(input.providerProfileId)
-  return providerProfiles.find(profile => profile.configured && profile.model === input.model)
-    ?? defaultProfile
+  if (input.providerProfileId !== undefined) return providerStore.get(input.providerProfileId)
+  return providerStore.list().find(profile => profile.configured && profile.model === input.model)
+    ?? providerStore.default()
 }
 
 const defaultCwd = process.env['KNOT_CWD'] ?? process.cwd()
 const configuredJournal = process.env['KNOT_JOURNAL_PATH']
 const sessionDirectory = process.env['KNOT_WORKBENCH_SESSION_DIR']
   ?? (configuredJournal === undefined ? join(defaultCwd, '.knot', 'sessions') : dirname(configuredJournal))
+const providerFile = process.env['KNOT_WORKBENCH_PROVIDER_FILE']
+  ?? join(dirname(sessionDirectory), 'providers.json')
+const providerStore = await createProviderProfileStore(
+  providerFile,
+  providerProfilesFromEnvironment(process.env),
+)
 
 async function newLiveSession(input: {
   id?: string
@@ -87,8 +91,8 @@ async function newLiveSession(input: {
   }
   const profile = input.assemblyOverride === undefined
     ? input.providerProfileId === undefined
-      ? defaultProfile
-      : profilesById.get(input.providerProfileId)
+      ? providerStore.default()
+      : providerStore.get(input.providerProfileId)
     : undefined
   if (input.assemblyOverride === undefined) {
     if (profile === undefined) throw new Error(`Unknown provider profile ${input.providerProfileId}`)
@@ -201,8 +205,8 @@ async function runSubagent(input: {
 }): Promise<{ summary: string; sessionId: string }> {
   const profile = input.model === undefined
     ? input.parentProfile
-    : profilesById.get(input.model)
-      ?? providerProfiles.find(candidate => candidate.configured && candidate.model === input.model)
+    : providerStore.get(input.model)
+      ?? providerStore.list().find(candidate => candidate.configured && candidate.model === input.model)
   if (profile === undefined || !profile.configured) {
     throw new Error(`No configured provider profile or model matches ${input.model}`)
   }
@@ -251,7 +255,8 @@ studio = await createStudioController({
 })
 if (configuredJournal !== undefined) {
   if (registry.get('case2-main') === undefined) {
-    registry.add(defaultProfile === undefined
+    const profile = providerStore.default()
+    registry.add(profile === undefined
       ? storedSession({
         id: 'case2-main',
         title: 'CASE2 coding session',
@@ -264,21 +269,18 @@ if (configuredJournal !== undefined) {
         title: 'CASE2 coding session',
         cwd: defaultCwd,
         journalPath: configuredJournal,
-        providerProfileId: defaultProfile.id,
-        reasoningEffort: defaultProfile.defaultReasoningEffort,
+        providerProfileId: profile.id,
+        reasoningEffort: profile.defaultReasoningEffort,
         approvalMode: 'ask',
         delegationDepth: 0,
-        assembly: assemblyFor(defaultProfile, defaultProfile.defaultReasoningEffort, 'ask', {
+        assembly: assemblyFor(profile, profile.defaultReasoningEffort, 'ask', {
           id: 'case2-main',
           delegationDepth: 0,
         }),
       }))
   }
 }
-if (registry.list().length === 0 && defaultProfile === undefined) {
-  throw new Error('Configure KNOT_JOURNAL_PATH, KNOT_WORKBENCH_SESSIONS, or an LLM')
-}
-if (registry.list().length === 0) registry.add(await newLiveSession({
+if (registry.list().length === 0 && providerStore.default() !== undefined) registry.add(await newLiveSession({
   title: 'CASE2 coding session',
   assemblyGenerationId: await studio.activeGenerationId(),
 }))
@@ -291,9 +293,10 @@ if (!Number.isInteger(port) || port < 0 || port > 65_535) {
 const server = createWorkbenchServer({
   sessions: [],
   sessionRegistry: registry,
-  providerProfiles: providerProfiles.map(publicProviderProfile),
+  providerProfiles: () => providerStore.list().map(publicProviderProfile),
+  createProviderProfile: input => providerStore.add(input),
   studio,
-  ...(defaultProfile === undefined ? {} : { createSession: newLiveSession }),
+  createSession: newLiveSession,
   webRoot: process.env['KNOT_WEB_ROOT'] ?? join(process.cwd(), 'web', 'dist'),
 })
 server.listen(port, '127.0.0.1', () => {

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { extname, isAbsolute, relative, resolve } from 'node:path'
 import { JournalReadError } from './read-journal.js'
 import type { ProviderProfileSummary } from './provider-profile.js'
+import type { ProviderProfileDraft } from './provider-profile-store.js'
 import type { WorkbenchSession } from './session.js'
 import type { ApprovalMode, ReasoningEffort } from './session.js'
 import { createSessionRegistry, type SessionRegistry } from './session-registry.js'
@@ -11,7 +12,8 @@ import type { StudioController } from './studio.js'
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
   readonly sessionRegistry?: SessionRegistry
-  readonly providerProfiles?: readonly ProviderProfileSummary[]
+  readonly providerProfiles?: readonly ProviderProfileSummary[] | (() => readonly ProviderProfileSummary[])
+  readonly createProviderProfile?: (input: ProviderProfileDraft) => Promise<ProviderProfileSummary>
   readonly studio?: StudioController
   readonly createSession?: (input: {
     title?: string
@@ -91,6 +93,9 @@ function pathMatch(pathname: string, suffix: string): string | undefined {
 
 export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
   const registry = options.sessionRegistry ?? createSessionRegistry(options.sessions)
+  const providerProfiles = () => typeof options.providerProfiles === 'function'
+    ? options.providerProfiles()
+    : options.providerProfiles ?? []
 
   return createServer(async (request, response) => {
     try {
@@ -124,7 +129,40 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
       }
 
       if (request.method === 'GET' && url.pathname === '/api/workbench/providers') {
-        sendJson(response, 200, { providers: options.providerProfiles ?? [] })
+        sendJson(response, 200, { providers: providerProfiles() })
+        return
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/workbench/providers') {
+        if (options.createProviderProfile === undefined) {
+          sendJson(response, 405, { error: { code: 'provider_configuration_unavailable', message: 'Provider configuration is unavailable' } })
+          return
+        }
+        const body = await readBody(request)
+        const adapter = body['adapter']
+        if (adapter !== 'openai-compatible' && adapter !== 'deepseek') {
+          throw new Error('adapter must be openai-compatible or deepseek')
+        }
+        if (typeof body['label'] !== 'string') throw new Error('label must be a string')
+        if (typeof body['model'] !== 'string') throw new Error('model must be a string')
+        const contextWindow = body['contextWindow']
+        if (contextWindow !== undefined && typeof contextWindow !== 'number') {
+          throw new Error('contextWindow must be a number')
+        }
+        const effort = body['defaultReasoningEffort']
+        if (effort !== undefined && !['none', 'low', 'high', 'max'].includes(String(effort))) {
+          throw new Error('defaultReasoningEffort must be none, low, high, or max')
+        }
+        const profile = await options.createProviderProfile({
+          label: body['label'],
+          adapter,
+          model: body['model'],
+          ...(typeof body['baseUrl'] === 'string' ? { baseUrl: body['baseUrl'] } : {}),
+          ...(typeof body['apiKey'] === 'string' ? { apiKey: body['apiKey'] } : {}),
+          ...(typeof contextWindow === 'number' ? { contextWindow } : {}),
+          ...(effort === undefined ? {} : { defaultReasoningEffort: effort as ReasoningEffort }),
+        })
+        sendJson(response, 201, { provider: profile })
         return
       }
 

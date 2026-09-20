@@ -33,7 +33,18 @@ export interface ProviderProfileSummary {
   readonly adapter: 'openai-compatible' | 'deepseek'
   readonly model: string
   readonly configured: boolean
+  readonly editable?: boolean
   readonly reasoningEfforts?: readonly ReasoningEffort[]
+  readonly defaultReasoningEffort?: ReasoningEffort
+}
+
+export interface ProviderProfileDraft {
+  readonly label: string
+  readonly adapter: ProviderProfileSummary['adapter']
+  readonly baseUrl?: string
+  readonly apiKey?: string
+  readonly model: string
+  readonly contextWindow?: number
   readonly defaultReasoningEffort?: ReasoningEffort
 }
 
@@ -171,6 +182,12 @@ export async function listProviderProfiles(
 ): Promise<readonly ProviderProfileSummary[]> {
   const response = await fetch('/api/workbench/providers', { signal })
   return (await readJson<{ providers: readonly ProviderProfileSummary[] }>(response)).providers
+}
+
+export async function createProviderProfile(
+  input: ProviderProfileDraft,
+): Promise<ProviderProfileSummary> {
+  return (await post<{ provider: ProviderProfileSummary }>('/api/workbench/providers', input)).provider
 }
 
 export async function loadJournalSnapshot(

@@ -160,6 +160,8 @@ The first real CASE2 vertical slice is implemented: inspect Assembly, prompt, to
 
 Workbench currently uses Host-side Provider Profiles. Credentials are never returned to the browser or written to the Journal.
 
+OpenAI-compatible and DeepSeek profiles can be added through **Project settings → Add local Provider profile**. They are stored locally in `.knot/providers.json` with `0600` permissions. The API key is sent to the localhost Host only when the profile is created; later APIs return a redacted summary. Environment-backed profiles remain supported.
+
 Official DeepSeek example:
 
 ```bash
@@ -179,7 +181,7 @@ export KNOT_MODEL="model-name"
 npm run case1
 ```
 
-User-configurable arbitrary Provider/Profile management in Web is not implemented yet.
+The Web UI can add and select local profiles. Editing, deletion, and operating-system keychain integration are not implemented yet.
 
 ## Concept relationships
 

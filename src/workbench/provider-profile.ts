@@ -11,6 +11,7 @@ export interface ProviderProfileSummary {
   readonly adapter: ProviderAdapter
   readonly model: string
   readonly configured: boolean
+  readonly editable?: boolean
   readonly reasoningEfforts?: readonly ReasoningEffort[]
   readonly defaultReasoningEffort?: ReasoningEffort
 }

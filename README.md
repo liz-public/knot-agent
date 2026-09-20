@@ -160,6 +160,8 @@ Compose → Run → Inspect → Evaluate → Export
 
 Workbench 当前支持 Host 侧 Provider Profile。凭据不会返回浏览器，也不会写入 Journal。
 
+可在 **Project settings → Add local Provider profile** 中添加 OpenAI-compatible 或 DeepSeek 配置。配置保存在本机 `.knot/providers.json`，文件权限为 `0600`；API Key 只会在创建时从浏览器发送到本地 Host，后续接口只返回脱敏摘要。环境变量 Profile 继续受支持。
+
 官方 DeepSeek 示例：
 
 ```bash
@@ -179,7 +181,7 @@ export KNOT_MODEL="model-name"
 npm run case1
 ```
 
-用户在 Web 中新增任意 Provider/Profile 的配置界面尚未完成。
+当前 Web 支持新增和选择本地 Profile；编辑、删除和系统密钥链集成尚未实现。
 
 ## 概念关系
 
