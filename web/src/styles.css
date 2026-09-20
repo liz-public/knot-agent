@@ -176,6 +176,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .interaction-card button.primary, .dialog footer button.primary { border-color: #5948c5; color: white; background: var(--violet); }
 .choice-interaction > div { flex-direction: column; align-items: stretch; }
 .choice-interaction > div button { min-height: 34px; padding: 7px 10px; line-height: 1.4; text-align: left; white-space: normal; }
+.choice-interaction > div button.other-choice { color: var(--muted); border-style: dashed; }
 .run-error { margin: 12px 0; padding: 10px; border-radius: 8px; color: #9d493e; background: #fbecea; font-size: 11px; }
 .composer-wrap { padding: 7px max(21px, calc((100% - 740px) / 2)) 12px; flex: 0 0 auto; background: linear-gradient(to bottom, rgba(255,255,255,.3), white 18%); }
 .composer { padding: 9px; border-radius: 12px; background: white; box-shadow: var(--shadow); }
