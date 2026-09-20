@@ -3,9 +3,26 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import type { PluginMetadata, PluginNode } from '../src/assembly-definition.js'
+import { buildCase2PluginNodes, case2PluginMetadata } from '../src/cases/case2/plugin-definitions.js'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import type { WorkbenchSession } from '../src/workbench/session.js'
 import { createStudioController, type StudioRunInput } from '../src/workbench/studio.js'
+
+test('CASE2 executable nodes and Studio metadata share one registration source', () => {
+  const platformMetadata: PluginMetadata = { id: 'platform-test', name: 'PlatformTest', category: 'platform', responsibility: 'test', listens: ['*'], emits: [], source: 'test' }
+  const platform: PluginNode = { metadata: platformMetadata, plugin: () => undefined }
+  const nodes = buildCase2PluginNodes({
+    boundary: () => undefined,
+    cwd: '.',
+    llm: { generate: async () => ({ generated: { content: 'done', toolCalls: [] }, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, contextWindow: 10 } }) },
+    tools: [],
+  }, [platform])
+  assert.deepEqual(
+    nodes.map(node => node.metadata.id),
+    case2PluginMetadata([platformMetadata]).map(metadata => metadata.id),
+  )
+})
 
 function completedSession(input: StudioRunInput): WorkbenchSession {
   const events = [
@@ -57,7 +74,7 @@ test('Studio persists a CASE2 check, fingerprinted generation, and Journal-deriv
   assert.equal(initial.cases.length, 1)
   assert.equal(initial.assembly.systemPrompt.length > 0, true)
   assert.deepEqual(initial.assembly.tools.map(tool => tool.name), [
-    'read', 'write', 'edit', 'bash', 'todo.write', 'goal.write', 'ask', 'spawn_agent',
+    'read', 'write', 'edit', 'bash', 'todo.write', 'goal.write', 'spawn_agent', 'ask',
   ])
   assert.equal(initial.activeGenerationId, 'case2-baseline')
 

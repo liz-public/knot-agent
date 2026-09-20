@@ -1,28 +1,18 @@
-import { createJournal, type Event, type Plugin } from '../../journal.js'
-import { JSONL_LOAD, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
+import type { PluginNode } from '../../assembly-definition.js'
+import { createJournal, type Event } from '../../journal.js'
+import { JSONL_LOAD, JSONL_STORE_METADATA, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
 import { tracePlugin } from '../../plugins/trace.js'
-import { compressHistoryPlugin, type CompressHistoryOptions } from '../case1/compress-history.js'
-import { contentPlugin, llmContentSource } from '../case1/content.js'
-import { contextAssemblerPlugin } from '../case1/context-assembler.js'
-import { llmPlugin, type LiveOutput, type LlmProvider } from '../case1/llm.js'
-import { outputPlugin, type OutputSinks } from '../case1/output.js'
+import type { CompressHistoryOptions } from '../case1/compress-history.js'
+import type { LiveOutput, LlmProvider } from '../case1/llm.js'
+import type { OutputSinks } from '../case1/output.js'
 import { SESSION_START, USER_MESSAGE } from '../case1/protocol.js'
-import { toolsPlugin, type ToolDefinition } from '../case1/tools.js'
-import { codingTools, type ToolOutput } from './coding-tools.js'
-import { codingSystemPromptPlugin } from './system-prompt.js'
-import { workspaceContextPlugin } from './workspace-context.js'
-import { todoTool } from './todo-tool.js'
-import { codingFlowPlugin } from './coding-flow.js'
+import type { ToolDefinition } from '../case1/tools.js'
+import type { ToolOutput } from './coding-tools.js'
 import { controlledEventBoundary } from './controlled-boundary.js'
-import { goalTool } from './goal-tool.js'
-import { spawnAgentTool, type SubagentFactory } from './subagent-tool.js'
-import {
-  askTool,
-  permissionTools,
-  type ApprovalPort,
-  type AskPort,
-  type PermissionPolicy,
-} from './tool-interaction.js'
+import { buildCase2PluginNodes } from './plugin-definitions.js'
+import type { SubagentFactory } from './subagent-tool.js'
+import { case2ToolDefinitions } from './tool-definitions.js'
+import type { ApprovalPort, AskPort, PermissionPolicy } from './tool-interaction.js'
 
 export interface Case2Options {
   readonly cwd: string
@@ -38,7 +28,7 @@ export interface Case2Options {
   readonly subagentFactory?: SubagentFactory
   readonly compression?: CompressHistoryOptions
   /** Optional outward observers assembled before business plugins. */
-  readonly platformPlugins?: readonly Plugin[]
+  readonly platformPlugins?: readonly PluginNode[]
 }
 
 export interface PersistentCase2Options extends Case2Options {
@@ -51,39 +41,25 @@ function assembleCase2Agent(
   options: Case2Options,
   runtime: JournalRuntime,
   restored: boolean,
-  platformPlugins: readonly Plugin[] = [],
+  platformPlugins: readonly PluginNode[] = [],
 ) {
   const { journal, runUntilIdle } = runtime
   const boundary = controlledEventBoundary()
-  const baseTools = [
-    ...codingTools(options.cwd, options.toolOutput),
-    todoTool(),
-    goalTool(),
-    ...(options.subagentFactory === undefined
-      ? []
-      : [spawnAgentTool(options.cwd, options.subagentFactory)]),
-    ...(options.extraTools ?? []),
-  ]
-  const tools = permissionTools(
-    [...baseTools, ...(options.askPort === undefined ? [] : [askTool(options.askPort)])],
-    options.permissionPolicy,
-    options.approvalPort,
-  )
-  const plugins: Plugin[] = [
-    boundary.plugin,
-    ...platformPlugins,
-    ...(options.trace === undefined ? [] : [tracePlugin(options.trace)]),
-    codingSystemPromptPlugin(),
-    workspaceContextPlugin(options.cwd),
-    compressHistoryPlugin(options.compression),
-    codingFlowPlugin(),
-    contentPlugin([llmContentSource]),
-    contextAssemblerPlugin(),
-    llmPlugin(options.llm, options.liveOutput, { commitAssistantMessage: false }),
-    toolsPlugin(tools),
-    outputPlugin(options.output ?? { content: () => undefined }),
-  ]
-  for (const plugin of plugins) plugin(journal)
+  const tools = case2ToolDefinitions(options)
+  const traceNodes: readonly PluginNode[] = options.trace === undefined ? [] : [{
+    plugin: tracePlugin(options.trace),
+    metadata: { id: 'trace', name: 'Trace', category: 'platform', responsibility: 'Project every delivered event to the configured trace sink.', listens: ['*'], emits: [], source: 'src/plugins/trace.ts' },
+  }]
+  const nodes = buildCase2PluginNodes({
+    boundary: boundary.plugin,
+    cwd: options.cwd,
+    compression: options.compression,
+    llm: options.llm,
+    liveOutput: options.liveOutput,
+    tools,
+    output: options.output,
+  }, [...platformPlugins, ...traceNodes])
+  for (const node of nodes) node.plugin(journal)
 
   let started = restored
   let messageNumber = 0
@@ -157,6 +133,6 @@ export async function createPersistentCase2Agent(options: PersistentCase2Options
     caseOptions,
     runtime,
     restored,
-    [jsonlStorePlugin(journalPath), ...(caseOptions.platformPlugins ?? [])],
+    [{ plugin: jsonlStorePlugin(journalPath), metadata: JSONL_STORE_METADATA }, ...(caseOptions.platformPlugins ?? [])],
   )
 }

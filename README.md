@@ -218,7 +218,7 @@ type Plugin = (journal: Journal) => void
 
 安装插件就是调用一次函数。插件可以用闭包保存私有机械状态，但业务事实应进入 Journal，外部状态应由真实所有者持有。
 
-Knot 暂时没有插件 Marketplace，也没有冻结 `definePlugin` / `defineAssembly` 公共 API。下一步将从实际 Assembly 定义派生可展示元数据，保证执行代码、注册顺序和 Studio 展示只有一个来源，而不是维护平行 Manifest。
+Knot 暂时没有插件 Marketplace，也没有冻结 `definePlugin` / `defineAssembly` 公共 API。CASE2 当前使用内部 `PluginNode = { plugin, metadata }` 让实际安装顺序和 Studio 展示来自同一组定义；这只是解决单一来源的内部形状，还不是承诺给生态的公共 API。
 
 未来一个可分享插件的最小单位预计是：
 

@@ -1,4 +1,4 @@
-import type { Plugin } from '../journal.js'
+import type { PluginNode } from '../assembly-definition.js'
 
 export interface GenerationOutput {
   open(meta: { readonly requestId: string; readonly turnId: string; readonly purpose: string }): {
@@ -48,7 +48,7 @@ export interface AssemblyInput {
   readonly toolOutput: ToolOutput
   readonly approvalPort: HostApprovalPort
   readonly askPort: HostAskPort
-  readonly platformPlugins: readonly Plugin[]
+  readonly platformPlugins: readonly PluginNode[]
 }
 
 export interface AgentAssemblyFactory {

@@ -133,6 +133,8 @@ Plugin A imports Plugin B → calls B.handle()
 
 下一阶段的目标是让同一组 Assembly 节点同时提供实际安装行为和可序列化元数据，Host/Studio 只消费派生的只读描述。
 
+CASE2 已经使用一个内部 `PluginNode = { plugin, metadata }` 形状验证了这个方向。它没有改变 `Plugin = (journal) => void`，也没有引入生命周期或依赖容器；在更多 Assembly 验证前，它仍是内部形状而非冻结接口。
+
 ## 9. 有序策略不是多个 Journal 插件
 
 要求多方独立反应时，使用多个订阅者；要求有序 N 选一时，使用一个领域插件组合普通策略。

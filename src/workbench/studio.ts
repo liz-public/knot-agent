@@ -1,12 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { codingTools } from '../cases/case2/coding-tools.js'
-import { goalTool } from '../cases/case2/goal-tool.js'
+import { JSONL_STORE_METADATA } from '../plugins/jsonl.js'
+import { case2PluginMetadata } from '../cases/case2/plugin-definitions.js'
 import { CASE2_SYSTEM_PROMPT } from '../cases/case2/system-prompt.js'
-import { spawnAgentTool } from '../cases/case2/subagent-tool.js'
-import { todoTool } from '../cases/case2/todo-tool.js'
-import { askTool } from '../cases/case2/tool-interaction.js'
+import { case2ToolDefinitions } from '../cases/case2/tool-definitions.js'
+import { JOURNAL_CHANGE_METADATA } from './journal-bridge.js'
 import type { ReasoningEffort, WorkbenchSession } from './session.js'
 
 export interface StudioPluginDto {
@@ -158,28 +157,17 @@ export interface StudioControllerOptions {
   readonly createRunSession: (input: StudioRunInput) => Promise<WorkbenchSession>
 }
 
-const plugins: readonly StudioPluginDto[] = [
-  { id: 'controlled-boundary', name: 'ControlledEventBoundary', category: 'platform', responsibility: 'Pause delivery only between complete Journal events.', listens: ['*'], emits: [], source: 'src/cases/case2/controlled-boundary.ts' },
-  { id: 'jsonl-store', name: 'JSONLStorage', category: 'platform', responsibility: 'Persist delivered facts with storage observation metadata.', listens: ['*'], emits: [], source: 'src/plugins/jsonl.ts' },
-  { id: 'system-prompt', name: 'CodingSystemPrompt', category: 'context', responsibility: 'Install the stable coding instruction once.', listens: ['session.start'], emits: ['system.prompt'], source: 'src/cases/case2/system-prompt.ts' },
-  { id: 'workspace-context', name: 'WorkspaceContext', category: 'context', responsibility: 'Describe the workspace for the active user turn.', listens: ['user.message'], emits: ['context.dynamic'], source: 'src/cases/case2/workspace-context.ts' },
-  { id: 'history-compression', name: 'CompressHistory', category: 'context', responsibility: 'Create a semantic checkpoint after the context threshold.', listens: ['llm.generated'], emits: ['history.compaction.required', 'history.checkpoint'], source: 'src/cases/case1/compress-history.ts' },
-  { id: 'coding-flow', name: 'CodingFlow', category: 'flow', responsibility: 'Advance one coding turn and guard completion.', listens: ['user.message', 'tool.result', 'llm.generated'], emits: ['content.request', 'llm.request', 'assistant.message'], source: 'src/cases/case2/coding-flow.ts' },
-  { id: 'content', name: 'ContentSources', category: 'content', responsibility: 'Select the first content source that can answer.', listens: ['content.request'], emits: ['llm.request'], source: 'src/cases/case1/content.ts' },
-  { id: 'context-assembler', name: 'ContextAssembler', category: 'content', responsibility: 'Project Journal facts into a provider-neutral request.', listens: ['llm.request'], emits: ['llm.invoke'], source: 'src/cases/case1/context-assembler.ts' },
-  { id: 'llm', name: 'LLMProvider', category: 'content', responsibility: 'Produce one complete model decision.', listens: ['llm.invoke'], emits: ['llm.generated', 'assistant.reasoning', 'tool.call'], source: 'src/cases/case1/llm.ts' },
-  { id: 'tools', name: 'Tools', category: 'effect', responsibility: 'Execute one tool-call batch and return every outcome.', listens: ['tool.call'], emits: ['tool.result'], source: 'src/cases/case1/tools.ts' },
-  { id: 'output', name: 'Output', category: 'presentation', responsibility: 'Publish committed assistant replies.', listens: ['assistant.message'], emits: [], source: 'src/cases/case1/output.ts' },
-]
+const plugins: readonly StudioPluginDto[] = case2PluginMetadata([
+  JSONL_STORE_METADATA,
+  JOURNAL_CHANGE_METADATA,
+])
 
 function toolMetadata(): readonly StudioToolDto[] {
-  const definitions = [
-    ...codingTools('/'),
-    todoTool(),
-    goalTool(),
-    askTool({ ask: async () => ({ answer: '' }) }),
-    spawnAgentTool('/', { run: async () => ({ summary: '' }) }),
-  ]
+  const definitions = case2ToolDefinitions({
+    cwd: '/',
+    askPort: { ask: async () => ({ answer: '' }) },
+    subagentFactory: { run: async () => ({ summary: '' }) },
+  })
   return definitions.map(definition => {
     const fn = definition.schema['function'] as Record<string, unknown>
     return {

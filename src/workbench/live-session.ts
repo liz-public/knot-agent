@@ -1,7 +1,7 @@
 import type { AgentAssemblyFactory } from './assembly.js'
 import { createEventHub } from './event-hub.js'
 import { createInteractionBroker } from './interactions.js'
-import { journalChangePlugin } from './journal-bridge.js'
+import { JOURNAL_CHANGE_METADATA, journalChangePlugin } from './journal-bridge.js'
 import { workbenchLiveOutput } from './live-output.js'
 import { JournalReadError, readJournalSnapshot } from './read-journal.js'
 import type { ApprovalMode, LiveSessionEvent, ReasoningEffort, SessionRunState, WorkbenchSession } from './session.js'
@@ -33,7 +33,10 @@ export async function createLiveSession(
     toolOutput: workbenchToolOutput(event => hub.emit(event)),
     approvalPort: interactions.approval,
     askPort: interactions.ask,
-    platformPlugins: [journalChangePlugin(() => hub.emit({ kind: 'journal.changed' }))],
+    platformPlugins: [{
+      plugin: journalChangePlugin(() => hub.emit({ kind: 'journal.changed' })),
+      metadata: JOURNAL_CHANGE_METADATA,
+    }],
   })
 
   let runState: SessionRunState = 'idle'

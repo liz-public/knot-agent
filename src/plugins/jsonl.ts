@@ -1,7 +1,18 @@
 import { appendFile, readFile } from 'node:fs/promises'
+import type { PluginMetadata } from '../assembly-definition.js'
 import type { Plugin } from '../journal.js'
 
 export const JSONL_LOAD = 'storage.load'
+
+export const JSONL_STORE_METADATA: PluginMetadata = {
+  id: 'jsonl-store',
+  name: 'JSONLStorage',
+  category: 'platform',
+  responsibility: 'Persist delivered facts with storage observation metadata.',
+  listens: ['*'],
+  emits: [],
+  source: 'src/plugins/jsonl.ts',
+}
 
 export const jsonlLoadPlugin = (path: string): Plugin => journal => {
   let loaded = false

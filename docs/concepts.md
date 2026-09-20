@@ -82,7 +82,7 @@ Protocol 是插件之间对事件类型和 payload 语义的约定。它不属�
 - Provider 和运行策略；
 - 与 Host/UI 的外围端口接线。
 
-注册顺序具有语义，因此必须只有一个来源。未来 Studio 展示的 Manifest 应从实际 Assembly 定义派生，而不是平行维护另一份插件清单。
+注册顺序具有语义，因此必须只有一个来源。CASE2 的实际插件节点已经同时驱动安装和 Studio 展示；其他 Assembly 也应遵循这个方向，而不是平行维护另一份插件清单。
 
 `definePlugin` 和 `defineAssembly` 目前只是可能的开发者表面名称，尚未成为冻结 API。是否引入它们取决于单一来源能否在不增加无用封装的情况下实现。
 

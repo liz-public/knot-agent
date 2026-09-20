@@ -218,7 +218,7 @@ type Plugin = (journal: Journal) => void
 
 Installation is one function call. A plugin may keep private mechanical state in a closure, while business facts belong in the Journal and external state belongs to its real external owner.
 
-Knot has no marketplace and has not frozen `definePlugin` / `defineAssembly` as public APIs. The next step is to derive display metadata from the actual Assembly definition so execution, registration order, and Studio have one source rather than parallel manifests.
+Knot has no marketplace and has not frozen `definePlugin` / `defineAssembly` as public APIs. CASE2 now uses an internal `PluginNode = { plugin, metadata }` shape so executable registration order and Studio presentation come from the same definitions. This solves a concrete single-source problem; it is not yet an ecosystem API commitment.
 
 The expected minimum shareable unit is:
 
