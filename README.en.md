@@ -143,7 +143,7 @@ Open `http://127.0.0.1:4317/`.
 - create, select, and restore Sessions;
 - stream content, reasoning, tool calls, and tool output;
 - handle approval, ask, Todo, Goal, and Subagent interactions;
-- inspect Journal, Trace, context projections, and plugin information;
+- inspect the real Journal and Trace; Context and plugin read models are still being connected to the executable Assembly;
 - select Host-configured model, reasoning effort, and approval policy.
 
 ### Studio
@@ -154,7 +154,7 @@ Studio targets this loop:
 Compose → Run → Inspect → Evaluate → Export
 ```
 
-The first real CASE2 vertical slice is implemented: inspect Assembly, prompt, tools, and plugin order; run Mock or real Cases; persist fingerprinted Generations and run evidence. Plugin editing, Dataset Eval, comparison, and export remain under development.
+The first real CASE2 vertical slice is implemented: inspect Assembly, prompt, tools, and plugin order; run Mock or real Cases; persist declaration fingerprints, Generation identities, and run evidence. A Generation does not yet preserve an executable code artifact. Plugin editing, Dataset Eval, comparison, and export remain under development.
 
 ## Model configuration
 

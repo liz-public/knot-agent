@@ -88,7 +88,7 @@ Protocol 是插件之间对事件类型和 payload 语义的约定。它不属�
 
 ### Generation
 
-Assembly 的不可变版本。新 Session 可以选择新的 Generation；已有 Session 继续绑定创建时的 Generation。Generation 用于复现和比较，不意味着当前已经拥有完整的制品导出系统。
+目标语义是 Assembly 的不可变版本：新 Session 可以选择新的 Generation，已有 Session 继续绑定创建时的 Generation。当前 Studio 只保存声明指纹和 Generation 身份，尚未封存或恢复对应的可执行代码制品，因此还不能声称完成了严格的运行时复现。Generation 用于逐步建立复现和比较边界，不意味着当前已经拥有完整的制品导出系统。
 
 ## 4. Project、Case、Session 与 Run
 
@@ -112,7 +112,7 @@ Project
 
 ### Session
 
-Assembly 的一次持久运行实例。一个 Session 拥有一个 Journal，并固定使用某个 Assembly Generation。Subagent 是独立 Session，可以记录 `parentSessionId`，但拥有自己的 Journal 和上下文。
+Assembly 的一次持久运行实例。一个 Session 拥有一个 Journal，并记录创建时选择的 Assembly Generation；在可执行制品能够被封存前，这个绑定仍只是声明身份而非完整代码快照。Subagent 是独立 Session，可以记录 `parentSessionId`，但拥有自己的 Journal 和上下文。
 
 ### Run
 

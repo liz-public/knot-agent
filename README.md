@@ -143,7 +143,7 @@ npm run workbench
 - 创建、选择和恢复 Session；
 - 流式展示 content、reasoning、工具调用与工具输出；
 - 处理审批、ask、Todo、Goal 和 Subagent；
-- 检查 Journal、Trace、上下文投影和插件信息；
+- 检查真实 Journal 与 Trace；Context 和插件读模型仍在逐步接入真实 Assembly；
 - 选择 Host 已配置的模型、推理强度和审批策略。
 
 ### Studio
@@ -154,7 +154,7 @@ Studio 的目标流程是：
 Compose → Run → Inspect → Evaluate → Export
 ```
 
-当前已完成 CASE2 的第一个真实纵向闭环：展示 Assembly、Prompt、工具和插件顺序，执行 Mock/真实 Case，保存带指纹的 Generation 和运行证据。插件编辑、Dataset Eval、对比和导出仍在建设。
+当前已完成 CASE2 的第一个真实纵向闭环：展示 Assembly、Prompt、工具和插件顺序，执行 Mock/真实 Case，保存声明指纹、Generation 身份和运行证据。当前 Generation 还没有封存可执行代码制品；插件编辑、Dataset Eval、对比和导出仍在建设。
 
 ## 模型配置
 
