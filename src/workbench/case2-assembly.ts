@@ -1,16 +1,16 @@
-import type { LlmProvider } from '../cases/case1/llm.js'
 import { createPersistentCase2Agent } from '../cases/case2/case2.js'
-import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
+import { case2PluginDefinitions } from '../cases/case2/plugin-definitions.js'
 import type { PermissionPolicy } from '../cases/case2/tool-interaction.js'
-import type { AgentAssemblyFactory } from './assembly.js'
-import type { ApprovalMode } from './session.js'
+import { JSONL_STORE_METADATA } from '../plugins/jsonl.js'
+import {
+  defineAssembly,
+  type AgentAssemblyFactory,
+  type AssemblyBuildOptions,
+} from './assembly.js'
+import { JOURNAL_CHANGE_METADATA } from './journal-bridge.js'
 
-export interface Case2AssemblyOptions {
-  readonly llm: LlmProvider
-  readonly model: string
+export interface Case2AssemblyOptions extends AssemblyBuildOptions {
   readonly permissionPolicy?: PermissionPolicy
-  readonly approvalMode?: ApprovalMode
-  readonly subagentFactory?: SubagentFactory
 }
 
 const defaultPermissionPolicy: PermissionPolicy = {
@@ -46,3 +46,17 @@ export function case2AssemblyFactory(options: Case2AssemblyOptions): AgentAssemb
     }),
   }
 }
+
+const plugins = [
+  case2PluginDefinitions[0]!,
+  { metadata: JSONL_STORE_METADATA },
+  { metadata: JOURNAL_CHANGE_METADATA },
+  ...case2PluginDefinitions.slice(1),
+]
+
+export const case2Assembly = defineAssembly({
+  id: 'case2',
+  title: 'CASE2 coding agent',
+  plugins,
+  create: case2AssemblyFactory,
+})

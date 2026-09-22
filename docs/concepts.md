@@ -74,17 +74,17 @@ Protocol 是插件之间对事件类型和 payload 语义的约定。它不属�
 
 ### Assembly
 
-一个智能体的可执行定义，包括：
+一个智能体的可执行定义，核心是有序的插件实例和配置。Assembly 不强制要求 System Prompt、LLM、Tools、Chat 输入或 Agent Loop：这些能力只有在对应插件被装配时才存在。
+
+Assembly 包括：
 
 - 插件及其注册顺序；
-- Prompt 与上下文策略；
-- 工具定义；
-- Provider 和运行策略；
+- 每个插件的声明配置；
 - 与 Host/UI 的外围端口接线。
 
-注册顺序具有语义，因此必须只有一个来源。CASE2 的实际插件节点已经同时驱动安装和 Studio 展示；其他 Assembly 也应遵循这个方向，而不是平行维护另一份插件清单。
+Prompt、工具 Schema 和 Protocol 必须从被装配插件的同一声明/配置派生，不能在 Assembly 元数据中复制维护。注册顺序具有语义，因此必须只有一个来源。CASE1/CASE2 已分别导出完整 AssemblyDefinition；Catalog 只负责注册，Studio 描述从对应定义投影。
 
-`definePlugin` 和 `defineAssembly` 目前只是可能的开发者表面名称，尚未成为冻结 API。是否引入它们取决于单一来源能否在不增加无用封装的情况下实现。
+`defineAssembly` 可以成为薄的单一声明边界；`definePlugin` 如果引入，也只提供类型推导、元数据/配置/实现绑定，不增加新的运行时层。字段仍需通过真实 Case 验证后再冻结。
 
 ### Generation
 
@@ -94,7 +94,7 @@ Protocol 是插件之间对事件类型和 payload 语义的约定。它不属�
 
 ```text
 Project
-├── Assembly
+├── Assembly Draft
 │   └── Generations
 ├── Cases
 │   └── Runs
@@ -104,7 +104,7 @@ Project
 
 ### Project
 
-长期维护的工程边界，包含 Assembly 源码/配置、Cases、运行证据和未来导出配置。Workspace 是某次运行操作的文件目录，不必与 Project 根目录相同。
+长期维护一个 Agent 产品的工程边界，包含一个 Assembly Draft、多个 Generations、Cases、本地组件、数据和运行证据。`projectRoot` 是工程文件位置，`runtimeWorkspace` 是某次 Session 操作的目标目录，两者不能混为同一个 workspace。当前 Subagent 使用同一个 Assembly；不同插件拓扑的专家 Agent 应先作为另一个 Project，而不是提前扩展成多 Assembly Project。
 
 ### Case
 
@@ -147,7 +147,7 @@ Web / Host 产品层
 | Journal 内核语义 | 已由 CASE1/CASE2 稳定验证 |
 | `Plugin = (journal) => void` | 当前最小执行契约 |
 | 事件 Protocol | 按 Case 演进，尚无全局版本标准 |
-| Assembly 单一来源 | 下一阶段需要解决的真实边界 |
+| Assembly 单一来源 | 已完成内部最小实现；外部格式未冻结 |
 | Plugin metadata | 设计方向已明确，字段未冻结 |
 | Case/Eval 格式 | Studio 实验阶段 |
 | Project 与导出格式 | 尚未冻结 |

@@ -7,6 +7,7 @@ import type { PluginMetadata, PluginNode } from '../src/assembly-definition.js'
 import { buildCase1PluginNodes, case1PluginMetadata } from '../src/cases/case1/plugin-definitions.js'
 import { buildCase2PluginNodes, case2PluginMetadata } from '../src/cases/case2/plugin-definitions.js'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
+import { defineAssembly } from '../src/workbench/assembly.js'
 import type { WorkbenchSession } from '../src/workbench/session.js'
 import { createStudioController, type StudioRunInput } from '../src/workbench/studio.js'
 
@@ -38,6 +39,36 @@ test('CASE1 executable nodes and Studio metadata share one registration source',
     nodes.map(node => node.metadata.id),
     case1PluginMetadata([platformMetadata]).map(metadata => metadata.id),
   )
+})
+
+test('Studio accepts an Assembly without prompt, tools, or chat protocols', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-studio-event-only-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const definition = defineAssembly({
+    id: 'event-only',
+    title: 'Event-only assembly',
+    create: options => ({
+      id: 'event-only',
+      model: options.model,
+      create: async () => ({
+        submit: async () => undefined,
+        steer: () => undefined,
+        pause: () => undefined,
+        resume: () => undefined,
+        status: () => 'idle',
+      }),
+    }),
+  })
+  const studio = await createStudioController({
+    directory,
+    defaultWorkspace: directory,
+    assemblies: [definition.description],
+    session: () => undefined,
+    createRunSession: async () => { throw new Error('not used') },
+  })
+
+  const validation = await studio.check('event-only-coding')
+  assert.equal(validation.passed, true)
 })
 
 function completedSession(input: StudioRunInput): WorkbenchSession {

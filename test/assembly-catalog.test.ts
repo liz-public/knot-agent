@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { defineAssembly } from '../src/workbench/assembly.js'
 import { createAssemblyCatalog } from '../src/workbench/assembly-catalog.js'
 import { createLiveSession } from '../src/workbench/live-session.js'
 import type { LiveSessionEvent } from '../src/workbench/session.js'
@@ -15,6 +16,32 @@ test('assembly catalog exposes CASE1 and CASE2 from their executable definitions
     'read', 'write', 'edit', 'bash', 'todo.write', 'goal.write', 'spawn_agent', 'ask',
   ])
   assert.equal(catalog.get('missing'), undefined)
+})
+
+test('an Assembly may intentionally declare no prompt, tools, or chat protocols', () => {
+  const definition = defineAssembly({
+    id: 'event-only',
+    title: 'Event-only assembly',
+    create: options => ({
+      id: 'event-only',
+      model: options.model,
+      async create() {
+        return {
+          async submit() {},
+          steer() {},
+          pause() {},
+          resume() {},
+          status: () => 'idle',
+        }
+      },
+    }),
+  })
+
+  assert.equal(definition.description.systemPrompt, '')
+  assert.deepEqual(definition.description.plugins, [])
+  assert.deepEqual(definition.description.tools, [])
+  assert.deepEqual(definition.description.protocols, [])
+  assert.equal(definition.description.fingerprint.length, 16)
 })
 
 test('Workbench runs a CASE1 assembly through the same live Session boundary', async t => {

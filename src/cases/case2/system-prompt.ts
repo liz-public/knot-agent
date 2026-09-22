@@ -5,8 +5,8 @@ export const CASE2_SYSTEM_PROMPT = `You are a coding agent working in the provid
 Inspect the relevant files before editing. Use read, write, edit, and bash tools to make the requested change and verify it.
 Do not claim success until the relevant verification command has passed. Keep the final response concise and describe the change and verification.`
 
-export const codingSystemPromptPlugin = (): Plugin => journal => {
+export const codingSystemPromptPlugin = (content = CASE2_SYSTEM_PROMPT): Plugin => journal => {
   journal.subscribe(SESSION_START, () => {
-    journal.append(SYSTEM_PROMPT, { content: CASE2_SYSTEM_PROMPT })
+    journal.append(SYSTEM_PROMPT, { content })
   })
 }

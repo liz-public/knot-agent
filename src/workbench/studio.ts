@@ -366,10 +366,10 @@ export async function createStudioController(options: StudioControllerOptions): 
       const pluginIds = assembly.plugins.map(plugin => plugin.id)
       const toolNames = assembly.tools.map(tool => tool.name)
       const checks = [
-        { id: 'system-prompt', label: 'System prompt is present', passed: assembly.systemPrompt.trim().length > 0, detail: `${assembly.systemPrompt.length} characters` },
+        { id: 'assembly-identity', label: 'Assembly identity is present', passed: assembly.id.trim().length > 0 && assembly.title.trim().length > 0, detail: assembly.id },
         { id: 'plugin-identity', label: 'Plugin identities are unique', passed: unique(pluginIds), detail: `${pluginIds.length} declared plugins` },
         { id: 'tool-identity', label: 'Tool identities are unique', passed: unique(toolNames), detail: `${toolNames.length} native tools` },
-        { id: 'content-path', label: 'Core content path is declared', passed: ['user.message', 'llm.invoke', 'llm.generated', 'assistant.message'].every(protocol => assembly.protocols.includes(protocol)), detail: 'user.message → llm.invoke → llm.generated → assistant.message' },
+        { id: 'fingerprint', label: 'Assembly fingerprint is present', passed: assembly.fingerprint.length > 0, detail: assembly.fingerprint },
       ]
       const validation: StudioValidationDto = {
         id: `validation-${randomUUID().slice(0, 8)}`,
