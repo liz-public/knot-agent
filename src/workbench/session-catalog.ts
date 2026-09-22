@@ -5,6 +5,7 @@ import type { ApprovalMode, ReasoningEffort } from './session.js'
 export interface LiveSessionDescriptor {
   readonly id: string
   readonly title: string
+  readonly projectId?: string
   readonly cwd: string
   readonly journalPath: string
   readonly assembly: string
@@ -29,6 +30,9 @@ function descriptor(value: unknown, file: string): LiveSessionDescriptor {
   return {
     id: item['id'],
     title: item['title'],
+    projectId: typeof item['projectId'] === 'string'
+      ? item['projectId']
+      : typeof item['assembly'] === 'string' ? item['assembly'] : 'case2',
     cwd: item['cwd'],
     journalPath: item['journalPath'],
     assembly: typeof item['assembly'] === 'string' ? item['assembly'] : 'case2',

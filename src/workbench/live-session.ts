@@ -10,6 +10,7 @@ import { workbenchToolOutput } from './tool-output.js'
 export interface LiveSessionOptions {
   readonly id: string
   readonly title: string
+  readonly projectId?: string
   readonly cwd: string
   readonly journalPath: string
   readonly assembly: AgentAssemblyFactory
@@ -54,6 +55,7 @@ export async function createLiveSession(
       session: {
         id: options.id,
         title: options.title,
+        ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
         assembly: options.assembly.id,
         ...(options.assemblyGenerationId === undefined
           ? {}

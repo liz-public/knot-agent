@@ -58,6 +58,7 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
   const server = createWorkbenchServer({ sessions: [storedSession({
     id: 'case2-main',
     title: 'CASE2 session',
+    projectId: 'case2',
     assembly: 'case2',
     journalPath: path,
   })] })
@@ -78,6 +79,7 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
   assert.deepEqual(await catalog.json(), { sessions: [{
     id: 'case2-main',
     title: 'CASE2 session',
+    projectId: 'case2',
     assembly: 'case2',
     runState: 'completed',
     eventCount: 1,
@@ -91,6 +93,7 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
     session: {
       id: 'case2-main',
       title: 'CASE2 session',
+      projectId: 'case2',
       assembly: 'case2',
       runState: 'completed',
       eventCount: 1,

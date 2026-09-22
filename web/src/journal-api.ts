@@ -9,6 +9,7 @@ export interface ReadEvent {
 export interface SessionSummary {
   readonly id: string
   readonly title: string
+  readonly projectId?: string
   readonly assembly: string
   readonly assemblyGenerationId?: string
   readonly workspace?: string
@@ -73,11 +74,20 @@ export interface StudioAssembly {
   readonly fingerprint: string
 }
 
+export interface StudioProject {
+  readonly id: string
+  readonly title: string
+  readonly summary: string
+  readonly projectRoot: string
+  readonly assembly: StudioAssembly
+  readonly activeGenerationId: string
+}
+
 export interface StudioCase {
   readonly id: string
   readonly title: string
   readonly summary: string
-  readonly assemblyId: string
+  readonly projectId: string
   readonly workspace: string
   readonly prompt: string
   readonly assertions: readonly string[]
@@ -96,16 +106,18 @@ export interface StudioValidation {
 
 export interface StudioGeneration {
   readonly id: string
-  readonly assemblyId: string
+  readonly projectId: string
   readonly assemblyFingerprint: string
   readonly validationId: string
   readonly createdAt: string
   readonly active: boolean
+  readonly restorable: boolean
 }
 
 export interface StudioRun {
   readonly id: string
   readonly caseId: string
+  readonly projectId: string
   readonly mode: 'mock' | 'real'
   readonly sessionId: string
   readonly generationId: string
@@ -125,14 +137,28 @@ export interface StudioRun {
 }
 
 export interface StudioSnapshot {
-  readonly assemblies: readonly StudioAssembly[]
-  readonly assembly: StudioAssembly
+  readonly projects: readonly StudioProject[]
   readonly cases: readonly StudioCase[]
   readonly validations: readonly StudioValidation[]
   readonly generations: readonly StudioGeneration[]
   readonly runs: readonly StudioRun[]
-  readonly activeGenerationId: string
-  readonly activeGenerationIds: Readonly<Record<string, string>>
+}
+
+export interface StudioFlowStep {
+  readonly position: number
+  readonly type: string
+  readonly observedAt?: string
+  readonly elapsedMs?: number
+  readonly producers: readonly string[]
+  readonly consumers: readonly string[]
+  readonly payloadPreview: string
+}
+
+export interface StudioFlow {
+  readonly runId: string
+  readonly sessionId: string
+  readonly projectId: string
+  readonly steps: readonly StudioFlowStep[]
 }
 
 interface ErrorResponse {
@@ -215,6 +241,7 @@ export async function createSession(input: {
   providerProfileId?: string
   reasoningEffort?: ReasoningEffort
   approvalMode?: ApprovalMode
+  projectId?: string
   assemblyId?: string
   assemblyGenerationId?: string
 } = {}): Promise<SessionSummary> {
@@ -225,13 +252,25 @@ export async function loadStudio(signal?: AbortSignal): Promise<StudioSnapshot> 
   return await readJson<StudioSnapshot>(await fetch('/api/workbench/studio', { signal }))
 }
 
+export async function createStudioProject(input: {
+  title: string
+  projectRoot?: string
+  assemblyId?: string
+}): Promise<StudioProject> {
+  return (await post<{ project: StudioProject }>('/api/workbench/studio/projects', input)).project
+}
+
 export async function createStudioCase(input: {
   title: string
-  assemblyId?: string
+  projectId?: string
   workspace?: string
   prompt?: string
 }): Promise<StudioCase> {
   return (await post<{ case: StudioCase }>('/api/workbench/studio/cases', input)).case
+}
+
+export async function loadStudioFlow(runId: string, signal?: AbortSignal): Promise<StudioFlow> {
+  return await readJson<StudioFlow>(await fetch(`/api/workbench/studio/runs/${encodeURIComponent(runId)}/flow`, { signal }))
 }
 
 export async function checkStudioAssembly(caseId: string): Promise<StudioValidation> {

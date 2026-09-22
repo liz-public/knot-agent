@@ -1,6 +1,6 @@
 # Knot Workbench 产品模型与实施规划
 
-状态：产品模型已对齐；Phase 1 已实现；不是已经冻结的外部公共协议
+状态：产品模型已对齐；Phase 1～3 已实现最小纵向闭环；不是已经冻结的外部公共协议
 基线：CASE1 / CASE2 多项目 Workbench
 范围：Library、Project、Assembly、Case、Generation、Session、Studio 与 Run
 原则：不为不存在的边界付费；单一事实来源；不修改 Journal 内核来迁就产品功能
@@ -338,11 +338,11 @@ Studio 后续使用同一图表组件展示两种不同证据，不能混淆：
 | Plugin 元数据 | metadata/create 同一声明；Prompt/Tool inspection 同源 | 继续用真实 Case 验证字段后再冻结外部协议 |
 | Assembly Description | Prompt、Tools、Protocols 已由插件声明派生且可为空 | Studio 编辑出现后再决定可序列化 Binding |
 | Assembly Catalog | 只注册完整 AssemblyDefinition | 后续由 Project Store 提供用户 Project 定义 |
-| Project | Web fixture；CASE1/CASE2 仍由 Host Catalog 暴露 | Host 持久化开发容器；一个 Project 对应一个 Assembly Draft，区分 projectRoot/runtimeWorkspace |
+| Project | Host 持久化；CASE1/CASE2 是两个内置 Project；支持基于现有 Assembly 新建 Project | Assembly 可编辑能力仍未开放，projectRoot/runtimeWorkspace 已分离 |
 | Case | 可创建并运行基本场景 | 明确绑定 Assembly/Generation、输入、Fixture 和断言 |
-| Generation | 身份和 fingerprint | 保存可恢复的 Assembly snapshot |
-| Session | 已持久化并支持恢复 | 严格绑定可实例化的 Generation |
-| Studio | 可检查、Mock/Real Run | 逐步增加真实 Assembly 编辑和流程图，不维护平行数据 |
+| Generation | 保存 fingerprint 和声明 snapshot；相同 fingerprint 不重复发布 | 可执行制品导出仍延后，`restorable` 明确表达当前代码能否解析 |
+| Session | 已持久化并支持恢复；新 Session 记录 projectId，旧描述符由 assembly 推导 | 可执行制品完成后再提供严格历史代码恢复 |
+| Studio | Project/Case/Generation 持久化；Mock/Real Run；声明拓扑与观测序列 | Assembly 编辑与外部组件导入延后 |
 
 ## 9. 分阶段实施规划
 
@@ -380,6 +380,8 @@ Studio 后续使用同一图表组件展示两种不同证据，不能混淆：
 
 目标：让 Studio 操作真实 Project，而不是浏览器 fixture。
 
+状态：已完成最小持久模型。旧 Assembly-keyed Store 启动时备份为 `studio.json.v1.backup`，再迁移到 schema v2；Case、Generation、Run 和 Session ID 均保持不变。一个 Project 绑定一个 Assembly Definition，并可拥有多个 Generation、Case 和 Session。
+
 工作：
 
 1. 定义最小 Project Store；
@@ -387,20 +389,22 @@ Studio 后续使用同一图表组件展示两种不同证据，不能混淆：
 3. 区分 projectRoot 与 runtimeWorkspace；
 4. Case 默认验证本 Project 的 Assembly Draft，也可固定到 Generation；
 5. Publish 无变化时不生成新版本；
-6. Generation 保存足以恢复的 Assembly snapshot；
+6. Generation 保存声明 snapshot，并通过 `restorable` 明确当前可执行定义是否匹配；完整可执行制品导出仍是后续边界；
 7. 新 Session 使用 Active Generation，旧 Session 保持原绑定。
 
 ### Phase 3：Studio Flow 纵向闭环
 
 目标：用真实声明和运行证据解释插件关系。
 
+状态：已完成最小纵向闭环。
+
 工作：
 
-1. Declared Topology：静态 Protocol 图；
-2. Observed Sequence：选择一次 Run 展示真实事件序列；
-3. 两种来源使用相同视觉组件但清楚标记；
-4. 支持多 emits 分支探索和循环深度限制；
-5. 不修改 Journal 内核，不新增仿真插件。
+1. Declared Topology 从 Plugin metadata 的 listens/emits 投影，不执行 Assembly；
+2. Observed Sequence 按需读取所选 Run 的真实 Journal，不复制进 Studio Store；
+3. 观测事件用声明元数据标注可能的生产方和订阅方，不伪称记录了 handler 内部调用；
+4. 当前以高密度协议/事件列表表达分支和循环，交互式图布局待真实使用后再决定；
+5. 未修改 Journal 内核，也未新增仿真插件。
 
 ### Phase 4：Run 多模态最小验证
 

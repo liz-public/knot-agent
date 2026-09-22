@@ -88,7 +88,7 @@ Prompt、工具 Schema 和 Protocol 必须从被装配插件的同一声明/配�
 
 ### Generation
 
-目标语义是 Assembly 的不可变版本：新 Session 可以选择新的 Generation，已有 Session 继续绑定创建时的 Generation。当前 Studio 只保存声明指纹和 Generation 身份，尚未封存或恢复对应的可执行代码制品，因此还不能声称完成了严格的运行时复现。Generation 用于逐步建立复现和比较边界，不意味着当前已经拥有完整的制品导出系统。
+目标语义是 Assembly 的不可变版本：新 Session 可以选择新的 Generation，已有 Session 继续绑定创建时的 Generation。当前 Studio 保存声明指纹、声明 snapshot 和 Generation 身份，并用 `restorable` 表示当前代码是否能解析它；尚未封存可执行代码制品，因此还不能声称完成了严格的历史运行时复现。
 
 ## 4. Project、Case、Session 与 Run
 
@@ -149,8 +149,9 @@ Web / Host 产品层
 | 事件 Protocol | 按 Case 演进，尚无全局版本标准 |
 | Assembly 单一来源 | 已完成内部最小实现；外部格式未冻结 |
 | Plugin metadata | 设计方向已明确，字段未冻结 |
-| Case/Eval 格式 | Studio 实验阶段 |
-| Project 与导出格式 | 尚未冻结 |
+| Case/Eval 格式 | Studio 已有最小持久化 Run 闭环，格式未冻结 |
+| Project | 一个 Project/一个 Assembly Draft 的 Host 持久模型已运行，格式未冻结 |
+| Generation 导出格式 | 声明 snapshot 已有；可执行制品尚未实现 |
 | CASE3 多 Journal 关系 | 待真实 Case 验证 |
 
 冻结顺序遵循同一原则：先让真实 Case 暴露边界，再把已经反复出现且稳定的形状命名为公共契约。

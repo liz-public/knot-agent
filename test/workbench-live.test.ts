@@ -58,7 +58,7 @@ test('workbench session descriptors preserve new sessions for host restart', asy
     delegationDepth: 1,
   }
   await saveSessionDescriptor(directory, descriptor)
-  assert.deepEqual(await loadSessionDescriptors(directory), [descriptor])
+  assert.deepEqual(await loadSessionDescriptors(directory), [{ ...descriptor, projectId: 'case2' }])
 })
 
 function nextEvent(

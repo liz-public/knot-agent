@@ -21,6 +21,7 @@ export interface WorkbenchServerOptions {
     providerProfileId?: string
     reasoningEffort?: ReasoningEffort
     approvalMode?: ApprovalMode
+    projectId?: string
     assemblyId?: string
     assemblyGenerationId?: string
   }) => Promise<WorkbenchSession>
@@ -176,6 +177,22 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         return
       }
 
+      if (request.method === 'POST' && url.pathname === '/api/workbench/studio/projects') {
+        if (options.studio === undefined) {
+          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
+          return
+        }
+        const body = await readBody(request)
+        if (typeof body['title'] !== 'string') throw new Error('title must be a string')
+        const project = await options.studio.createProject({
+          title: body['title'],
+          ...(typeof body['projectRoot'] === 'string' ? { projectRoot: body['projectRoot'] } : {}),
+          ...(typeof body['assemblyId'] === 'string' ? { assemblyId: body['assemblyId'] } : {}),
+        })
+        sendJson(response, 201, { project })
+        return
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/workbench/studio/cases') {
         if (options.studio === undefined) {
           sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
@@ -185,7 +202,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         if (typeof body['title'] !== 'string') throw new Error('title must be a string')
         const value = await options.studio.createCase({
           title: body['title'],
-          ...(typeof body['assemblyId'] === 'string' ? { assemblyId: body['assemblyId'] } : {}),
+          ...(typeof body['projectId'] === 'string' ? { projectId: body['projectId'] } : {}),
           ...(typeof body['workspace'] === 'string' ? { workspace: body['workspace'] } : {}),
           ...(typeof body['prompt'] === 'string' ? { prompt: body['prompt'] } : {}),
         })
@@ -237,6 +254,17 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         return
       }
 
+
+      const flowMatch = /^\/api\/workbench\/studio\/runs\/([^/]+)\/flow$/.exec(url.pathname)
+      if (request.method === 'GET' && flowMatch !== null) {
+        if (options.studio === undefined) {
+          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
+          return
+        }
+        sendJson(response, 200, await options.studio.flow(decodeURIComponent(flowMatch[1]!)))
+        return
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/workbench/sessions') {
         if (options.createSession === undefined) {
           sendJson(response, 405, { error: { code: 'read_only', message: 'Session creation is unavailable' } })
@@ -246,6 +274,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         const session = await options.createSession({
           ...(typeof body['title'] === 'string' ? { title: body['title'] } : {}),
           ...(typeof body['cwd'] === 'string' ? { cwd: body['cwd'] } : {}),
+          ...(typeof body['projectId'] === 'string' ? { projectId: body['projectId'] } : {}),
           ...(typeof body['assemblyId'] === 'string' ? { assemblyId: body['assemblyId'] } : {}),
           ...(typeof body['providerProfileId'] === 'string'
             ? { providerProfileId: body['providerProfileId'] }

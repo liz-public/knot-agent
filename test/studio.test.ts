@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -89,6 +89,7 @@ function completedSession(input: StudioRunInput): WorkbenchSession {
     summary: async () => ({
       id: input.id,
       title: input.title,
+      projectId: input.projectId,
       assembly: input.assemblyId,
       assemblyGenerationId: input.generationId,
       workspace: input.workspace,
@@ -119,20 +120,21 @@ test('Studio persists a CASE2 check, fingerprinted generation, and Journal-deriv
 
   const initial = await studio.snapshot()
   assert.equal(initial.cases.length, 2)
-  assert.deepEqual(initial.assemblies.map(item => item.id), ['case1', 'case2'])
-  assert.equal(initial.assembly.systemPrompt.length > 0, true)
-  assert.deepEqual(initial.assembly.tools.map(tool => tool.name), [
+  assert.deepEqual(initial.projects.map(item => item.id), ['case1', 'case2'])
+  const case2 = initial.projects.find(item => item.id === 'case2')!
+  assert.equal(case2.assembly.systemPrompt.length > 0, true)
+  assert.deepEqual(case2.assembly.tools.map(tool => tool.name), [
     'read', 'write', 'edit', 'bash', 'todo.write', 'goal.write', 'spawn_agent', 'ask',
   ])
-  assert.deepEqual(initial.assemblies.find(item => item.id === 'case1')?.tools.map(tool => tool.name), ['bash'])
-  assert.equal(initial.activeGenerationId, 'case2-baseline')
+  assert.deepEqual(initial.projects.find(item => item.id === 'case1')?.assembly.tools.map(tool => tool.name), ['bash'])
+  assert.equal(case2.activeGenerationId, 'case2-baseline')
 
   const validation = await studio.check('case2-coding')
   assert.equal(validation.passed, true)
   assert.equal(validation.checks.every(check => check.passed), true)
   const generation = await studio.publish('case2-coding')
   assert.equal(generation.active, true)
-  assert.notEqual(generation.id, 'case2-baseline')
+  assert.equal(generation.id, 'case2-baseline')
   const run = await studio.run({ caseId: 'case2-coding', mode: 'mock' })
   assert.equal(run.status, 'passed')
   assert.deepEqual(run.assertions, [
@@ -147,12 +149,17 @@ test('Studio persists a CASE2 check, fingerprinted generation, and Journal-deriv
     outputTokens: 20,
     durationMs: 1000,
   })
+  const flow = await studio.flow(run.id)
+  assert.deepEqual(flow.steps.map(step => step.type), ['session.start', 'llm.generated', 'tool.call', 'tool.result', 'assistant.message'])
+  assert.equal(flow.steps.find(step => step.type === 'tool.call')?.consumers.includes('tools'), true)
   const case1Validation = await studio.check('case1-mobile')
   assert.equal(case1Validation.passed, true)
   const case1Generation = await studio.publish('case1-mobile')
   const case1Run = await studio.run({ caseId: 'case1-mobile', mode: 'mock' })
   assert.equal(case1Run.generationId, case1Generation.id)
   assert.equal(case1Run.status, 'passed')
+  const createdProject = await studio.createProject({ title: 'Second coding Project', projectRoot: directory, assemblyId: 'case2' })
+  assert.equal(createdProject.assembly.id, 'case2')
 
   const restored = await createStudioController({
     directory,
@@ -161,10 +168,38 @@ test('Studio persists a CASE2 check, fingerprinted generation, and Journal-deriv
     createRunSession: create,
   })
   const snapshot = await restored.snapshot()
-  assert.equal(snapshot.activeGenerationId, generation.id)
-  assert.equal(snapshot.activeGenerationIds.case1, case1Generation.id)
+  assert.equal(snapshot.projects.find(item => item.id === 'case2')?.activeGenerationId, generation.id)
+  assert.equal(snapshot.projects.find(item => item.id === 'case1')?.activeGenerationId, case1Generation.id)
   assert.equal(snapshot.runs[0]?.sessionId, run.sessionId)
   assert.equal(snapshot.cases.find(item => item.id === 'case2-coding')?.runCount, 1)
+  assert.equal(snapshot.cases.some(item => item.projectId === createdProject.id), true)
+})
+
+test('Studio migrates legacy Assembly-keyed data without changing Case or Generation identities', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-studio-migration-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  await writeFile(join(directory, 'studio.json'), JSON.stringify({
+    cases: [{ id: 'legacy-case', title: 'Legacy', summary: 'kept', assemblyId: 'case2', workspace: directory, prompt: 'hello', assertions: [], createdAt: '2026-01-01T00:00:00.000Z' }],
+    validations: [],
+    generations: [{ id: 'legacy-generation', assemblyId: 'case2', assemblyFingerprint: 'old-fingerprint', validationId: 'built-in', createdAt: '2026-01-01T00:00:00.000Z' }],
+    runs: [],
+    activeGenerationIds: { case2: 'legacy-generation' },
+  }))
+  const studio = await createStudioController({
+    directory,
+    defaultWorkspace: directory,
+    session: () => undefined,
+    createRunSession: async () => { throw new Error('not used') },
+  })
+
+  const snapshot = await studio.snapshot()
+  assert.equal(snapshot.cases.find(item => item.id === 'legacy-case')?.projectId, 'case2')
+  assert.equal(snapshot.generations.find(item => item.id === 'legacy-generation')?.projectId, 'case2')
+  assert.equal(snapshot.projects.find(item => item.id === 'case2')?.activeGenerationId, 'legacy-generation')
+  const persisted = JSON.parse(await readFile(join(directory, 'studio.json'), 'utf8')) as Record<string, unknown>
+  assert.equal(persisted['schemaVersion'], 2)
+  assert.equal('assemblyId' in (persisted['cases'] as Record<string, unknown>[])[0]!, false)
+  assert.equal((await readFile(join(directory, 'studio.json.v1.backup'), 'utf8')).includes('legacy-generation'), true)
 })
 
 test('Studio HTTP API drives check, publish, and a Journal-backed Mock run', async t => {
@@ -200,7 +235,7 @@ test('Studio HTTP API drives check, publish, and a Journal-backed Mock run', asy
 
   const initial = await fetch(base)
   assert.equal(initial.status, 200)
-  assert.equal((await initial.json() as { activeGenerationId: string }).activeGenerationId, 'case2-baseline')
+  assert.equal((await initial.json() as { projects: Array<{ id: string; activeGenerationId: string }> }).projects.find(item => item.id === 'case2')?.activeGenerationId, 'case2-baseline')
 
   const checked = await post('check', { caseId: 'case2-coding' })
   assert.equal(checked.status, 200)
@@ -212,8 +247,12 @@ test('Studio HTTP API drives check, publish, and a Journal-backed Mock run', asy
 
   const executed = await post('runs', { caseId: 'case2-coding', mode: 'mock' })
   assert.equal(executed.status, 201)
-  const run = (await executed.json() as { run: { status: string; generationId: string; metrics: { eventCount: number } } }).run
+  const run = (await executed.json() as { run: { id: string; status: string; generationId: string; metrics: { eventCount: number } } }).run
   assert.equal(run.status, 'passed')
   assert.equal(run.generationId, generationId)
   assert.equal(run.metrics.eventCount, 5)
+
+  const flow = await fetch(`${base}/runs/${run.id}/flow`)
+  assert.equal(flow.status, 200)
+  assert.equal((await flow.json() as { steps: unknown[] }).steps.length, 5)
 })

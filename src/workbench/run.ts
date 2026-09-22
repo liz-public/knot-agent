@@ -36,7 +36,7 @@ function assemblyFor(
   profile: ProviderProfile,
   reasoningEffort?: ReasoningEffort,
   approvalMode: ApprovalMode = 'ask',
-  parent?: { readonly id: string; readonly delegationDepth: number },
+  parent?: { readonly id: string; readonly projectId: string; readonly delegationDepth: number },
 ) {
   const definition = assemblies.get(assemblyId)
   if (definition === undefined) throw new Error(`Unknown assembly ${assemblyId}`)
@@ -48,6 +48,7 @@ function assemblyFor(
       subagentFactory: {
         run: input => runSubagent({
           parentSessionId: parent.id,
+          projectId: parent.projectId,
           assemblyId,
           parentProfile: profile,
           parentReasoningEffort: reasoningEffort,
@@ -83,20 +84,25 @@ async function newLiveSession(input: {
   providerProfileId?: string
   reasoningEffort?: ReasoningEffort
   approvalMode?: ApprovalMode
+  projectId?: string
   assemblyId?: string
   parentSessionId?: string
   delegationDepth?: number
   assemblyGenerationId?: string
   assemblyOverride?: AgentAssemblyFactory
 } = {}): Promise<WorkbenchSession> {
-  const assemblyId = input.assemblyOverride?.id ?? input.assemblyId ?? 'case2'
+  const projectId = input.projectId ?? input.assemblyId ?? input.assemblyOverride?.id ?? 'case2'
+  const assemblyId = input.assemblyOverride?.id
+    ?? studio?.assemblyId(projectId)
+    ?? input.assemblyId
+    ?? projectId
   if (input.assemblyOverride === undefined && assemblies.get(assemblyId) === undefined) {
     throw new Error(`Unknown assembly ${assemblyId}`)
   }
-  const assemblyGenerationId = input.assemblyGenerationId ?? await studio?.activeGenerationId(assemblyId)
+  const assemblyGenerationId = input.assemblyGenerationId ?? await studio?.activeGenerationId(projectId)
   if (assemblyGenerationId !== undefined
     && studio !== undefined
-    && !await studio.hasGeneration(assemblyGenerationId, assemblyId)) {
+    && !await studio.hasGeneration(assemblyGenerationId, projectId)) {
     throw new Error(`Unknown assembly generation ${assemblyGenerationId}`)
   }
   const profile = input.assemblyOverride === undefined
@@ -117,11 +123,12 @@ async function newLiveSession(input: {
   const id = input.id ?? `${assemblyId}-${randomUUID().slice(0, 8)}`
   const delegationDepth = input.delegationDepth ?? 0
   const assembly = input.assemblyOverride
-    ?? assemblyFor(assemblyId, profile!, reasoningEffort, approvalMode, { id, delegationDepth })
+    ?? assemblyFor(assemblyId, profile!, reasoningEffort, approvalMode, { id, projectId, delegationDepth })
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
     id,
     title: input.title?.trim() || 'New coding session',
+    projectId,
     cwd: input.cwd?.trim() || defaultCwd,
     journalPath: join(sessionDirectory, `${id}.jsonl`),
     assembly: assembly.id,
@@ -190,6 +197,7 @@ async function createStudioRunSession(input: StudioRunInput): Promise<WorkbenchS
       title: input.title,
       cwd: input.workspace,
       assemblyId: input.assemblyId,
+      projectId: input.projectId,
       assemblyGenerationId: input.generationId,
       approvalMode: 'auto',
       delegationDepth: 0,
@@ -202,6 +210,7 @@ async function createStudioRunSession(input: StudioRunInput): Promise<WorkbenchS
       title: input.title,
       cwd: input.workspace,
       assemblyId: input.assemblyId,
+      projectId: input.projectId,
       assemblyGenerationId: input.generationId,
       ...(input.providerProfileId === undefined ? {} : { providerProfileId: input.providerProfileId }),
       ...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
@@ -221,6 +230,7 @@ async function runSubagent(input: {
   readonly model?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly parentSessionId: string
+  readonly projectId: string
   readonly assemblyId: string
   readonly parentProfile: ProviderProfile
   readonly parentReasoningEffort?: ReasoningEffort
@@ -240,6 +250,7 @@ async function runSubagent(input: {
   const child = await newLiveSession({
     title: `Subagent · ${input.task.slice(0, 60)}`,
     cwd: input.cwd,
+    projectId: input.projectId,
     assemblyId: input.assemblyId,
     providerProfileId: profile.id,
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
@@ -265,6 +276,7 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
         : { assemblyGenerationId: descriptor.assemblyGenerationId }),
       assembly: assemblyFor(descriptor.assembly, profile, descriptor.reasoningEffort, descriptor.approvalMode, {
         id: descriptor.id,
+        projectId: descriptor.projectId ?? descriptor.assembly,
         delegationDepth: descriptor.delegationDepth ?? 0,
       }),
     }))
@@ -286,6 +298,7 @@ if (configuredJournal !== undefined) {
       ? storedSession({
         id: 'case2-main',
         title: 'CASE2 coding session',
+        projectId: 'case2',
         assembly: 'case2',
         journalPath: configuredJournal,
         workspace: defaultCwd,
@@ -293,6 +306,7 @@ if (configuredJournal !== undefined) {
       : await createLiveSession({
         id: 'case2-main',
         title: 'CASE2 coding session',
+        projectId: 'case2',
         cwd: defaultCwd,
         journalPath: configuredJournal,
         providerProfileId: profile.id,
@@ -301,6 +315,7 @@ if (configuredJournal !== undefined) {
         delegationDepth: 0,
         assembly: assemblyFor('case2', profile, profile.defaultReasoningEffort, 'ask', {
           id: 'case2-main',
+          projectId: 'case2',
           delegationDepth: 0,
         }),
       }))
@@ -308,7 +323,7 @@ if (configuredJournal !== undefined) {
 }
 if (registry.list().length === 0 && providerStore.default() !== undefined) registry.add(await newLiveSession({
   title: 'CASE2 coding session',
-  assemblyId: 'case2',
+  projectId: 'case2',
   assemblyGenerationId: await studio.activeGenerationId('case2'),
 }))
 

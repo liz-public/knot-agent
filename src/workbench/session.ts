@@ -7,6 +7,7 @@ export type ApprovalMode = 'ask' | 'auto'
 export interface SessionSummaryDto {
   readonly id: string
   readonly title: string
+  readonly projectId?: string
   readonly assembly: string
   readonly assemblyGenerationId?: string
   readonly workspace?: string
