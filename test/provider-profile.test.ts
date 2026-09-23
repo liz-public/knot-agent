@@ -76,16 +76,38 @@ test('local provider profiles persist privately and never expose credentials', a
   const restored = await createProviderProfileStore(path, [])
   assert.equal(restored.get(summary.id)?.model, 'deepseek-chat')
   assert.doesNotMatch(JSON.stringify(restored.list().map(publicProviderProfile)), /private-key/)
+
+  await restored.update(summary.id, {
+    label: 'Updated DeepSeek',
+    adapter: 'deepseek',
+    model: 'deepseek-reasoner',
+    defaultReasoningEffort: 'high',
+  })
+  assert.equal(restored.get(summary.id)?.model, 'deepseek-reasoner')
+  assert.match(await readFile(path, 'utf8'), /private-key/)
+  await restored.setDefault(summary.id)
+  assert.equal(restored.default()?.id, summary.id)
+  assert.equal(restored.list().find(profile => profile.id === summary.id)?.isDefault, true)
+
+  const reloaded = await createProviderProfileStore(path, [])
+  assert.equal(reloaded.default()?.id, summary.id)
+  await reloaded.remove(summary.id)
+  assert.equal(reloaded.get(summary.id), undefined)
 })
 
 test('workbench creates a redacted local Provider profile over HTTP', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-provider-http-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const store = await createProviderProfileStore(join(directory, 'providers.json'), [])
+  let testedId: string | undefined
   const server = createWorkbenchServer({
     sessions: [],
     providerProfiles: () => store.list().map(publicProviderProfile),
     createProviderProfile: input => store.add(input),
+    updateProviderProfile: (id, input) => store.update(id, input),
+    deleteProviderProfile: id => store.remove(id),
+    setDefaultProviderProfile: id => store.setDefault(id),
+    testProviderProfile: async id => { testedId = id },
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise<void>(resolve => server.close(() => resolve())))
@@ -104,11 +126,33 @@ test('workbench creates a redacted local Provider profile over HTTP', async t =>
     }),
   })
   assert.equal(response.status, 201)
-  assert.doesNotMatch(await response.text(), /http-secret/)
+  const createdText = await response.text()
+  assert.doesNotMatch(createdText, /http-secret/)
+  const created = JSON.parse(createdText) as { provider: { id: string } }
+
+  const updated = await fetch(`http://127.0.0.1:${address.port}/api/workbench/providers/${created.provider.id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      label: 'Edited in Web', adapter: 'openai-compatible', baseUrl: 'https://edited.invalid/v1', model: 'coder-v2',
+    }),
+  })
+  assert.equal(updated.status, 200)
+  assert.doesNotMatch(await updated.text(), /http-secret/)
+
+  const setDefault = await fetch(`http://127.0.0.1:${address.port}/api/workbench/providers/${created.provider.id}/default`, { method: 'POST' })
+  assert.equal(setDefault.status, 200)
+  const tested = await fetch(`http://127.0.0.1:${address.port}/api/workbench/providers/${created.provider.id}/test`, { method: 'POST' })
+  assert.equal(tested.status, 200)
+  assert.equal(testedId, created.provider.id)
 
   const listed = await fetch(`http://127.0.0.1:${address.port}/api/workbench/providers`)
   assert.equal(listed.status, 200)
   const text = await listed.text()
-  assert.match(text, /Configured in Web/)
+  assert.match(text, /Edited in Web/)
   assert.doesNotMatch(text, /http-secret/)
+
+  const deleted = await fetch(`http://127.0.0.1:${address.port}/api/workbench/providers/${created.provider.id}`, { method: 'DELETE' })
+  assert.equal(deleted.status, 200)
+  assert.equal(store.get(created.provider.id), undefined)
 })

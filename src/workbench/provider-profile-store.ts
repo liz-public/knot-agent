@@ -26,6 +26,7 @@ interface StoredProviderProfile extends ProviderProfileDraft {
 
 interface ProviderFile {
   readonly profiles: readonly StoredProviderProfile[]
+  readonly defaultProfileId?: string
 }
 
 export interface ProviderProfileStore {
@@ -33,6 +34,9 @@ export interface ProviderProfileStore {
   get(id: string): ProviderProfile | undefined
   default(): ProviderProfile | undefined
   add(draft: ProviderProfileDraft): Promise<ProviderProfileSummary>
+  update(id: string, draft: ProviderProfileDraft): Promise<ProviderProfileSummary>
+  remove(id: string): Promise<void>
+  setDefault(id: string): Promise<ProviderProfileSummary>
 }
 
 function nonEmpty(value: string, name: string): string {
@@ -75,6 +79,11 @@ function validate(draft: ProviderProfileDraft): Omit<StoredProviderProfile, 'id'
 }
 
 function runtimeProfile(definition: StoredProviderProfile): ProviderProfile {
+  const publicConfiguration = {
+    ...(definition.baseUrl === undefined ? {} : { baseUrl: definition.baseUrl }),
+    ...(definition.contextWindow === undefined ? {} : { contextWindow: definition.contextWindow }),
+    hasApiKey: definition.apiKey !== undefined,
+  }
   if (definition.adapter === 'deepseek') {
     const effort = definition.defaultReasoningEffort ?? 'high'
     return {
@@ -84,6 +93,7 @@ function runtimeProfile(definition: StoredProviderProfile): ProviderProfile {
       model: definition.model,
       configured: true,
       editable: true,
+      ...publicConfiguration,
       reasoningEfforts: ['none', 'low', 'high', 'max'],
       defaultReasoningEffort: effort,
       create: options => {
@@ -106,6 +116,7 @@ function runtimeProfile(definition: StoredProviderProfile): ProviderProfile {
     model: definition.model,
     configured: true,
     editable: true,
+    ...publicConfiguration,
     create: () => openAiLlmProvider({
       baseUrl: definition.baseUrl!,
       model: definition.model,
@@ -115,31 +126,36 @@ function runtimeProfile(definition: StoredProviderProfile): ProviderProfile {
   }
 }
 
-function parseFile(value: unknown): readonly StoredProviderProfile[] {
+function parseFile(value: unknown): { profiles: readonly StoredProviderProfile[]; defaultProfileId?: string } {
   if (typeof value !== 'object' || value === null || !Array.isArray((value as ProviderFile).profiles)) {
     throw new Error('provider profile file must contain a profiles array')
   }
-  return (value as ProviderFile).profiles.map(item => {
+  const profiles = (value as ProviderFile).profiles.map(item => {
     if (typeof item !== 'object' || item === null || typeof item.id !== 'string') {
       throw new Error('provider profile file contains an invalid profile')
     }
     return { id: nonEmpty(item.id, 'id'), ...validate(item) }
   })
+  const defaultProfileId = (value as ProviderFile).defaultProfileId
+  return {
+    profiles,
+    ...(typeof defaultProfileId === 'string' ? { defaultProfileId } : {}),
+  }
 }
 
-async function load(path: string): Promise<readonly StoredProviderProfile[]> {
+async function load(path: string): Promise<{ profiles: readonly StoredProviderProfile[]; defaultProfileId?: string }> {
   try {
     return parseFile(JSON.parse(await readFile(path, 'utf8')) as unknown)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { profiles: [] }
     throw error
   }
 }
 
-async function save(path: string, profiles: readonly StoredProviderProfile[]): Promise<void> {
+async function save(path: string, file: ProviderFile): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const temporary = `${path}.${randomUUID()}.tmp`
-  await writeFile(temporary, `${JSON.stringify({ profiles }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  await writeFile(temporary, `${JSON.stringify(file, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
   await rename(temporary, path)
 }
 
@@ -147,26 +163,78 @@ export async function createProviderProfileStore(
   path: string,
   environmentProfiles: readonly ProviderProfile[],
 ): Promise<ProviderProfileStore> {
-  let stored = await load(path)
+  const loaded = await load(path)
+  let stored = loaded.profiles
+  let defaultProfileId = loaded.defaultProfileId
 
   function profiles(): readonly ProviderProfile[] {
-    return [...environmentProfiles, ...stored.map(runtimeProfile)]
+    const all = [...environmentProfiles, ...stored.map(runtimeProfile)]
+    const effectiveDefaultId = defaultProfileId ?? all.find(profile => profile.configured)?.id
+    return all.map(profile => ({
+      ...profile,
+      isDefault: profile.id === effectiveDefaultId,
+    }))
+  }
+
+  async function persist(next: readonly StoredProviderProfile[], nextDefault = defaultProfileId): Promise<void> {
+    await save(path, {
+      profiles: next,
+      ...(nextDefault === undefined ? {} : { defaultProfileId: nextDefault }),
+    })
+    stored = next
+    defaultProfileId = nextDefault
+  }
+
+  function storedIndex(id: string): number {
+    const index = stored.findIndex(profile => profile.id === id)
+    if (index < 0) throw new Error(`Provider profile ${id} is not editable`)
+    return index
   }
 
   return {
     list: profiles,
     get: id => profiles().find(profile => profile.id === id),
-    default: () => profiles().find(profile => profile.configured),
+    default: () => profiles().find(profile => profile.id === defaultProfileId && profile.configured)
+      ?? profiles().find(profile => profile.configured),
     async add(draft) {
       const definition: StoredProviderProfile = {
         id: `provider-${randomUUID().slice(0, 8)}`,
         ...validate(draft),
       }
       const next = [...stored, definition]
-      await save(path, next)
-      stored = next
+      await persist(next)
       const { create: _create, ...summary } = runtimeProfile(definition)
       return summary
+    },
+    async update(id, draft) {
+      const index = storedIndex(id)
+      const previous = stored[index]!
+      const definition: StoredProviderProfile = {
+        id,
+        ...validate({
+          ...draft,
+          ...(draft.apiKey === undefined || draft.apiKey.trim() === ''
+            ? previous.apiKey === undefined ? {} : { apiKey: previous.apiKey }
+            : { apiKey: draft.apiKey }),
+        }),
+      }
+      const next = [...stored]
+      next[index] = definition
+      await persist(next)
+      const { create: _create, ...summary } = runtimeProfile(definition)
+      return { ...summary, isDefault: id === defaultProfileId }
+    },
+    async remove(id) {
+      storedIndex(id)
+      const next = stored.filter(profile => profile.id !== id)
+      await persist(next, defaultProfileId === id ? undefined : defaultProfileId)
+    },
+    async setDefault(id) {
+      const profile = profiles().find(candidate => candidate.id === id)
+      if (profile === undefined || !profile.configured) throw new Error(`Unknown configured Provider profile ${id}`)
+      await persist(stored, id)
+      const { create: _create, ...summary } = profile
+      return { ...summary, isDefault: true }
     },
   }
 }

@@ -337,6 +337,18 @@ const server = createWorkbenchServer({
   sessionRegistry: registry,
   providerProfiles: () => providerStore.list().map(publicProviderProfile),
   createProviderProfile: input => providerStore.add(input),
+  updateProviderProfile: (id, input) => providerStore.update(id, input),
+  deleteProviderProfile: id => providerStore.remove(id),
+  setDefaultProviderProfile: id => providerStore.setDefault(id),
+  testProviderProfile: async id => {
+    const profile = providerStore.get(id)
+    if (profile === undefined || !profile.configured) throw new Error(`Unknown configured Provider profile ${id}`)
+    await profile.create().generate({
+      request: { purpose: 'agent', turnId: 'provider-test' },
+      messages: [{ role: 'user', content: 'Reply with OK.' }],
+      tools: [],
+    })
+  },
   studio,
   createSession: newLiveSession,
   webRoot: process.env['KNOT_WEB_ROOT'] ?? join(process.cwd(), 'web', 'dist'),

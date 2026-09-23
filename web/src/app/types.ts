@@ -1,7 +1,7 @@
 import type { JournalSnapshot, StudioAssembly } from '../api/workbench-api'
 
 export type Mode = 'run' | 'studio'
-export type DialogKind = 'new-session' | 'new-case' | 'projects' | 'settings' | 'plugin-library'
+export type DialogKind = 'new-session' | 'new-case' | 'projects' | 'settings' | 'plugin-library' | 'session-model' | 'providers'
 export type JournalState =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly snapshot: JournalSnapshot }

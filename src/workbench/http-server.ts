@@ -15,6 +15,10 @@ export interface WorkbenchServerOptions {
   readonly sessionRegistry?: SessionRegistry
   readonly providerProfiles?: readonly ProviderProfileSummary[] | (() => readonly ProviderProfileSummary[])
   readonly createProviderProfile?: (input: ProviderProfileDraft) => Promise<ProviderProfileSummary>
+  readonly updateProviderProfile?: (id: string, input: ProviderProfileDraft) => Promise<ProviderProfileSummary>
+  readonly deleteProviderProfile?: (id: string) => Promise<void>
+  readonly setDefaultProviderProfile?: (id: string) => Promise<ProviderProfileSummary>
+  readonly testProviderProfile?: (id: string) => Promise<void>
   readonly studio?: StudioController
   readonly createSession?: (input: {
     title?: string
@@ -94,6 +98,37 @@ function pathMatch(pathname: string, suffix: string): string | undefined {
   return match === null ? undefined : decodeURIComponent(match[1]!)
 }
 
+function providerPathMatch(pathname: string, suffix = ''): string | undefined {
+  const match = new RegExp(`^/api/workbench/providers/([^/]+)${suffix}$`).exec(pathname)
+  return match === null ? undefined : decodeURIComponent(match[1]!)
+}
+
+function providerDraft(body: Record<string, unknown>): ProviderProfileDraft {
+  const adapter = body['adapter']
+  if (adapter !== 'openai-compatible' && adapter !== 'deepseek') {
+    throw new Error('adapter must be openai-compatible or deepseek')
+  }
+  if (typeof body['label'] !== 'string') throw new Error('label must be a string')
+  if (typeof body['model'] !== 'string') throw new Error('model must be a string')
+  const contextWindow = body['contextWindow']
+  if (contextWindow !== undefined && typeof contextWindow !== 'number') {
+    throw new Error('contextWindow must be a number')
+  }
+  const effort = body['defaultReasoningEffort']
+  if (effort !== undefined && !['none', 'low', 'high', 'max'].includes(String(effort))) {
+    throw new Error('defaultReasoningEffort must be none, low, high, or max')
+  }
+  return {
+    label: body['label'],
+    adapter,
+    model: body['model'],
+    ...(typeof body['baseUrl'] === 'string' ? { baseUrl: body['baseUrl'] } : {}),
+    ...(typeof body['apiKey'] === 'string' ? { apiKey: body['apiKey'] } : {}),
+    ...(typeof contextWindow === 'number' ? { contextWindow } : {}),
+    ...(effort === undefined ? {} : { defaultReasoningEffort: effort as ReasoningEffort }),
+  }
+}
+
 export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
   const registry = options.sessionRegistry ?? createSessionRegistry(options.sessions)
   const providerProfiles = () => typeof options.providerProfiles === 'function'
@@ -141,31 +176,46 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           sendJson(response, 405, { error: { code: 'provider_configuration_unavailable', message: 'Provider configuration is unavailable' } })
           return
         }
-        const body = await readBody(request)
-        const adapter = body['adapter']
-        if (adapter !== 'openai-compatible' && adapter !== 'deepseek') {
-          throw new Error('adapter must be openai-compatible or deepseek')
-        }
-        if (typeof body['label'] !== 'string') throw new Error('label must be a string')
-        if (typeof body['model'] !== 'string') throw new Error('model must be a string')
-        const contextWindow = body['contextWindow']
-        if (contextWindow !== undefined && typeof contextWindow !== 'number') {
-          throw new Error('contextWindow must be a number')
-        }
-        const effort = body['defaultReasoningEffort']
-        if (effort !== undefined && !['none', 'low', 'high', 'max'].includes(String(effort))) {
-          throw new Error('defaultReasoningEffort must be none, low, high, or max')
-        }
-        const profile = await options.createProviderProfile({
-          label: body['label'],
-          adapter,
-          model: body['model'],
-          ...(typeof body['baseUrl'] === 'string' ? { baseUrl: body['baseUrl'] } : {}),
-          ...(typeof body['apiKey'] === 'string' ? { apiKey: body['apiKey'] } : {}),
-          ...(typeof contextWindow === 'number' ? { contextWindow } : {}),
-          ...(effort === undefined ? {} : { defaultReasoningEffort: effort as ReasoningEffort }),
-        })
+        const profile = await options.createProviderProfile(providerDraft(await readBody(request)))
         sendJson(response, 201, { provider: profile })
+        return
+      }
+
+      const providerId = providerPathMatch(url.pathname)
+      if (request.method === 'PATCH' && providerId !== undefined) {
+        if (options.updateProviderProfile === undefined) {
+          sendJson(response, 405, { error: { code: 'provider_configuration_unavailable', message: 'Provider configuration is unavailable' } })
+          return
+        }
+        sendJson(response, 200, { provider: await options.updateProviderProfile(providerId, providerDraft(await readBody(request))) })
+        return
+      }
+      if (request.method === 'DELETE' && providerId !== undefined) {
+        if (options.deleteProviderProfile === undefined) {
+          sendJson(response, 405, { error: { code: 'provider_configuration_unavailable', message: 'Provider configuration is unavailable' } })
+          return
+        }
+        await options.deleteProviderProfile(providerId)
+        sendJson(response, 200, { deleted: true })
+        return
+      }
+      const defaultProviderId = providerPathMatch(url.pathname, '/default')
+      if (request.method === 'POST' && defaultProviderId !== undefined) {
+        if (options.setDefaultProviderProfile === undefined) {
+          sendJson(response, 405, { error: { code: 'provider_configuration_unavailable', message: 'Provider configuration is unavailable' } })
+          return
+        }
+        sendJson(response, 200, { provider: await options.setDefaultProviderProfile(defaultProviderId) })
+        return
+      }
+      const testProviderId = providerPathMatch(url.pathname, '/test')
+      if (request.method === 'POST' && testProviderId !== undefined) {
+        if (options.testProviderProfile === undefined) {
+          sendJson(response, 405, { error: { code: 'provider_test_unavailable', message: 'Provider testing is unavailable' } })
+          return
+        }
+        await options.testProviderProfile(testProviderId)
+        sendJson(response, 200, { ok: true })
         return
       }
 

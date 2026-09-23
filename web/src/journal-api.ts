@@ -37,6 +37,10 @@ export interface ProviderProfileSummary {
   readonly editable?: boolean
   readonly reasoningEfforts?: readonly ReasoningEffort[]
   readonly defaultReasoningEffort?: ReasoningEffort
+  readonly baseUrl?: string
+  readonly contextWindow?: number
+  readonly hasApiKey?: boolean
+  readonly isDefault?: boolean
 }
 
 export interface ProviderProfileDraft {
@@ -245,6 +249,33 @@ export async function createProviderProfile(
   input: ProviderProfileDraft,
 ): Promise<ProviderProfileSummary> {
   return (await post<{ provider: ProviderProfileSummary }>('/api/workbench/providers', input)).provider
+}
+
+export async function updateProviderProfile(
+  id: string,
+  input: ProviderProfileDraft,
+): Promise<ProviderProfileSummary> {
+  const response = await fetch(`/api/workbench/providers/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  return (await readJson<{ provider: ProviderProfileSummary }>(response)).provider
+}
+
+export async function deleteProviderProfile(id: string): Promise<void> {
+  const response = await fetch(`/api/workbench/providers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await readJson<{ deleted: true }>(response)
+}
+
+export async function setDefaultProviderProfile(id: string): Promise<ProviderProfileSummary> {
+  return (await post<{ provider: ProviderProfileSummary }>(
+    `/api/workbench/providers/${encodeURIComponent(id)}/default`,
+  )).provider
+}
+
+export async function testProviderProfile(id: string): Promise<void> {
+  await post<{ ok: true }>(`/api/workbench/providers/${encodeURIComponent(id)}/test`)
 }
 
 export async function loadJournalSnapshot(

@@ -86,6 +86,31 @@ test('CASE2 read exposes bounded, resumable pages', async t => {
   assert.ok(Buffer.byteLength(String(byteBounded['content'])) <= 50 * 1024)
 })
 
+test('CASE2 injects project instruction files into the active turn context', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-instructions-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  await writeFile(join(cwd, 'AGENTS.md'), 'Always run the focused test before replying.\n', 'utf8')
+  await writeFile(join(cwd, 'CLAUDE.md'), 'Prefer small, reversible edits.\n', 'utf8')
+  let inspected = false
+  const agent = createCase2Agent({
+    cwd,
+    llm: {
+      async generate(call) {
+        const context = call.messages.at(-1)?.content ?? ''
+        assert.match(context, /Current workspace:/)
+        assert.match(context, /Project instructions from AGENTS\.md:/)
+        assert.match(context, /Always run the focused test/)
+        assert.match(context, /Project instructions from CLAUDE\.md:/)
+        assert.match(context, /Prefer small, reversible edits/)
+        inspected = true
+        return { generated: { content: 'Ready.', toolCalls: [] }, usage }
+      },
+    },
+  })
+  await agent.submit('Inspect the project instructions.')
+  assert.equal(inspected, true)
+})
+
 test('CASE2.0 edits and verifies a real workspace through the four coding tools', async t => {
   const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-'))
   t.after(() => rm(cwd, { recursive: true, force: true }))

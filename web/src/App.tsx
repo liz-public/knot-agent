@@ -9,6 +9,7 @@ import {
 import { liveArgumentPreviewLimit, type DialogKind, type JournalState, type LiveDraft, type LiveToolDraft, type Mode, type ProjectView } from './app/types'
 import { Inspector } from './inspector/Inspector'
 import { useI18n } from './i18n'
+import { ProviderDialog } from './providers/ProviderDialog'
 import { RunView } from './run/RunView'
 import { workspaceFrom } from './run/projections'
 import { Dialog, ProjectRail, WorkbenchHeader } from './shell/Shell'
@@ -44,7 +45,7 @@ export function App() {
     if (currentProject === undefined || studio === undefined) return
     setSelectedCase(current => visibleCases.some(item => item.id === current) ? current : visibleCases[0]?.id ?? '')
   }, [currentProject?.id, studio])
-  useEffect(() => { const controller = new AbortController(); void listProviderProfiles(controller.signal).then(profiles => { setProviderProfiles(profiles); setProviderProfileId(current => profiles.some(profile => profile.id === current && profile.configured) ? current : profiles.find(profile => profile.configured)?.id ?? '') }, error => { if (!controller.signal.aborted) setRunError(error instanceof Error ? error.message : String(error)) }); return () => controller.abort() }, [])
+  useEffect(() => { const controller = new AbortController(); void listProviderProfiles(controller.signal).then(profiles => { setProviderProfiles(profiles); setProviderProfileId(current => profiles.some(profile => profile.id === current && profile.configured) ? current : profiles.find(profile => profile.isDefault && profile.configured)?.id ?? profiles.find(profile => profile.configured)?.id ?? '') }, error => { if (!controller.signal.aborted) setRunError(error instanceof Error ? error.message : String(error)) }); return () => controller.abort() }, [])
   useEffect(() => { if (selected === undefined) return; const controller = new AbortController(); setJournal(current => current.status === 'ready' && current.snapshot.session.id === selected ? current : { status: 'loading' }); void loadJournalSnapshot(selected, controller.signal).then(snapshot => { setJournal({ status: 'ready', snapshot }); setSessions(current => current.map(session => session.id === snapshot.session.id ? snapshot.session : session)) }, error => { if (!controller.signal.aborted) setJournal({ status: 'error', message: error instanceof Error ? error.message : String(error) }) }); return () => controller.abort() }, [selected, reload])
   const activeSession = visibleSessions.find(session => session.id === selected)
   useEffect(() => {
@@ -83,9 +84,20 @@ export function App() {
   if (currentProject === undefined) return <main className="studio-view"><div className="journal-state"><i className="loading-dot"/><strong>{t('studio.loading')}</strong><span>{t('studio.loadingDetail')}</span></div></main>
   return <div className={`app-shell ${inspectorOpen ? '' : 'inspector-closed'}`} style={shellStyle}>
     <ProjectRail mode={mode} project={currentProject} sessions={visibleSessions} selectedSession={selected} selectedCase={selectedCase} cases={visibleCases} onMode={setMode} onSelectSession={id => { setSelected(id); setMode('run') }} onSelectCase={id => { setSelectedCase(id); setMode('studio') }} onDialog={setDialog}/>
-    <section className="center-column"><WorkbenchHeader mode={mode} project={currentProject} session={activeSession} currentCase={currentCase} workspace={workspace} model={activeModel} inspectorOpen={inspectorOpen} onModel={() => setDialog('settings')} onSettings={() => setDialog('settings')} onInspector={() => setInspectorOpen(true)}/>{mode === 'run' ? <RunView key={snapshot?.session.id} snapshot={snapshot} workspace={workspace} live={live} liveTools={liveTools} interactions={interactions} error={runError} onSend={content => command(async () => { if (selected !== undefined) await submitMessage(selected, content) })} onPause={() => command(async () => { if (selected !== undefined) await pauseSession(selected) })} onResume={() => command(async () => { if (selected !== undefined) await resumeSession(selected) })} onRespond={(interaction, value) => command(async () => { if (selected === undefined) return; await respondToInteraction(selected, interaction.id, value); setInteractions(current => current.filter(item => item.id !== interaction.id)) })}/> : <StudioView studio={studio} currentCase={currentCase} busy={studioBusy} error={studioError} onCheck={checkAssembly} onRun={runCase} onPublish={publishGeneration} onOpenSession={sessionId => { setSelected(sessionId); setMode('run'); setReload(value => value + 1) }}/>}</section>
+    <section className="center-column"><WorkbenchHeader mode={mode} project={currentProject} session={activeSession} currentCase={currentCase} workspace={workspace} model={activeModel} inspectorOpen={inspectorOpen} onModel={() => setDialog('session-model')} onSettings={() => setDialog('settings')} onInspector={() => setInspectorOpen(true)}/>{mode === 'run' ? <RunView key={snapshot?.session.id} snapshot={snapshot} workspace={workspace} live={live} liveTools={liveTools} interactions={interactions} error={runError} onSend={content => command(async () => { if (selected !== undefined) await submitMessage(selected, content) })} onPause={() => command(async () => { if (selected !== undefined) await pauseSession(selected) })} onResume={() => command(async () => { if (selected !== undefined) await resumeSession(selected) })} onRespond={(interaction, value) => command(async () => { if (selected === undefined) return; await respondToInteraction(selected, interaction.id, value); setInteractions(current => current.filter(item => item.id !== interaction.id)) })}/> : <StudioView studio={studio} currentCase={currentCase} busy={studioBusy} error={studioError} onCheck={checkAssembly} onRun={runCase} onPublish={publishGeneration} onOpenSession={sessionId => { setSelected(sessionId); setMode('run'); setReload(value => value + 1) }}/>}</section>
     <Inspector journal={journal} open={inspectorOpen} width={inspectorWidth} onWidth={setInspectorWidth} onClose={() => setInspectorOpen(false)} onRefresh={() => setReload(value => value + 1)}/>
-    {dialog !== undefined && <Dialog
+    {(dialog === 'session-model' || dialog === 'providers') && <ProviderDialog
+      mode={dialog} profiles={providerProfiles} session={activeSession} onClose={() => setDialog(undefined)}
+      onManage={() => setDialog('providers')}
+      reload={() => listProviderProfiles()}
+      onChanged={profiles => {
+        setProviderProfiles(profiles)
+        setProviderProfileId(current => profiles.some(profile => profile.id === current && profile.configured)
+          ? current
+          : profiles.find(profile => profile.isDefault && profile.configured)?.id ?? profiles.find(profile => profile.configured)?.id ?? '')
+      }}
+    />}
+    {dialog !== undefined && dialog !== 'session-model' && dialog !== 'providers' && <Dialog
       kind={dialog} project={currentProject} projects={projects} currentCase={currentCase}
       providerProfiles={providerProfiles} providerProfileId={providerProfileId} assemblies={studio?.projects.map(item => item.assembly) ?? []}
       onProviderProfile={setProviderProfileId} onClose={() => setDialog(undefined)}

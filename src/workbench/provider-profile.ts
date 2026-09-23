@@ -14,6 +14,10 @@ export interface ProviderProfileSummary {
   readonly editable?: boolean
   readonly reasoningEfforts?: readonly ReasoningEffort[]
   readonly defaultReasoningEffort?: ReasoningEffort
+  readonly baseUrl?: string
+  readonly contextWindow?: number
+  readonly hasApiKey?: boolean
+  readonly isDefault?: boolean
 }
 
 export interface ProviderProfile extends ProviderProfileSummary {
