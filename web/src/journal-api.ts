@@ -54,6 +54,35 @@ export interface JournalSnapshot {
   readonly events: readonly ReadEvent[]
 }
 
+export interface ContextMessage {
+  readonly role: 'system' | 'user' | 'assistant' | 'tool'
+  readonly content: string | null
+  readonly reasoning?: string
+  readonly tool_call_id?: string
+  readonly tool_calls?: ReadonlyArray<{
+    readonly id: string
+    readonly type: 'function'
+    readonly function: { readonly name: string; readonly arguments: string }
+  }>
+  readonly estimatedTokens: number
+}
+
+export interface ContextProjection {
+  readonly requestId: string
+  readonly purpose: string
+  readonly manifest: Record<string, unknown>
+  readonly messages: readonly ContextMessage[]
+  readonly tools: readonly Record<string, unknown>[]
+  readonly estimatedMessageTokens: number
+  readonly estimatedToolTokens: number
+  readonly usage?: {
+    readonly inputTokens?: number
+    readonly outputTokens?: number
+    readonly totalTokens?: number
+    readonly contextWindow: number
+  }
+}
+
 export interface StudioPlugin {
   readonly id: string
   readonly name: string
@@ -224,6 +253,16 @@ export async function loadJournalSnapshot(
 ): Promise<JournalSnapshot> {
   const response = await fetch(`/api/workbench/sessions/${encodeURIComponent(sessionId)}`, { signal })
   return await readJson<JournalSnapshot>(response)
+}
+
+export async function loadContextProjection(
+  sessionId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<ContextProjection> {
+  const query = new URLSearchParams({ requestId })
+  const response = await fetch(`/api/workbench/sessions/${encodeURIComponent(sessionId)}/context?${query}`, { signal })
+  return await readJson<ContextProjection>(response)
 }
 
 async function post<T>(path: string, body?: unknown): Promise<T> {

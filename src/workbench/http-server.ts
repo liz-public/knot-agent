@@ -8,6 +8,7 @@ import type { WorkbenchSession } from './session.js'
 import type { ApprovalMode, ReasoningEffort } from './session.js'
 import { createSessionRegistry, type SessionRegistry } from './session-registry.js'
 import type { StudioController } from './studio.js'
+import { projectModelContext } from './context-projection.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
@@ -302,6 +303,25 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           return
         }
         sendJson(response, 200, await session.snapshot())
+        return
+      }
+
+      const contextId = pathMatch(url.pathname, '/context')
+      if (request.method === 'GET' && contextId !== undefined) {
+        const session = registry.get(contextId)
+        if (session === undefined) {
+          sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
+          return
+        }
+        const projection = projectModelContext(
+          (await session.snapshot()).events,
+          url.searchParams.get('requestId') ?? undefined,
+        )
+        if (projection === undefined) {
+          sendJson(response, 404, { error: { code: 'context_not_found', message: 'Model context was not found' } })
+          return
+        }
+        sendJson(response, 200, projection)
         return
       }
 
