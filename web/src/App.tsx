@@ -1,9 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import {
-  checkStudioAssembly, createProviderProfile, createStudioCase, createStudioProject, createSession, listProviderProfiles, listSessions,
+  checkStudioAssembly, createStudioCase, createStudioProject, createSession, listProviderProfiles, listSessions,
   loadJournalSnapshot, loadStudio, pauseSession, publishStudioGeneration, respondToInteraction,
   resumeSession, runStudioCase, submitMessage, subscribeSession, subscribeSessionCatalog,
-  type ApprovalMode, type GenerationUpdate, type InteractionRequest, type ProviderProfileDraft, type ProviderProfileSummary,
+  type ApprovalMode, type GenerationUpdate, type InteractionRequest, type ProviderProfileSummary,
   type ReasoningEffort, type SessionSummary, type StudioCase, type StudioSnapshot,
 } from './api/workbench-api'
 import { liveArgumentPreviewLimit, type DialogKind, type JournalState, type LiveDraft, type LiveToolDraft, type Mode, type ProjectView } from './app/types'
@@ -69,7 +69,6 @@ export function App() {
 
   async function command(action: () => Promise<void>) { try { setRunError(undefined); await action() } catch (error) { setRunError(error instanceof Error ? error.message : String(error)) } }
   async function makeSession(title: string, cwd: string, profileId = providerProfileId, reasoningEffort?: ReasoningEffort, approvalMode: ApprovalMode = 'ask', projectId = currentCase.projectId) { await command(async () => { const session = await createSession({ title, cwd, projectId, ...(profileId === '' ? {} : { providerProfileId: profileId }), ...(reasoningEffort === undefined ? {} : { reasoningEffort }), approvalMode }); setSessions(current => [session, ...current]); setSelected(session.id); setMode('run'); setDialog(undefined) }) }
-  async function makeProvider(input: ProviderProfileDraft) { await command(async () => { const created = await createProviderProfile(input); const profiles = await listProviderProfiles(); setProviderProfiles(profiles); setProviderProfileId(created.id) }) }
   async function studioCommand(name: string, action: () => Promise<void>) { try { setStudioBusy(name); setStudioError(undefined); await action(); setStudio(await loadStudio()); setReload(value => value + 1) } catch (error) { setStudioError(error instanceof Error ? error.message : String(error)) } finally { setStudioBusy(undefined) } }
   async function makeCase(title: string, projectId: string) { if (currentProject === undefined) return; await studioCommand('create', async () => { const item = await createStudioCase({ title, projectId, workspace: currentProject.root }); setSelectedCase(item.id); setMode('studio'); setDialog(undefined) }) }
   async function makeProject(name: string, root: string, assemblyId: string) { await studioCommand('project', async () => { const item = await createStudioProject({ title: name, projectRoot: root, assemblyId }); setSelectedProject(item.id); setDialog(undefined) }) }
@@ -102,7 +101,6 @@ export function App() {
       providerProfiles={providerProfiles} providerProfileId={providerProfileId} assemblies={studio?.projects.map(item => item.assembly) ?? []}
       onProviderProfile={setProviderProfileId} onClose={() => setDialog(undefined)}
       onCreateSession={(title, cwd, profileId, reasoningEffort, approvalMode, projectId) => void makeSession(title, cwd, profileId, reasoningEffort, approvalMode, projectId)}
-      onCreateProvider={input => { void makeProvider(input) }}
       onCreateCase={(title, projectId) => { void makeCase(title, projectId) }} onCreateProject={(name, root, assemblyId) => { void makeProject(name, root, assemblyId) }}
       onSelectProject={id => { setSelectedProject(id); setSelectedCase(studio?.cases.find(item => item.projectId === id)?.id ?? ''); setSelected(sessions.find(item => (item.projectId ?? item.assembly) === id)?.id); setDialog(undefined) }}
     />}
