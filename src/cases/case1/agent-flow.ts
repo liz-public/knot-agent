@@ -1,19 +1,19 @@
 import type { Plugin } from '../../journal.js'
 import {
+  CONTEXT_DYNAMIC,
   CONTENT_REQUEST,
   LLM_REQUEST,
   TOOL_RESULT,
+  type DynamicContext,
   type ToolResult,
-  type UserMessage,
-  USER_MESSAGE,
 } from './protocol.js'
 
 export const agentFlowPlugin = (): Plugin => journal => {
-  journal.subscribe(USER_MESSAGE, event => {
-    const message = event.data as UserMessage
+  journal.subscribe(CONTEXT_DYNAMIC, event => {
+    const message = event.data as DynamicContext
     journal.append(CONTENT_REQUEST, {
       turnId: message.turnId,
-      query: message.content,
+      query: message.query,
     })
   })
 

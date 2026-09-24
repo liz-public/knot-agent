@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
-import { createCase1Agent } from '../src/cases/case1/case1.js'
-import { createCliCatalog } from '../src/cases/case1/cli.js'
+import { ANDROID_TOOL_CATALOG } from '../src/cases/case1/android-tool-catalog.js'
+import { createCase1Agent as createCase1AgentCore, type Case1Options } from '../src/cases/case1/case1.js'
+import { createBashTool, createCliCatalog } from '../src/cases/case1/cli.js'
 import type { ContentSource } from '../src/cases/case1/content.js'
+import { createToolDispatcher } from '../src/cases/case1/dispatcher.js'
 import {
-  mockAndroidCliCommands,
+  createMockAndroidDispatcher,
   mockAndroidSystemTools,
 } from '../src/cases/case1/mock-android-tools.js'
 import {
@@ -17,6 +19,7 @@ import {
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { deepSeekLlmProvider } from '../src/cases/case1/llm-deepseek.js'
 import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
+import { createMockCase1ToolRuntime } from '../src/cases/case1/tool-runtimes.js'
 import {
   isDynamicContextMessage,
   projectMessages,
@@ -25,6 +28,7 @@ import {
 import {
   ASSISTANT_MESSAGE,
   CONTENT_REQUEST,
+  CONTEXT_CONTRIBUTION,
   CONTEXT_DYNAMIC,
   HISTORY_CHECKPOINT,
   HISTORY_COMPACTION_REQUIRED,
@@ -41,27 +45,20 @@ import {
   type ToolCall,
   type ToolResult,
 } from '../src/cases/case1/protocol.js'
-import {
-  createAndroidDeviceSession,
-  type ToolDefinition,
-} from '../src/cases/case1/tools.js'
+import { createAndroidDeviceSession } from '../src/cases/case1/tools.js'
 
-const echoTool: ToolDefinition = {
-  name: 'echo',
-  schema: {
-    type: 'function',
-    function: {
-      name: 'echo',
-      description: 'Echo one string back.',
-      parameters: {
-        type: 'object',
-        properties: { text: { type: 'string' } },
-        required: ['text'],
-        additionalProperties: false,
-      },
-    },
-  },
-  execute: arguments_ => ({ content: JSON.stringify({ echoed: arguments_['text'] }) }),
+type TestCase1Options = Omit<Case1Options, 'dispatcher'> & {
+  readonly dispatcher?: Case1Options['dispatcher']
+}
+
+function createCase1Agent(options: TestCase1Options) {
+  const { dispatcher, ...rest } = options
+  const defaults = createMockCase1ToolRuntime()
+  return createCase1AgentCore({
+    ...rest,
+    dispatcher: dispatcher ?? defaults.dispatcher,
+    appMatcher: rest.appMatcher ?? defaults.appMatcher,
+  })
 }
 
 function fixedUsage() {
@@ -93,6 +90,13 @@ test('CASE1 keeps one dynamic context through shortcut, tools, compression, and 
   assert.deepEqual((dynamic[0]!.data as DynamicContext).matchedPackages, [
     '电话: com.samsung.android.dialer',
   ])
+  assert.deepEqual(
+    seen.filter(event => event.type === CONTEXT_CONTRIBUTION)
+      .map(event => (event.data as { source: string }).source),
+    ['apps', 'tools'],
+  )
+  assert.ok(seen.findIndex(event => event.type === CONTEXT_DYNAMIC)
+    < seen.findIndex(event => event.type === CONTENT_REQUEST))
 
   const commands = seen
     .filter(event => event.type === TOOL_CALL)
@@ -398,7 +402,7 @@ test('streamed content, reasoning, and tool-call deltas survive as separate live
       ? [
         'data: {"choices":[{"delta":{"reasoning_content":"checking"}}]}',
         'data: {"choices":[{"delta":{"content":"I will inspect."}}]}',
-        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"echo","arguments":"{\\"text\\":\\""}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"bash","arguments":"{\\"command\\":\\"clip.write "}}]}}]}',
         'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"hello\\"}"}}]}}]}',
         'data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}}',
         'data: [DONE]',
@@ -430,7 +434,6 @@ test('streamed content, reasoning, and tool-call deltas survive as separate live
           close: () => undefined,
         }),
       }),
-      tools: [echoTool],
       trace: event => events.push(event),
     })
 
@@ -439,7 +442,7 @@ test('streamed content, reasoning, and tool-call deltas survive as separate live
     assert.deepEqual(updates.slice(0, 4), [
       { kind: 'reasoning', text: 'checking' },
       { kind: 'content', text: 'I will inspect.' },
-      { kind: 'tool_call', index: 0, id: 'call-1', name: 'echo', argumentsDelta: '{"text":"' },
+      { kind: 'tool_call', index: 0, id: 'call-1', name: 'bash', argumentsDelta: '{"command":"clip.write ' },
       { kind: 'tool_call', index: 0, argumentsDelta: 'hello"}' },
     ])
     const generated = events.find(event => event.type === LLM_GENERATED)!.data as LlmGenerated
@@ -447,7 +450,7 @@ test('streamed content, reasoning, and tool-call deltas survive as separate live
     assert.equal(generated.generated.reasoning, 'checking')
     const call = events.find(event => event.type === TOOL_CALL)!.data as ToolCall
     assert.equal(call.assistantContent, 'I will inspect.')
-    assert.deepEqual(call.calls[0]?.arguments, { text: 'hello' })
+    assert.deepEqual(call.calls[0]?.arguments, { command: 'clip.write hello' })
     assert.equal(events.some(event => event.type.includes('delta')), false)
   } finally {
     globalThis.fetch = originalFetch
@@ -490,7 +493,7 @@ function parallelEchoProvider(ids: readonly string[], reply: string) {
       if (generations === 1) {
         return {
           generated: {
-            toolCalls: ids.map(id => ({ id, name: 'echo', arguments: { text: id } })),
+            toolCalls: ids.map(id => ({ id, name: 'bash', arguments: { command: `clip.write ${id}` } })),
           },
           usage: fixedUsage(),
         }
@@ -507,7 +510,6 @@ test('one generation of tool calls is one fact, and one result batch resumes the
   const { provider, generations } = parallelEchoProvider(['a', 'b', 'c'], '三件事都办好了。')
   const agent = createCase1Agent({
     llm: llmPlugin(provider),
-    tools: [echoTool],
     output: { content: content => replies.push(content) },
     trace: event => {
       seen.push(event)
@@ -533,16 +535,10 @@ test('tool failures become ordered results and return control to the model', asy
   let generations = 0
   const replies: string[] = []
   const seen: Event[] = []
-  const explodingTool: ToolDefinition = {
-    name: 'explode',
-    schema: {
-      type: 'function',
-      function: { name: 'explode', parameters: { type: 'object' } },
-    },
-    execute() {
-      throw new Error('device unavailable')
-    },
-  }
+  const dispatcher = createToolDispatcher({
+    write_clipboard: arguments_ => ({ content: JSON.stringify({ echoed: arguments_['text'] }) }),
+    read_clipboard: () => { throw new Error('device unavailable') },
+  })
   const agent = createCase1Agent({
     llm: llmPlugin({
       async generate(call) {
@@ -551,9 +547,9 @@ test('tool failures become ordered results and return control to the model', asy
           return {
             generated: {
               toolCalls: [
-                { id: 'ok', name: 'echo', arguments: { text: 'done' } },
-                { id: 'throws', name: 'explode', arguments: {} },
-                { id: 'missing', name: 'not-installed', arguments: {} },
+                { id: 'ok', name: 'bash', arguments: { command: 'clip.write done' } },
+                { id: 'throws', name: 'bash', arguments: { command: 'clip.read' } },
+                { id: 'missing', name: 'bash', arguments: { command: 'calendar.list 1' } },
               ],
             },
             usage: fixedUsage(),
@@ -562,14 +558,14 @@ test('tool failures become ordered results and return control to the model', asy
         const results = call.messages.filter(message => message.role === 'tool')
         assert.equal(results.length, 3)
         assert.match(results[1]?.content ?? '', /tool_error/)
-        assert.match(results[2]?.content ?? '', /unknown_tool/)
+        assert.match(results[2]?.content ?? '', /unsupported_tool/)
         return {
           generated: { content: '一项完成，两项失败，已说明原因。', toolCalls: [] },
           usage: fixedUsage(),
         }
       },
     }),
-    tools: [echoTool, explodingTool],
+    dispatcher,
     output: { content: content => replies.push(content) },
     trace: event => seen.push(event),
   })
@@ -647,16 +643,14 @@ test('unknown usage is not recorded as zero and does not trigger compression', a
 // kernel awaits every handler of an event before delivering the next one.
 test('the tools of one batch run concurrently', async () => {
   const delay = 40
-  const slowEcho: ToolDefinition = {
-    name: 'echo',
-    schema: echoTool.schema,
-    async execute(arguments_) {
+  const dispatcher = createToolDispatcher({
+    async write_clipboard(arguments_) {
       await new Promise(resolve => setTimeout(resolve, delay))
       return { content: JSON.stringify({ echoed: arguments_['text'] }) }
     },
-  }
+  })
   const { provider } = parallelEchoProvider(['a', 'b', 'c'], '三件事都办好了。')
-  const agent = createCase1Agent({ llm: llmPlugin(provider), tools: [slowEcho] })
+  const agent = createCase1Agent({ llm: llmPlugin(provider), dispatcher })
 
   const startedAt = Date.now()
   await agent.submit('你好')
@@ -674,7 +668,6 @@ test('a batch projects one assistant message carrying every call', async () => {
         return provider.generate(call)
       },
     }),
-    tools: [echoTool],
   })
   await agent.submit('你好')
 
@@ -731,7 +724,7 @@ function smallModelSource(calls: { count: number }): ContentSource {
       calls: [{
         callId: `small-model-${request.turnId}`,
         name: 'bash',
-        arguments: { command: 'volume mute' },
+        arguments: { command: 'sys.ringer silent' },
       }],
     }
   }
@@ -769,11 +762,6 @@ test('an async source can answer a turn the rules missed, without the LLM', asyn
         return { generated: { content: '已静音。', toolCalls: [] }, usage: fixedUsage() }
       },
     }),
-    tools: [{
-      name: 'bash',
-      schema: echoTool.schema,
-      execute: () => ({ content: JSON.stringify({ action: 'muted' }) }),
-    }],
     contentSources: [smallModelSource(smallModel)],
     trace: event => {
       seen.push(event)
@@ -817,7 +805,7 @@ test('the LLM source asks exactly once when every earlier source declines', asyn
 
 test('the mock device rejects a selection it never offered', async () => {
   const session = createAndroidDeviceSession()
-  const tool = createCliCatalog(mockAndroidCliCommands(session)).bash
+  const tool = createBashTool(createCliCatalog(ANDROID_TOOL_CATALOG), createMockAndroidDispatcher(session))
   const context = { turnId: 'direct', callId: 'direct-call' }
 
   const orphan = await tool.execute({ command: 'select 1' }, context)
@@ -829,9 +817,19 @@ test('the mock device rejects a selection it never offered', async () => {
   assert.equal(session.pendingContact, '李行素')
 })
 
+test('the common catalog remains visible when a dispatcher lacks the capability', async () => {
+  const session = createAndroidDeviceSession()
+  const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
+  const tool = createBashTool(catalog, createMockAndroidDispatcher(session))
+
+  assert.deepEqual(catalog.detailsFor('帮我看下日程').names, ['calendar.list'])
+  const result = await tool.execute({ command: 'calendar.list 7' }, { turnId: 'direct', callId: 'missing' })
+  assert.match(result.content, /unsupported_tool/)
+  assert.match(result.content, /list_calendar_events/)
+})
+
 test('the turn recovers when the device forgot what the journal remembers', async () => {
   const session = createAndroidDeviceSession()
-  const cli = createCliCatalog(mockAndroidCliCommands(session))
   const seen: Event[] = []
   const replies: string[] = []
   let callNumber = 0
@@ -864,8 +862,7 @@ test('the turn recovers when the device forgot what the journal remembers', asyn
 
   const agent = createCase1Agent({
     llm: llmPlugin(provider),
-    cli,
-    tools: [cli.bash],
+    dispatcher: createMockAndroidDispatcher(session),
     output: { content: content => replies.push(content) },
     trace: event => {
       seen.push(event)
@@ -931,13 +928,11 @@ test('eight Android-shaped mock tools keep their input and result contracts', as
 
 test('CASE1 runs five user turns against the Android-shaped tool catalog', async () => {
   const device = createAndroidDeviceSession()
-  const cli = createCliCatalog(mockAndroidCliCommands(device))
   const replies: string[] = []
   const seen: Event[] = []
   const agent = createCase1Agent({
     llm: mockLlmPlugin(),
-    cli,
-    tools: [cli.bash],
+    dispatcher: createMockAndroidDispatcher(device),
     output: { content: content => replies.push(content) },
     trace: event => seen.push(event),
   })

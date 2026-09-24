@@ -4,11 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
-import { createPersistentCase1Agent } from '../src/cases/case1/case1.js'
-import { createCliCatalog } from '../src/cases/case1/cli.js'
+import { createPersistentCase1Agent as createPersistentCase1AgentCore, type PersistentCase1Options } from '../src/cases/case1/case1.js'
 import { llmPlugin } from '../src/cases/case1/llm.js'
 import { mockLlmProvider } from '../src/cases/case1/llm-mock.js'
-import { mockAndroidCliCommands } from '../src/cases/case1/mock-android-tools.js'
+import { createMockAndroidDispatcher } from '../src/cases/case1/mock-android-tools.js'
 import {
   LLM_INVOKE,
   TOOL_CALL,
@@ -16,7 +15,22 @@ import {
   type ChatMessage,
   type LlmInvoke,
 } from '../src/cases/case1/protocol.js'
-import { createAndroidDeviceSession, type ToolDefinition } from '../src/cases/case1/tools.js'
+import { createAndroidDeviceSession } from '../src/cases/case1/tools.js'
+import { createMockCase1ToolRuntime } from '../src/cases/case1/tool-runtimes.js'
+
+type TestPersistentOptions = Omit<PersistentCase1Options, 'dispatcher'> & {
+  readonly dispatcher?: PersistentCase1Options['dispatcher']
+}
+
+function createPersistentCase1Agent(options: TestPersistentOptions) {
+  const { dispatcher, ...rest } = options
+  const defaults = createMockCase1ToolRuntime()
+  return createPersistentCase1AgentCore({
+    ...rest,
+    dispatcher: dispatcher ?? defaults.dispatcher,
+    appMatcher: rest.appMatcher ?? defaults.appMatcher,
+  })
+}
 
 test('CASE1 persists one process and continues the session in a fresh process', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-case1-'))
@@ -30,19 +44,17 @@ test('CASE1 persists one process and continues the session in a fresh process', 
     modelInputs: ChatMessage[][],
   ) => {
     const device = createAndroidDeviceSession()
-    const cli = createCliCatalog(mockAndroidCliCommands(device))
+    const baseDispatcher = createMockAndroidDispatcher(device)
     const provider = mockLlmProvider()
-    const countingBash: ToolDefinition = {
-      ...cli.bash,
-      async execute(arguments_, context) {
+    const dispatcher = {
+      async dispatch(request: Parameters<typeof baseDispatcher.dispatch>[0]) {
         executions += 1
-        return cli.bash.execute(arguments_, context)
+        return baseDispatcher.dispatch(request)
       },
     }
     return createPersistentCase1Agent({
       journalPath,
-      cli,
-      tools: [countingBash],
+      dispatcher,
       llm: llmPlugin({
         generate(call) {
           modelInputs.push([...call.messages])

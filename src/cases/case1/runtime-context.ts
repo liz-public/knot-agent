@@ -1,17 +1,16 @@
 import type { Event, Plugin } from '../../journal.js'
-import type { CliCatalog } from './cli.js'
 import {
+  CONTEXT_CONTRIBUTION,
   CONTEXT_DYNAMIC,
   TOOL_RESULT,
   USER_MESSAGE,
+  type ContextContribution,
   type ToolResult,
   type UserMessage,
 } from './protocol.js'
 
 export interface RuntimeContextOptions {
   readonly now: () => Date
-  readonly packages: Readonly<Record<string, string>>
-  readonly cli?: CliCatalog
 }
 
 function activeState(events: readonly Event[]): Record<string, unknown> {
@@ -31,19 +30,16 @@ function activeState(events: readonly Event[]): Record<string, unknown> {
 export const runtimeContextPlugin = (options: RuntimeContextOptions): Plugin =>
   journal => journal.subscribe(USER_MESSAGE, event => {
     const message = event.data as UserMessage
-    const matchedPackages = Object.entries(options.packages)
-      .filter(([label]) => message.content.includes(label))
-      .map(([label, packageName]) => `${label}: ${packageName}`)
-    const matched = options.cli?.detailsFor(message.content) ?? { names: [], content: '' }
+    const contributions = journal.read()
+      .filter(item => item.type === CONTEXT_CONTRIBUTION)
+      .map(item => item.data as ContextContribution)
+      .filter(item => item.turnId === message.turnId)
+    const matchedPackages = contributions.flatMap(item => item.matchedPackages ?? [])
+    const matchedCommands = contributions.flatMap(item => item.matchedCommands ?? [])
     const state = activeState(journal.read())
     const sections = [
       `当前时间: ${options.now().toISOString()}`,
-      matchedPackages.length === 0
-        ? ''
-        : `相关应用包名:\n${matchedPackages.map(item => `- ${item}`).join('\n')}`,
-      matched.content.length === 0
-        ? ''
-        : `本轮可用命令详细说明:\n${matched.content}`,
+      ...contributions.map(item => item.content).filter(Boolean),
       Object.keys(state).length === 0
         ? ''
         : `当前有效工具状态:\n${JSON.stringify(state)}`,
@@ -51,9 +47,10 @@ export const runtimeContextPlugin = (options: RuntimeContextOptions): Plugin =>
 
     journal.append(CONTEXT_DYNAMIC, {
       turnId: message.turnId,
+      query: message.content,
       content: sections.join('\n\n'),
       matchedPackages,
-      matchedCommands: matched.names,
+      matchedCommands,
       activeState: state,
     })
   })

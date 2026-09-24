@@ -9,6 +9,7 @@ import type { LiveOutput } from './llm.js'
 import { mockLlmPlugin } from './llm-mock.js'
 import { openAiLlmPlugin } from './llm-openai.js'
 import { createTerminalUi } from './terminal-ui.js'
+import { createMockCase1ToolRuntime } from './tool-runtimes.js'
 
 function configuredLlm(liveOutput: LiveOutput): Plugin {
   const baseUrl = process.env['KNOT_BASE_URL']
@@ -38,8 +39,11 @@ const traceEnabled = process.env['KNOT_TRACE'] !== '0'
 const startedAt = performance.now()
 let eventNumber = 0
 const ui = createTerminalUi(interactive)
+const toolRuntime = createMockCase1ToolRuntime()
 const options = {
   llm: configuredLlm(ui.live),
+  dispatcher: toolRuntime.dispatcher,
+  appMatcher: toolRuntime.appMatcher,
   trace(event) {
     if (!traceEnabled) return
     eventNumber += 1

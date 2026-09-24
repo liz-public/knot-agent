@@ -3,20 +3,22 @@ import { createJournal, type Event, type Plugin } from '../../journal.js'
 import { JSONL_LOAD, JSONL_STORE_METADATA, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
 import { controlledEventBoundary } from '../../plugins/controlled-boundary.js'
 import type { CompressHistoryOptions } from './compress-history.js'
+import { ANDROID_TOOL_CATALOG } from './android-tool-catalog.js'
+import { createBashTool, createCliCatalog } from './cli.js'
 import type { ContentSource } from './content.js'
-import type { CliCatalog } from './cli.js'
+import type { AppMatcher } from './context-contributions.js'
+import type { ToolDispatcher } from './dispatcher.js'
 import type { OutputSinks } from './output.js'
 import { buildCase1PluginNodes } from './plugin-definitions.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
-import { case1ToolDefinitions } from './tool-definitions.js'
-import type { ToolDefinition } from './tools.js'
+import { androidCallRule, androidFlashlightRule, shortcutSource } from './shortcuts.js'
 
 export interface Case1Options {
   readonly llm: Plugin
+  readonly dispatcher: ToolDispatcher
+  readonly appMatcher?: AppMatcher
   /** Extra content sources, tried after the built-in shortcut rules. */
   readonly contentSources?: readonly ContentSource[]
-  readonly tools?: readonly ToolDefinition[]
-  readonly cli?: CliCatalog
   readonly output?: OutputSinks
   readonly trace?: (event: Event) => void
   readonly compression?: CompressHistoryOptions
@@ -38,13 +40,9 @@ function assembleCase1Agent(
   platformPlugins: readonly PluginNode[] = [],
 ) {
   const { journal, runUntilIdle } = runtime
+  const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
+  const tools = [createBashTool(catalog, options.dispatcher)]
   const boundary = controlledEventBoundary()
-  const defaults = options.cli === undefined && options.tools === undefined
-    ? case1ToolDefinitions()
-    : undefined
-  const cli = options.cli ?? defaults?.cli
-  const tools = options.tools ?? (cli === undefined ? undefined : [cli.bash])
-  if (tools === undefined) throw new Error('CASE1 requires tools or a CLI catalog')
   let started = restored
   let turnNumber = 0
   let running = false
@@ -54,9 +52,10 @@ function assembleCase1Agent(
 
   const nodes = buildCase1PluginNodes({
     boundary: boundary.plugin,
-    cli,
     compression: options.compression,
-    contentSources: options.contentSources,
+    appMatcher: options.appMatcher,
+    catalog,
+    contentSources: [shortcutSource([androidCallRule, androidFlashlightRule]), ...(options.contentSources ?? [])],
     llm: options.llm,
     now: options.now ?? (() => new Date()),
     output: options.output,

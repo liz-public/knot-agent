@@ -1,6 +1,7 @@
 export const SESSION_START = 'session.start'
 export const SYSTEM_PROMPT = 'system.prompt'
 export const USER_MESSAGE = 'user.message'
+export const CONTEXT_CONTRIBUTION = 'context.contribution'
 export const CONTEXT_DYNAMIC = 'context.dynamic'
 export const CONTENT_REQUEST = 'content.request'
 export const LLM_REQUEST = 'llm.request'
@@ -26,10 +27,19 @@ export interface UserMessage {
 
 export interface DynamicContext {
   turnId: string
+  query: string
   content: string
   matchedPackages: readonly string[]
   matchedCommands: readonly string[]
   activeState: Readonly<Record<string, unknown>>
+}
+
+export interface ContextContribution {
+  turnId: string
+  source: string
+  content: string
+  matchedPackages?: readonly string[]
+  matchedCommands?: readonly string[]
 }
 
 export interface ContentRequest {

@@ -8,10 +8,13 @@
     "case1": "npm run build --silent && node dist/src/cases/case1/run.js",
     "case2": "npm run build --silent && node dist/src/cases/case2/run.js",
     "eval:case2:goal": "npm run build --silent && node scripts/eval-case2-goal.mjs",
+    "eval:context-lab": "npm run build --silent && node scripts/eval-context-lab.mjs",
     "workbench:api": "npm run build --silent && node dist/src/workbench/run.js",
     "workbench": "npm run build --silent && npm run web:build --silent && node dist/src/workbench/run.js",
     "start": "npm run build --silent && node dist/src/main.js",
     "test": "npm run build --silent && node --test dist/test/*.test.js",
+    "verify:adb-p0": "npm run build --silent && node scripts/verify-adb-p0.mjs",
+    "verify:adb-p1": "npm run build --silent && node scripts/verify-adb-p1.mjs",
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build"
   },

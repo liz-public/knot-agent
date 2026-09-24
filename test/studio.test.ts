@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import type { PluginMetadata, PluginNode } from '../src/assembly-definition.js'
+import { ANDROID_TOOL_CATALOG } from '../src/cases/case1/android-tool-catalog.js'
+import { createCliCatalog } from '../src/cases/case1/cli.js'
 import { buildCase1PluginNodes, case1PluginMetadata } from '../src/cases/case1/plugin-definitions.js'
 import { buildCase2PluginNodes, case2PluginMetadata } from '../src/cases/case2/plugin-definitions.js'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
@@ -31,6 +33,7 @@ test('CASE1 executable nodes and Studio metadata share one registration source',
   const platform: PluginNode = { metadata: platformMetadata, plugin: () => undefined }
   const nodes = buildCase1PluginNodes({
     boundary: () => undefined,
+    catalog: createCliCatalog(ANDROID_TOOL_CATALOG),
     llm: () => undefined,
     now: () => new Date(0),
     tools: [],
