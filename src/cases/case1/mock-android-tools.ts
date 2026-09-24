@@ -44,7 +44,10 @@ function tool(
 
 function booleanArgument(arguments_: Record<string, unknown>, name: string): boolean | undefined {
   const value = arguments_[name]
-  return typeof value === 'boolean' ? value : undefined
+  if (typeof value === 'boolean') return value
+  if (value === 'on') return true
+  if (value === 'off') return false
+  return undefined
 }
 
 function percentage(raw: unknown, current: number): { value: number; adjust?: number } | undefined {
@@ -82,7 +85,8 @@ export function mockAndroidSystemTools(session: AndroidDeviceSession): readonly 
       { mode: { type: 'string', enum: ['normal', 'silent', 'vibrate'] } },
       ['mode'],
       arguments_ => {
-        const mode = arguments_['mode']
+        const requested = arguments_['mode']
+        const mode = requested === 'ring' ? 'normal' : requested
         if (mode !== 'normal' && mode !== 'silent' && mode !== 'vibrate') {
           return err('invalid_mode', 'mode 无效。请使用 normal、silent 或 vibrate。')
         }
@@ -222,6 +226,18 @@ export function createMockAndroidDispatcher(
   const handlers = Object.fromEntries(mockAndroidSystemTools(session).map(item => [item.name, item.execute]))
   return createToolDispatcher({
     ...handlers,
+    contact_add(arguments_) {
+      const phone = arguments_['phone']; const name = arguments_['name']
+      return typeof phone !== 'string' || typeof name !== 'string'
+        ? err('need_phone_and_name')
+        : ok({ action: 'contact_add_requested', phone, name }, '已模拟新建联系人请求。')
+    },
+    contact_delete(arguments_) {
+      const phone = arguments_['phone']
+      return typeof phone !== 'string'
+        ? err('need_phone')
+        : ok({ action: 'delete_requested', phone }, '已模拟删除联系人请求。')
+    },
     contact(arguments_) {
       const sub = arguments_['sub']
       const query = arguments_['query']
@@ -237,7 +253,7 @@ export function createMockAndroidDispatcher(
       )
     },
     select(arguments_) {
-      const ordinal = arguments_['ordinal']
+      const ordinal = Number(arguments_['ordinal'])
       if (session.pendingContact === undefined) return err('no_active_list', '当前没有有效候选列表，请重新查询联系人。')
       if (ordinal !== 1) return err('invalid_selection', '候选序号无效，请重新选择。')
       const name = session.pendingContact
@@ -251,13 +267,13 @@ export function createMockAndroidDispatcher(
     async ask(arguments_) {
       if (options.askPort === undefined) return err('no_ask_port', '需要 Workbench 交互通道。')
       const question = arguments_['question']
-      const choices = arguments_['choices']
+      const choices = typeof arguments_['choices'] === 'string'
+        ? arguments_['choices'].split(',').map(choice => choice.trim()).filter(Boolean)
+        : undefined
       if (typeof question !== 'string' || question.trim().length === 0) return err('empty_question')
       const response = await options.askPort.ask({
         question: question.trim(),
-        ...(Array.isArray(choices)
-          ? { choices: choices.filter((choice): choice is string => typeof choice === 'string') }
-          : {}),
+        ...(choices === undefined ? {} : { choices }),
       })
       return ok({ answer: response.answer }, '已收到用户回答。')
     },

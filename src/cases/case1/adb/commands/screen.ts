@@ -6,7 +6,9 @@ import { extractScreenText } from '../screen-xml.js'
 export function screenHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {
   return {
     async list_notifications(arguments_) {
-      const limit = typeof arguments_['limit'] === 'number' ? Math.max(1, arguments_['limit']) : 20
+      const parsedLimit = Number(arguments_['limit'] ?? 20)
+      if (!Number.isInteger(parsedLimit) || parsedLimit < 1) return err('invalid_limit')
+      const limit = parsedLimit
       const lines = await executor.shellLines('cmd notification list')
       const notifications = lines.map(line => {
         const parts = line.split('|')

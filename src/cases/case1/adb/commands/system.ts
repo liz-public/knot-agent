@@ -20,17 +20,20 @@ export function systemHandlers(executor: AdbExecutor): Readonly<Record<string, T
       return ok({ stream, percent: target, stream_index: index }, '音量已调节。', { key: 'device.volume', value: { stream, percent: target } })
     },
     async set_ringer_mode(arguments_) {
-      const mode = arguments_['mode']; if (mode !== 'normal' && mode !== 'silent' && mode !== 'vibrate') return err('invalid_mode')
+      const requested = arguments_['mode']; const mode = requested === 'ring' ? 'normal' : requested
+      if (mode !== 'normal' && mode !== 'silent' && mode !== 'vibrate') return err('invalid_mode')
       await executor.shell(`cmd audio set-ringer-mode ${mode === 'normal' ? 'NORMAL' : mode === 'silent' ? 'SILENT' : 'VIBRATE'}`)
       return ok({ mode }, '铃声模式已设置。', { key: 'device.ringer', value: { mode } })
     },
     async set_do_not_disturb(arguments_) {
-      const enabled = arguments_['enabled']; if (typeof enabled !== 'boolean') return err('invalid_enabled')
+      const enabled = arguments_['enabled'] === 'on' ? true : arguments_['enabled'] === 'off' ? false : undefined
+      if (enabled === undefined) return err('invalid_enabled')
       await executor.shell(`cmd notification set_dnd ${enabled ? 'on' : 'off'}`)
       return ok({ enabled }, enabled ? '勿扰已开启。' : '勿扰已关闭。', { key: 'device.dnd', value: { enabled } })
     },
     async set_wifi_enabled(arguments_) {
-      const enabled = arguments_['enabled']; if (typeof enabled !== 'boolean') return err('invalid_enabled')
+      const enabled = arguments_['enabled'] === 'on' ? true : arguments_['enabled'] === 'off' ? false : undefined
+      if (enabled === undefined) return err('invalid_enabled')
       await executor.shell(`cmd wifi set-wifi-enabled ${enabled ? 'enabled' : 'disabled'}`); return ok({ enabled }, `WiFi 已${enabled ? '开启' : '关闭'}。`)
     },
     async set_screen_brightness(arguments_) {
@@ -39,7 +42,7 @@ export function systemHandlers(executor: AdbExecutor): Readonly<Record<string, T
       await executor.shell(`settings put system screen_brightness ${level}`); return ok({ percent: target, level }, '亮度已调节。', { key: 'device.brightness', value: { percent: target } })
     },
     async set_screen_rotation(arguments_) {
-      const mode = arguments_['mode']; const map: Record<string, number> = { portrait: 0, landscape: 1, reverse_portrait: 2, reverse_landscape: 3 }
+      const mode = arguments_['mode'] ?? 'auto'; const map: Record<string, number> = { portrait: 0, landscape: 1, reverse_portrait: 2, reverse_landscape: 3 }
       if (mode === 'auto') await executor.shell('settings put system accelerometer_rotation 1')
       else if (typeof mode === 'string' && map[mode] !== undefined) { await executor.shell('settings put system accelerometer_rotation 0'); await executor.shell(`settings put system user_rotation ${map[mode]}`) }
       else return err('invalid_mode')

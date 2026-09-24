@@ -6,7 +6,9 @@ import { parseContentRows, shellQuote } from '../parse.js'
 export function communicationHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {
   return {
     async list_sms_messages(arguments_) {
-      const limit = typeof arguments_['limit'] === 'number' ? arguments_['limit'] : 30
+      const parsedLimit = Number(arguments_['limit'] ?? 30)
+      if (!Number.isInteger(parsedLimit) || parsedLimit < 1) return err('invalid_limit')
+      const limit = parsedLimit
       const rows = parseContentRows(await executor.shellLines("content query --uri content://sms/inbox --projection address:body:date --sort 'date DESC'")).slice(0, Math.min(limit, 100))
       return ok({ count: rows.length, messages: rows }, '已获取短信列表。')
     },
@@ -15,7 +17,9 @@ export function communicationHandlers(executor: AdbExecutor): Readonly<Record<st
       await executor.shell(`am start -a android.intent.action.SENDTO -d smsto:${phone} --es sms_body ${shellQuote(text)}`); return ok({ phone }, '已向系统发起打开短信编辑页请求。')
     },
     async list_call_history(arguments_) {
-      const limit = typeof arguments_['limit'] === 'number' ? arguments_['limit'] : 100
+      const parsedLimit = Number(arguments_['limit'] ?? 100)
+      if (!Number.isInteger(parsedLimit) || parsedLimit < 1) return err('invalid_limit')
+      const limit = parsedLimit
       const rows = parseContentRows(await executor.shellLines('content query --uri content://call_log/calls --projection number:type:date --sort "date DESC"')).slice(0, Math.min(limit, 500))
       return ok({ count: rows.length, calls: rows }, '已列出通话记录。')
     },

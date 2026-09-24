@@ -25,26 +25,20 @@ function pendingState(session: AdbDeviceSession, value: AdbDeviceSession['pendin
 
 export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession, options: TelecomHandlerOptions = {}): Readonly<Record<string, ToolHandler>> {
   return {
+    async contact_add(arguments_) {
+      const phone = arguments_['phone']; const name = arguments_['name']
+      if (typeof phone !== 'string' || typeof name !== 'string' || phone.length === 0 || name.length === 0) return err('need_phone_and_name')
+      await executor.shell('content insert --uri content://com.android.contacts/raw_contacts --bind account_type:s:com.android.local --bind account_name:s:Phone')
+      return ok({ action: 'contact_add_requested', phone, name }, '已请求新建联系人。')
+    },
+    async contact_delete(arguments_) {
+      const phone = arguments_['phone']
+      if (typeof phone !== 'string' || phone.length === 0) return err('need_phone')
+      await executor.shell(`content delete --uri content://com.android.contacts/raw_contacts --where ${shellQuote(`phone=${phone}`)}`)
+      return ok({ action: 'delete_requested', phone }, '已请求删除联系人。')
+    },
     async contact(arguments_) {
       const sub = arguments_['sub']
-      if (sub === 'add') {
-        const phone = arguments_['phone']; const name = arguments_['name']
-        if (typeof phone !== 'string' || typeof name !== 'string' || phone.length === 0 || name.length === 0) return err('need_phone_and_name')
-        await executor.shell('content insert --uri content://com.android.contacts/raw_contacts --bind account_type:s:com.android.local --bind account_name:s:Phone')
-        return ok({ action: 'contact_add_requested', phone, name }, '已请求新建联系人。')
-      }
-      if (sub === 'delete') {
-        const phone = arguments_['phone']; const id = arguments_['id']
-        if (typeof phone === 'string' && phone.length > 0) {
-          await executor.shell(`content delete --uri content://com.android.contacts/raw_contacts --where ${shellQuote(`phone=${phone}`)}`)
-          return ok({ action: 'delete_requested', phone }, '已请求删除联系人。')
-        }
-        if (typeof id === 'string' && id.length > 0) {
-          await executor.shell(`content delete --uri content://com.android.contacts/contacts --where ${shellQuote(`_id=${id}`)}`)
-          return ok({ action: 'delete_requested', contact_id: id }, '已请求删除联系人。')
-        }
-        return err('need_contact_id_or_phone')
-      }
       const query = arguments_['query']
       if ((sub !== 'lookup' && sub !== 'call') || typeof query !== 'string' || query.trim().length === 0) return err('invalid_contact_request')
       const candidates = await queryContacts(executor, query)
@@ -68,8 +62,8 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
       return ok({ action: 'dial_requested', phone_number: normalized }, '已向系统发起拨号请求。')
     },
     async select(arguments_) {
-      const ordinal = arguments_['ordinal']; const pending = session.pending
-      if (typeof ordinal !== 'number' || pending === undefined) return err('no_active_list')
+      const ordinal = Number(arguments_['ordinal']); const pending = session.pending
+      if (!Number.isInteger(ordinal) || pending === undefined) return err('no_active_list')
       const picked = pending.candidates.find(item => item.ordinal_1based === ordinal); if (picked === undefined) return err('invalid_selection')
       session.pending = undefined
       if (pending.source === 'contact' && picked.phone !== undefined) {
