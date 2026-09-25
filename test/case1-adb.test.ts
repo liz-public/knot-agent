@@ -8,6 +8,9 @@ import { parseContentRows, parsePercent } from '../src/cases/case1/adb/parse.js'
 import { extractScreenText } from '../src/cases/case1/adb/screen-xml.js'
 import type { AdbExecutor } from '../src/cases/case1/adb/executor.js'
 import { createAdbAppIndex } from '../src/cases/case1/adb/app-index.js'
+import { queryCallLog } from '../src/cases/case1/adb/call-log.js'
+import { parseDeviceStatusFields } from '../src/cases/case1/adb/device-status.js'
+import { parseCachedLocations } from '../src/cases/case1/adb/location.js'
 
 function mockExecutor(responses: Record<string, string>): AdbExecutor {
   return {
@@ -155,17 +158,25 @@ test('adb media.toggle dispatches play-pause', async () => {
   assert.match(seen, /dispatch play-pause/)
 })
 
-test('ADB app index loads once and returns only query matches', async () => {
+test('ADB app index loads launchable apps once and returns only query matches', async () => {
   let loads = 0
+  const launcherLines = [
+    'packageName=com.tencent.mm',
+    'packageName=com.example.notes',
+  ]
   const executor: AdbExecutor = {
     async shell(command) {
-      if (command === 'pm list packages') {
+      if (command.includes('pm query-activities')) {
         loads += 1
-        return 'package:com.tencent.mm\npackage:com.example.notes'
+        return launcherLines.join('\n')
       }
       return ''
     },
     async shellLines(command) {
+      if (command.includes('pm query-activities')) {
+        loads += 1
+        return launcherLines
+      }
       return (await this.shell(command)).split('\n').filter(Boolean)
     },
   }
@@ -200,14 +211,162 @@ test('ADB direct contact call asks once, while select confirms the prior user ch
   })
 
   const direct = await bash.execute({ command: 'contact call 李行素' }, { turnId: 't1', callId: 'c1' })
-  assert.equal(JSON.parse(direct.content).ok, true)
+  const directPayload = JSON.parse(direct.content)
+  assert.equal(directPayload.ok, true)
+  assert.equal(directPayload.phone, undefined)
   assert.equal(approvals, 1)
 
   await bash.execute({ command: 'contact lookup 李行素' }, { turnId: 't2', callId: 'c2' })
   const selected = await bash.execute({ command: 'select 1' }, { turnId: 't2', callId: 'c3' })
-  assert.equal(JSON.parse(selected.content).ok, true)
+  const selectedPayload = JSON.parse(selected.content)
+  assert.equal(selectedPayload.ok, true)
+  assert.equal(selectedPayload.phone, undefined)
   assert.equal(approvals, 1)
   assert.equal(commands.filter(command => command.includes('android.intent.action.CALL')).length, 2)
+})
+
+test('call.log filters by type and time scope', async () => {
+  const now = 1_790_315_000_000
+  const executor: AdbExecutor = {
+    async shell(command) {
+      if (command === 'date +%s') return String(Math.floor(now / 1000))
+      if (command === 'getprop persist.sys.timezone') return 'Asia/Shanghai'
+      return ''
+    },
+    async shellLines(command) {
+      if (!command.includes('call_log/calls')) return []
+      return [
+        `Row: 0 number=10086, type=3, date=${now - 3_600_000}, cached_name=`,
+        `Row: 1 number=10010, type=2, date=${now - 86_400_000 * 2}, cached_name=`,
+      ]
+    },
+  }
+  const result = await queryCallLog(executor, {
+    type: 'missed',
+    time_scope: 'today',
+    limit: 10,
+    groupby_ctype: false,
+  })
+  assert.equal(result.call_count, 1)
+  assert.equal(result.calls?.[0]?.number, '10086')
+})
+
+test('device.status parses requested fields', () => {
+  assert.deepEqual([...parseDeviceStatusFields('battery,storage')], ['battery', 'storage'])
+  assert.equal(parseDeviceStatusFields(undefined).size, 11)
+})
+
+test('location parser prefers gps over network', () => {
+  const locations = parseCachedLocations([
+    'last location=Location[network 40.01,116.34 hAcc=66.2 et=+1d]',
+    'last location=Location[gps 40.02,116.35 hAcc=14.2 et=+1d]',
+  ].join('\n'))
+  assert.equal(locations.length, 2)
+  assert.equal(locations[1]?.provider, 'gps')
+})
+
+test('adb device.status respects fields argument', async () => {
+  const executor = mockExecutor({
+    'dumpsys battery': 'level: 88\nstatus: 2',
+    'getprop ro.product.model': 'SM-F7410',
+  })
+  const result = await adbBash(executor).execute({ command: 'device.status battery' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.fields[0], 'battery')
+  assert.equal(payload.battery.percent, 88)
+  assert.equal(payload.device, undefined)
+})
+
+test('adb app.list without query returns capped launchable apps', async () => {
+  const launcherLines = Array.from({ length: 80 }, (_, index) => `packageName=com.example.app${index}`)
+  const executor: AdbExecutor = {
+    async shell(command) {
+      if (command.includes('pm query-activities')) return launcherLines.join('\n')
+      return ''
+    },
+    async shellLines(command) {
+      if (command.includes('pm query-activities')) return launcherLines
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const bash = adbBash(executor, createAdbDeviceSession(), { appIndex: createAdbAppIndex(executor) })
+  const result = await bash.execute({ command: 'app.list --limit 20' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.count, 20)
+  assert.equal(payload.query, undefined)
+})
+
+test('adb contact lookup returns at most five candidates', async () => {
+  const rows = Array.from({ length: 8 }, (_, index) => `Row: ${index} display_name=联系人${index}, data1=1380013800${index}`)
+  const executor = mockExecutor({ 'content query --uri content://com.android.contacts': rows.join('\n') })
+  const result = await adbBash(executor).execute({ command: 'contact lookup 联系人' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.count, 5)
+  assert.equal(payload.candidates.length, 5)
+})
+
+test('adb contact.delete requires approval before deleting', async () => {
+  let approvals = 0
+  let deleted = false
+  const phone = '19900001234'
+  const executor: AdbExecutor = {
+    async shell(command) {
+      if (command.includes('phone_lookup') && !deleted) {
+        return `Row: 0 contact_id=42, display_name=测试联系人, number=${phone}`
+      }
+      if (command.includes('phone_lookup') && deleted) return 'No result found.'
+      if (command.includes('raw_contact_id') && command.includes('contact_id=42')) {
+        return 'Row: 0 raw_contact_id=99'
+      }
+      if (command.includes('content delete --uri content://com.android.contacts/contacts/42')) {
+        deleted = true
+        return ''
+      }
+      return ''
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const bash = adbBash(executor, createAdbDeviceSession(), {
+    approvalPort: {
+      async request(input) {
+        approvals += 1
+        assert.equal(input.toolName, 'contact.delete')
+        return 'allow'
+      },
+    },
+  })
+  const result = await bash.execute({ command: `contact.delete ${phone}` }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.contact_id, 42)
+  assert.equal(payload.phone, undefined)
+  assert.equal(approvals, 1)
+  assert.equal(deleted, true)
+})
+
+test('adb alarm.set dispatches SET_ALARM with skip ui', async () => {
+  let seen = ''
+  const executor: AdbExecutor = {
+    async shell(command) {
+      seen = command
+      return ''
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const result = await adbBash(executor).execute({ command: 'alarm.set 7 30 --repeat_weekdays 1,2,3,4,5' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.action, 'alarm_set')
+  assert.match(seen, /SET_ALARM/)
+  assert.match(seen, /SKIP_UI true/)
+  assert.match(seen, /--eia android\.intent\.extra\.alarm\.DAYS 2,3,4,5,6/)
 })
 
 test('ADB relative volume uses the reported current index and range', async () => {

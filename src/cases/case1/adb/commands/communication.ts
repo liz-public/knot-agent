@@ -1,4 +1,5 @@
 import type { ToolHandler } from '../../dispatcher.js'
+import { queryCallLog } from '../call-log.js'
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
 import { parseContentRows, shellQuote } from '../parse.js'
@@ -19,9 +20,15 @@ export function communicationHandlers(executor: AdbExecutor): Readonly<Record<st
     async list_call_history(arguments_) {
       const parsedLimit = Number(arguments_['limit'] ?? 100)
       if (!Number.isInteger(parsedLimit) || parsedLimit < 1) return err('invalid_limit')
-      const limit = parsedLimit
-      const rows = parseContentRows(await executor.shellLines('content query --uri content://call_log/calls --projection number:type:date --sort "date DESC"')).slice(0, Math.min(limit, 500))
-      return ok({ count: rows.length, calls: rows }, '已列出通话记录。')
+      const type = typeof arguments_['type'] === 'string' ? arguments_['type'] : 'all'
+      const timeScope = typeof arguments_['time_scope'] === 'string' ? arguments_['time_scope'] : 'today'
+      const result = await queryCallLog(executor, {
+        type,
+        time_scope: timeScope,
+        limit: parsedLimit,
+        groupby_ctype: arguments_['groupby_ctype'] === true,
+      })
+      return ok(result, '已列出通话记录。')
     },
     async reject_incoming_call() { await executor.shell('input keyevent KEYCODE_ENDCALL'); return ok({ action: 'end_call_requested' }, '已向系统发起挂断请求。') },
     async wechat_send(arguments_) {

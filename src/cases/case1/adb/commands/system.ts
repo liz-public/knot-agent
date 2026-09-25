@@ -1,14 +1,24 @@
 import type { ToolHandler } from '../../dispatcher.js'
+import { parseDeviceStatusFields, readDeviceStatus } from '../device-status.js'
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
+import { readCachedLocation } from '../location.js'
 import { parsePercent } from '../parse.js'
 
 const STREAM_IDS: Record<string, number> = { music: 3, ring: 2, alarm: 4, notification: 5 }
 
 export function systemHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {
   return {
-    async get_device_status() {
-      return ok({ battery: await executor.shell('dumpsys battery | head -8'), wifi: await executor.shell('dumpsys wifi | grep "Wi-Fi is" | head -1') }, '设备状态已读取。')
+    async get_device_status(arguments_) {
+      const fields = parseDeviceStatusFields(arguments_['fields'])
+      const status = await readDeviceStatus(executor, fields)
+      return ok({ fields: [...fields], ...status }, '设备状态已读取。')
+    },
+    async get_location() {
+      const location = await readCachedLocation(executor)
+      return location === undefined
+        ? err('unavailable_cached', '无缓存位置，请打开定位后重试。')
+        : ok({ ...location }, '已读取最近一次缓存位置。')
     },
     async set_stream_volume(arguments_) {
       const percent = arguments_['percent']; const stream = typeof arguments_['stream'] === 'string' ? arguments_['stream'] : 'music'; const streamId = STREAM_IDS[stream]
