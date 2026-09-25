@@ -13,6 +13,10 @@ export function parseDeviceStatusFields(raw: unknown): Set<string> {
   return fields.length === 0 ? ALL_FIELDS : new Set(fields)
 }
 
+export function unknownDeviceStatusFields(fields: ReadonlySet<string>): string[] {
+  return [...fields].filter(field => !ALL_FIELDS.has(field))
+}
+
 function parseBatteryLevel(text: string): number | undefined {
   const match = /level:\s*(\d+)/i.exec(text)
   if (match === null) return undefined

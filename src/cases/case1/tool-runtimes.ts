@@ -1,6 +1,7 @@
 import { createAdbAppIndex } from './adb/app-index.js'
 import { createAdbDispatcher } from './adb/dispatcher.js'
 import { createAdbExecutor } from './adb/executor.js'
+import { readMapApiConfig } from './adb/map-config.js'
 import { createAdbDeviceSession } from './adb/session.js'
 import type { AskPort } from './ask-port.js'
 import type { ApprovalPort } from './approval-port.js'
@@ -33,6 +34,7 @@ export function createAdbCase1ToolRuntime(options: {
       appIndex,
       askPort: options.askPort,
       approvalPort: options.approvalPort,
+      mapApi: readMapApiConfig(),
     }),
     appMatcher: appIndex,
   }

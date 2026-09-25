@@ -76,8 +76,7 @@ function matchesTypeFilter(callType: number, filterType: string): boolean {
   switch (filterType) {
     case 'missed': return callType === CALL_TYPE_MISSED
     case 'outgoing': return callType === CALL_TYPE_OUTGOING
-    case 'incoming':
-      return callType !== CALL_TYPE_MISSED && callType !== CALL_TYPE_OUTGOING
+    case 'incoming': return callType === CALL_TYPE_INCOMING
     case 'all': return true
     default: return true
   }
@@ -122,9 +121,7 @@ export async function queryCallLog(executor: AdbExecutor, query: CallLogQuery) {
   if (filterType === 'all' && query.groupby_ctype) {
     const missed = withOrdinals(rows.filter(call => call.call_type === CALL_TYPE_MISSED).slice(0, limit))
     const outgoing = withOrdinals(rows.filter(call => call.call_type === CALL_TYPE_OUTGOING).slice(0, limit))
-    const incoming = withOrdinals(rows.filter(call =>
-      call.call_type !== CALL_TYPE_MISSED && call.call_type !== CALL_TYPE_OUTGOING,
-    ).slice(0, limit))
+    const incoming = withOrdinals(rows.filter(call => call.call_type === CALL_TYPE_INCOMING).slice(0, limit))
     return {
       filter_type: filterType,
       time_scope: timeScope,

@@ -26,9 +26,8 @@ export interface NavigationHandlerOptions {
   readonly mapApi?: MapApiConfig
 }
 
-function pendingState(session: AdbDeviceSession, value: AdbDeviceSession['pending']): ToolExecution['state'] {
-  session.pending = value
-  return { key: 'pending.selection', value: value ?? null }
+function pendingState(kind: PendingSelection['kind'], places: ReturnType<typeof llmPlacesSummary>): ToolExecution['state'] {
+  return { key: 'pending.selection', value: { kind, places } }
 }
 
 function requireMapApi(options: NavigationHandlerOptions) {
@@ -75,35 +74,37 @@ export async function executeMapSelect(
   if (pending.kind === 'contact') return err('no_active_list')
   const tip = pending.tips[ordinal - 1]
   if (tip === undefined) return err('invalid_selection')
-  session.pending = undefined
 
   if (pending.kind === 'map_navi') {
     const uri = createAmapDirectNavUri(tip, pending.nav_mode, pending.user_location)
     if (uri === undefined) return err('bad_payload', '地点数据无效。')
     await launchMapUri(executor, uri)
+    session.pending = undefined
     return ok(
       { action: 'navigate', index_1based: ordinal, source: 'map_navi', nav_mode: pending.nav_mode, place_name: tip.name },
       '已向系统发起导航请求。',
-      pendingState(session, undefined),
+      { key: 'pending.selection', value: null },
     )
   }
   if (pending.kind === 'map_route') {
     const uri = createAmapRouteUri(tip, pending.origin_location, pending.origin_name, pending.route_type)
     if (uri === undefined) return err('bad_payload', '地点数据无效。')
     await launchMapUri(executor, uri)
+    session.pending = undefined
     return ok(
       { action: 'route_plan', index_1based: ordinal, source: 'map_route', route_type: pending.route_type, place_name: tip.name },
       '已向系统发起路线规划请求。',
-      pendingState(session, undefined),
+      { key: 'pending.selection', value: null },
     )
   }
   const uri = createAmapShowOnMapUri(tip)
   if (uri === undefined) return err('bad_payload', '地点数据无效。')
   await launchMapUri(executor, uri)
+  session.pending = undefined
   return ok(
     { action: 'show_on_map', index_1based: ordinal, source: 'map_nearby', place_name: tip.name },
     '已在地图中显示所选地点。',
-    pendingState(session, undefined),
+    { key: 'pending.selection', value: null },
   )
 }
 
@@ -131,7 +132,7 @@ export function navigationHandlers(
       return ok(
         { action: 'awaiting_pick', nav_mode: navMode, count: places.length, places },
         '导航候选已暂存，请调用 select 选择地点。',
-        pendingState(session, session.pending),
+        pendingState('map_navi', places),
       )
     },
 
@@ -166,7 +167,7 @@ export function navigationHandlers(
       return ok(
         { action: 'awaiting_pick', route_type: routeType, count: places.length, places },
         '路线候选已暂存，请调用 select 选择地点。',
-        pendingState(session, session.pending),
+        pendingState('map_route', places),
       )
     },
 
@@ -189,20 +190,20 @@ export function navigationHandlers(
       const tips = enrichTipsWithDistance(filterInputTips(response.tips ?? []), user.lonLat)
       const places = llmPlacesSummary(tips)
       if (places.length === 0) {
-        return ok({ count: 0, places: [], poi_type: poiCode, poi_label: POI_CODE_TO_LABEL[poiCode] ?? poiType }, '未搜索到附近地点。')
+        return ok({ count: 0, places: [], poi_type: poiType, poi_label: POI_CODE_TO_LABEL[poiCode] ?? poiType }, '未搜索到附近地点。')
       }
       session.pending = { kind: 'map_nearby', tips }
       return ok(
         {
           action: 'awaiting_pick',
-          poi_type: poiCode,
+          poi_type: poiType,
           poi_label: POI_CODE_TO_LABEL[poiCode] ?? poiType,
           radius: 3000,
           count: places.length,
           places,
         },
         '附近地点候选已暂存，请调用 select 选择地点。',
-        pendingState(session, session.pending),
+        pendingState('map_nearby', places),
       )
     },
   }

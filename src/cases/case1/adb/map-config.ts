@@ -4,20 +4,10 @@ export interface MapApiConfig {
   readonly apiKey: string
 }
 
-const BASE_ENV_KEYS = ['CASE1_MAP_API_BASE', 'KNOT_MAP_API_BASE'] as const
-const KEY_ENV_KEYS = ['CASE1_MAP_API_KEY', 'KNOT_MAP_API_KEY'] as const
-
-function readEnv(keys: readonly string[]): string | undefined {
-  for (const key of keys) {
-    const value = process.env[key]?.trim()
-    if (value !== undefined && value.length > 0) return value
-  }
-  return undefined
-}
-
 export function readMapApiConfig(): MapApiConfig | undefined {
-  const baseUrl = readEnv(BASE_ENV_KEYS)
-  const apiKey = readEnv(KEY_ENV_KEYS)
+  const baseUrl = process.env['CASE1_MAP_API_BASE']?.trim()
+  const apiKey = process.env['CASE1_MAP_API_KEY']?.trim()
   if (baseUrl === undefined || apiKey === undefined) return undefined
+  if (baseUrl.length === 0 || apiKey.length === 0) return undefined
   return { baseUrl: baseUrl.replace(/\/$/, ''), apiKey }
 }

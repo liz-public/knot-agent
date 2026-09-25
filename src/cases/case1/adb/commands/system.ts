@@ -1,5 +1,5 @@
 import type { ToolHandler } from '../../dispatcher.js'
-import { parseDeviceStatusFields, readDeviceStatus } from '../device-status.js'
+import { parseDeviceStatusFields, readDeviceStatus, unknownDeviceStatusFields } from '../device-status.js'
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
 import { readCachedLocation } from '../location.js'
@@ -11,6 +11,8 @@ export function systemHandlers(executor: AdbExecutor): Readonly<Record<string, T
   return {
     async get_device_status(arguments_) {
       const fields = parseDeviceStatusFields(arguments_['fields'])
+      const unknown = unknownDeviceStatusFields(fields)
+      if (unknown.length > 0) return err('unknown_fields', `未知状态字段: ${unknown.join(', ')}`)
       const status = await readDeviceStatus(executor, fields)
       return ok({ fields: [...fields], ...status }, '设备状态已读取。')
     },

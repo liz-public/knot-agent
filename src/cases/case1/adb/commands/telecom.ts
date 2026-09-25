@@ -4,7 +4,6 @@ import { deleteContactByPhone, lookupContactByPhone, upsertContactByPhone } from
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
 import { parseContentRows } from '../parse.js'
-import { executeMapSelect } from './navigation.js'
 import type { AdbDeviceSession, ContactCandidate } from '../session.js'
 
 export interface TelecomHandlerOptions { readonly approvalPort?: ApprovalPort }
@@ -22,11 +21,6 @@ async function queryContacts(executor: AdbExecutor, query: string): Promise<Cont
     if (result.length >= MAX_CONTACT_CANDIDATES) break
   }
   return result
-}
-
-function pendingState(session: AdbDeviceSession, value: AdbDeviceSession['pending']) {
-  session.pending = value
-  return { key: 'pending.selection', value: value ?? null }
 }
 
 export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession, options: TelecomHandlerOptions = {}): Readonly<Record<string, ToolHandler>> {
@@ -78,8 +72,13 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
         if (options.approvalPort === undefined) return err('approval_required', '拨号前需要用户审批。')
         const approval = await options.approvalPort.request({ toolName: 'contact.call', arguments: { display_name: only.display_name, phone: only.phone } })
         if (approval !== 'allow') return err('user_denied')
-        await executor.shell(`am start -a android.intent.action.CALL -d tel:${only.phone}`); pendingState(session, undefined)
-        return ok({ action: 'direct_dial', display_name: only.display_name }, '已向系统发起拨号请求。')
+        await executor.shell(`am start -a android.intent.action.CALL -d tel:${only.phone}`)
+        session.pending = undefined
+        return ok(
+          { action: 'direct_dial', display_name: only.display_name },
+          '已向系统发起拨号请求。',
+          { key: 'pending.selection', value: null },
+        )
       }
       session.pending = { kind: 'contact', candidates }
       const visible = candidates.map(item => ({ ordinal_1based: item.ordinal_1based, display_name: item.display_name }))
@@ -93,23 +92,6 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
       const phone = arguments_['phone']; if (typeof phone !== 'string' || phone.trim().length === 0) return err('empty_or_invalid_number')
       const normalized = phone.replace(/\s+/g, ''); await executor.shell(`am start -a android.intent.action.CALL -d tel:${normalized}`)
       return ok({ action: 'dial_requested', phone_number: normalized }, '已向系统发起拨号请求。')
-    },
-    async select(arguments_) {
-      const ordinal = Number(arguments_['ordinal']); const pending = session.pending
-      if (!Number.isInteger(ordinal) || ordinal < 1 || pending === undefined) return err('no_active_list')
-      if (pending.kind !== 'contact') return executeMapSelect(executor, session, pending, ordinal)
-      const picked = pending.candidates.find(item => item.ordinal_1based === ordinal)
-      if (picked === undefined) return err('invalid_selection')
-      session.pending = undefined
-      if (picked.phone !== undefined) {
-        await executor.shell(`am start -a android.intent.action.CALL -d tel:${picked.phone}`)
-        return ok(
-          { action: 'direct_dial', index_1based: ordinal, display_name: picked.display_name, source: 'contact' },
-          '已向系统发起拨号请求。',
-          pendingState(session, undefined),
-        )
-      }
-      return ok({ action: 'selected', selected: ordinal }, '已选择候选项。', pendingState(session, undefined))
     },
   }
 }

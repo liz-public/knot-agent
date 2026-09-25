@@ -252,6 +252,33 @@ test('call.log filters by type and time scope', async () => {
   assert.equal(result.calls?.[0]?.number, '10086')
 })
 
+test('call.log incoming excludes rejected and blocked calls', async () => {
+  const now = 1_790_315_000_000
+  const executor: AdbExecutor = {
+    async shell(command) {
+      if (command === 'date +%s') return String(Math.floor(now / 1000))
+      if (command === 'getprop persist.sys.timezone') return 'Asia/Shanghai'
+      return ''
+    },
+    async shellLines(command) {
+      if (!command.includes('call_log/calls')) return []
+      return [
+        `Row: 0 number=10001, type=1, date=${now - 1_000}, cached_name=`,
+        `Row: 1 number=10002, type=5, date=${now - 2_000}, cached_name=`,
+        `Row: 2 number=10003, type=6, date=${now - 3_000}, cached_name=`,
+      ]
+    },
+  }
+  const result = await queryCallLog(executor, {
+    type: 'incoming',
+    time_scope: 'today',
+    limit: 10,
+    groupby_ctype: false,
+  })
+  assert.equal(result.call_count, 1)
+  assert.equal(result.calls?.[0]?.number, '10001')
+})
+
 test('device.status parses requested fields', () => {
   assert.deepEqual([...parseDeviceStatusFields('battery,storage')], ['battery', 'storage'])
   assert.equal(parseDeviceStatusFields(undefined).size, 11)
@@ -277,6 +304,16 @@ test('adb device.status respects fields argument', async () => {
   assert.equal(payload.fields[0], 'battery')
   assert.equal(payload.battery.percent, 88)
   assert.equal(payload.device, undefined)
+})
+
+test('adb device.status rejects unknown fields', async () => {
+  const result = await adbBash(mockExecutor({})).execute(
+    { command: 'device.status battery,banana' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, false)
+  assert.equal(payload.error, 'unknown_fields')
 })
 
 test('adb app.list without query returns capped launchable apps', async () => {
@@ -386,6 +423,11 @@ test('adb map.navi returns places and select launches navigation intent', async 
     assert.equal(listPayload.ok, true)
     assert.equal(listPayload.count, 1)
     assert.equal(listPayload.places[0].name, '清华大学东门')
+    assert.deepEqual(listed.state?.value, {
+      kind: 'map_navi',
+      places: [{ ordinal_1based: 1, name: '清华大学东门' }],
+    })
+    assert.equal(JSON.stringify(listed.state).includes('116.333374'), false)
     const selected = await bash.execute({ command: 'select 1' }, { turnId: 't1', callId: 'c2' })
     const selectPayload = JSON.parse(selected.content)
     assert.equal(selectPayload.ok, true)
@@ -404,6 +446,25 @@ test('adb map.navi without map api config fails clearly', async () => {
   const payload = JSON.parse(result.content)
   assert.equal(payload.ok, false)
   assert.equal(payload.error, 'map_api_unconfigured')
+})
+
+test('adb map selection keeps pending state when place payload is invalid', async () => {
+  const executor = mockExecutor({ 'dumpsys location': '' })
+  const session = createAdbDeviceSession()
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    ok: true,
+    tips: [{ name: '无坐标地点', location: '' }],
+  }), { status: 200 })
+  try {
+    const bash = adbBash(executor, session, { mapApi: { baseUrl: 'https://map.example.test', apiKey: 'test-key' } })
+    await bash.execute({ command: 'map.navi 无坐标地点' }, { turnId: 't1', callId: 'c1' })
+    const selected = await bash.execute({ command: 'select 1' }, { turnId: 't1', callId: 'c2' })
+    assert.equal(JSON.parse(selected.content).error, 'bad_payload')
+    assert.equal(session.pending?.kind, 'map_navi')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('adb map.nearby maps catalog poi_type to backend code', async () => {
@@ -436,7 +497,7 @@ test('adb map.nearby maps catalog poi_type to backend code', async () => {
     const result = await bash.execute({ command: 'map.nearby 地铁 地铁站' }, { turnId: 't1', callId: 'c1' })
     const payload = JSON.parse(result.content)
     assert.equal(payload.ok, true)
-    assert.equal(payload.poi_type, '150500')
+    assert.equal(payload.poi_type, '地铁')
     assert.equal(payload.places[0].name, '西直门地铁站')
   } finally {
     globalThis.fetch = originalFetch

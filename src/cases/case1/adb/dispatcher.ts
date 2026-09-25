@@ -7,10 +7,11 @@ import { calendarHandlers } from './commands/calendar.js'
 import { communicationHandlers } from './commands/communication.js'
 import { navigationHandlers } from './commands/navigation.js'
 import { screenHandlers } from './commands/screen.js'
+import { selectionHandlers } from './commands/selection.js'
 import { systemHandlers } from './commands/system.js'
 import { telecomHandlers } from './commands/telecom.js'
 import type { AdbExecutor } from './executor.js'
-import { readMapApiConfig, type MapApiConfig } from './map-config.js'
+import type { MapApiConfig } from './map-config.js'
 import type { AdbDeviceSession } from './session.js'
 
 export interface AdbDispatcherOptions {
@@ -26,10 +27,10 @@ export function createAdbDispatcher(
   session: AdbDeviceSession,
   options: AdbDispatcherOptions = {},
 ): ToolDispatcher {
-  const mapApi = options.mapApi ?? readMapApiConfig()
   return createToolDispatcher({
     ...telecomHandlers(executor, session, { approvalPort: options.approvalPort }),
-    ...navigationHandlers(executor, session, { mapApi }),
+    ...navigationHandlers(executor, session, { mapApi: options.mapApi }),
+    ...selectionHandlers(executor, session),
     ...systemHandlers(executor),
     ...communicationHandlers(executor),
     ...appHandlers(executor, { askPort: options.askPort, appIndex: options.appIndex }),
