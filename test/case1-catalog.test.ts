@@ -92,6 +92,17 @@ test('usage is generated from argument metadata and every example resolves', () 
   }
 })
 
+test('content search intent is matched by provider aliases instead of generic search wording', () => {
+  const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
+  assert.deepEqual(catalog.detailsFor('用抖音搜索周杰伦').names, ['content.search'])
+  assert.deepEqual(catalog.detailsFor('用网易云音乐搜索周杰伦').names, ['content.search'])
+  assert.deepEqual(
+    catalog.detailsFor('下载知乎').names,
+    ['appstore.search', 'content.search'],
+  )
+  assert.deepEqual(catalog.detailsFor('搜索未知内容').names, [])
+})
+
 test('the binder rejects protocol-shape errors before dispatch', () => {
   for (const input of [
     'sys.volume',

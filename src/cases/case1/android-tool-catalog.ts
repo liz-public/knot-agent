@@ -481,7 +481,7 @@ export const ANDROID_TOOL_CATALOG: readonly CliCommand[] = [
     toolId: "content_app_search", name: "content.search", summary: "App内搜索",
     description: "在指定 App 内打开搜索页",
     examples: ["content.search 北京美食 --provider xhs","content.search 周杰伦 --provider neteasemusic"],
-    keywords: ["搜索"],
+    keywords: ["抖音","知乎","小红书","头条","微博","喜马拉雅","QQ音乐","网易云音乐","网易云","B站","哔哩哔哩","腾讯视频","爱奇艺","优酷"],
   }, [
       textPosition("keyword", "站内搜索关键词。"),
       enumFlag("provider", "要搜索的内容应用。", ["douyin","zhihu","xhs","toutiao","weibo","ximalaya","qqmusic","neteasemusic","bilibili","tencentvideo","iqiyi","youku"], true)
