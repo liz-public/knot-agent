@@ -5,16 +5,19 @@ import type { AppIndex } from './app-index.js'
 import { appHandlers } from './commands/apps.js'
 import { calendarHandlers } from './commands/calendar.js'
 import { communicationHandlers } from './commands/communication.js'
+import { navigationHandlers } from './commands/navigation.js'
 import { screenHandlers } from './commands/screen.js'
 import { systemHandlers } from './commands/system.js'
 import { telecomHandlers } from './commands/telecom.js'
 import type { AdbExecutor } from './executor.js'
+import { readMapApiConfig, type MapApiConfig } from './map-config.js'
 import type { AdbDeviceSession } from './session.js'
 
 export interface AdbDispatcherOptions {
   readonly askPort?: AskPort
   readonly approvalPort?: ApprovalPort
   readonly appIndex?: AppIndex
+  readonly mapApi?: MapApiConfig
 }
 
 /** The only ADB-specific composition point. Catalog, parsing and Journal plugins stay common. */
@@ -23,8 +26,10 @@ export function createAdbDispatcher(
   session: AdbDeviceSession,
   options: AdbDispatcherOptions = {},
 ): ToolDispatcher {
+  const mapApi = options.mapApi ?? readMapApiConfig()
   return createToolDispatcher({
     ...telecomHandlers(executor, session, { approvalPort: options.approvalPort }),
+    ...navigationHandlers(executor, session, { mapApi }),
     ...systemHandlers(executor),
     ...communicationHandlers(executor),
     ...appHandlers(executor, { askPort: options.askPort, appIndex: options.appIndex }),

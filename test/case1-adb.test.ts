@@ -11,6 +11,7 @@ import { createAdbAppIndex } from '../src/cases/case1/adb/app-index.js'
 import { queryCallLog } from '../src/cases/case1/adb/call-log.js'
 import { parseDeviceStatusFields } from '../src/cases/case1/adb/device-status.js'
 import { parseCachedLocations } from '../src/cases/case1/adb/location.js'
+import { POI_TYPE_TO_CODE } from '../src/cases/case1/adb/map-geo.js'
 
 function mockExecutor(responses: Record<string, string>): AdbExecutor {
   return {
@@ -347,6 +348,99 @@ test('adb contact.delete requires approval before deleting', async () => {
   assert.equal(payload.phone, undefined)
   assert.equal(approvals, 1)
   assert.equal(deleted, true)
+})
+
+test('adb map.navi returns places and select launches navigation intent', async () => {
+  const commands: string[] = []
+  const executor: AdbExecutor = {
+    async shell(command) {
+      commands.push(command)
+      if (command.includes('dumpsys location')) {
+        return 'last location=Location[gps 40.01,116.34 hAcc=10 et=+1d]'
+      }
+      return ''
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const session = createAdbDeviceSession()
+  const mapApi = { baseUrl: 'https://map.example.test', apiKey: 'test-key' }
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.includes('/amap/inputtips')) {
+      return new Response(JSON.stringify({
+        ok: true,
+        tips: [
+          { name: '清华大学东门', location: '116.333374,40.002041', district: '海淀区', address: '双清路' },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('{}', { status: 404 })
+  }
+  try {
+    const bash = adbBash(executor, session, { mapApi })
+    const listed = await bash.execute({ command: 'map.navi 清华大学东门 --type walking' }, { turnId: 't1', callId: 'c1' })
+    const listPayload = JSON.parse(listed.content)
+    assert.equal(listPayload.ok, true)
+    assert.equal(listPayload.count, 1)
+    assert.equal(listPayload.places[0].name, '清华大学东门')
+    const selected = await bash.execute({ command: 'select 1' }, { turnId: 't1', callId: 'c2' })
+    const selectPayload = JSON.parse(selected.content)
+    assert.equal(selectPayload.ok, true)
+    assert.equal(selectPayload.action, 'navigate')
+    assert.equal(selectPayload.place_name, '清华大学东门')
+    assert.match(commands.find(command => command.includes('am start')) ?? '', /OnFootNavi/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('adb map.navi without map api config fails clearly', async () => {
+  const executor = mockExecutor({})
+  const bash = adbBash(executor, createAdbDeviceSession(), { mapApi: undefined })
+  const result = await bash.execute({ command: 'map.navi 机场' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, false)
+  assert.equal(payload.error, 'map_api_unconfigured')
+})
+
+test('adb map.nearby maps catalog poi_type to backend code', async () => {
+  assert.equal(POI_TYPE_TO_CODE['地铁'], '150500')
+  const executor: AdbExecutor = {
+    async shell(command) {
+      if (command.includes('dumpsys location')) {
+        return 'last location=Location[gps 40.01,116.34 hAcc=10 et=+1d]'
+      }
+      return ''
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const mapApi = { baseUrl: 'https://map.example.test', apiKey: 'test-key' }
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.includes('/amap/search_nearby') && url.includes('types=150500')) {
+      return new Response(JSON.stringify({
+        ok: true,
+        tips: [{ name: '西直门地铁站', location: '116.355,39.94', district: '西城区' }],
+      }), { status: 200 })
+    }
+    return new Response('{}', { status: 404 })
+  }
+  try {
+    const bash = adbBash(executor, createAdbDeviceSession(), { mapApi })
+    const result = await bash.execute({ command: 'map.nearby 地铁 地铁站' }, { turnId: 't1', callId: 'c1' })
+    const payload = JSON.parse(result.content)
+    assert.equal(payload.ok, true)
+    assert.equal(payload.poi_type, '150500')
+    assert.equal(payload.places[0].name, '西直门地铁站')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('adb alarm.set dispatches SET_ALARM with skip ui', async () => {

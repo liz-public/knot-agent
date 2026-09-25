@@ -4,6 +4,7 @@ import { deleteContactByPhone, lookupContactByPhone, upsertContactByPhone } from
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
 import { parseContentRows } from '../parse.js'
+import { executeMapSelect } from './navigation.js'
 import type { AdbDeviceSession, ContactCandidate } from '../session.js'
 
 export interface TelecomHandlerOptions { readonly approvalPort?: ApprovalPort }
@@ -80,12 +81,12 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
         await executor.shell(`am start -a android.intent.action.CALL -d tel:${only.phone}`); pendingState(session, undefined)
         return ok({ action: 'direct_dial', display_name: only.display_name }, '已向系统发起拨号请求。')
       }
-      session.pending = { source: 'contact', candidates }
+      session.pending = { kind: 'contact', candidates }
       const visible = candidates.map(item => ({ ordinal_1based: item.ordinal_1based, display_name: item.display_name }))
       return ok(
         { action: 'candidates', intent: sub, count: visible.length, candidates: visible },
         sub === 'lookup' ? '请让用户选择序号。' : '请调用 select 选择联系人。',
-        { key: 'pending.selection', value: { source: 'contact', candidates: visible } },
+        { key: 'pending.selection', value: { kind: 'contact', candidates: visible } },
       )
     },
     async dial(arguments_) {
@@ -95,10 +96,12 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
     },
     async select(arguments_) {
       const ordinal = Number(arguments_['ordinal']); const pending = session.pending
-      if (!Number.isInteger(ordinal) || pending === undefined) return err('no_active_list')
-      const picked = pending.candidates.find(item => item.ordinal_1based === ordinal); if (picked === undefined) return err('invalid_selection')
+      if (!Number.isInteger(ordinal) || ordinal < 1 || pending === undefined) return err('no_active_list')
+      if (pending.kind !== 'contact') return executeMapSelect(executor, session, pending, ordinal)
+      const picked = pending.candidates.find(item => item.ordinal_1based === ordinal)
+      if (picked === undefined) return err('invalid_selection')
       session.pending = undefined
-      if (pending.source === 'contact' && picked.phone !== undefined) {
+      if (picked.phone !== undefined) {
         await executor.shell(`am start -a android.intent.action.CALL -d tel:${picked.phone}`)
         return ok(
           { action: 'direct_dial', index_1based: ordinal, display_name: picked.display_name, source: 'contact' },
