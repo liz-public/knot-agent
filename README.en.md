@@ -99,27 +99,216 @@ Plugins have no direct implementation dependencies, but business preconditions s
 
 ## Executable evidence
 
-| Case | Scenario | Boundaries already exercised |
+CASE1 and CASE2 exercise the same kernel from opposite directions. CASE1 is a
+high-frequency, short-context agent with a constrained action space. CASE2 is a
+long-horizon agent operating in an open environment through many tool calls.
+Neither receives a business-specific privilege from the 56-line Journal.
+
+| Case | Real scenario | What it exercises | Result |
+|---|---|---|---|
+| **CASE1** | Terminal-control assistant driving a USB-connected phone | dynamic tool context, one Bash entry point, a business CLI, pending candidate state, Mock/ADB dispatchers | 66 consecutive requests covered 56 CLI commands; 65/66 followed the expected route; no uncaught error |
+| **CASE2** | DeepSeek-driven coding agent | open workspace, approval and interaction, Todo/Goal guards, long tool chains, an independent Subagent Journal | completed a multi-stage extension of a 5G discrete-event simulator; all 67 tests passed |
+| **CASE3** | Planned unified assistant entry | one entry Journal routing work to persistent project or domain Journals | not implemented and excluded from the verified claims |
+
+> The following numbers come from saved Journals and the corresponding code
+> snapshots. They are engineering experiment records, not a standardized
+> cross-project benchmark. Model, language, feature scope, and counting method
+> all affect the result.
+
+### CASE1 — real terminal-control assistant
+
+CASE1 reproduces the essential behavior of comparable Android terminal
+assistants without moving an Android implementation into another AgentLoop.
+The stable system prompt and Bash function schema remain fixed. Each user query
+matches only the relevant applications and detailed CLI usages. One Catalog,
+Parser, and Dispatcher sends a command to either a Mock or ADB handler. Pending
+candidate state stays inside the tool domain and is exposed to the next turn
+through dynamic context.
+
+The main plugins each retain one responsibility:
+
+| Plugin | Subscribes → produces | Responsibility |
 |---|---|---|
-| **CASE1** | Isolated reproduction of a real terminal assistant | ordered content sources, per-turn dynamic context, function calling, parallel tool batches, external state and corrective hints, compression checkpoints, mock/real providers, JSONL restore, non-authoritative live output |
-| **CASE2** | Usable coding agent | read/write/edit/bash, approval, ask, Todo/Goal guards, steering, graceful pause, compaction, persistence, independent Subagent Journals, Web Run, real DeepSeek/Qwen models |
-| **CASE3** | Planned unified assistant entry | one entry Journal routing work to persistent project or domain Journals |
+| `AppMatch` / `ToolIntentMatch` | `user.message` → `context.contribution` | match only applications and tool instructions relevant to this turn |
+| `RuntimeContext` | `user.message` → `context.dynamic` | combine turn contributions with still-active device state |
+| `AgentFlow` | `context.dynamic` / `tool.result` → `content.request` / `llm.request` | advance generation without executing a model or tool |
+| `ContentSources` | `content.request` → content / `llm.request` | let shortcuts, rules, or the LLM compete for the same result in assembly order |
+| `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | project model input and produce one complete decision |
+| `Tools` | `tool.call` → `tool.result` | execute the single Bash function, then route its CLI through Parser, Dispatcher, and a focused handler |
+| `CompressHistory` / `Output` | generation / reply → checkpoint / presentation | create history checkpoints and publish final output without entering orchestration |
 
-### CASE1 — terminal assistant
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant J as Journal
+  participant C as Context plugins
+  participant F as AgentFlow
+  participant L as Content / LLM
+  participant B as Bash + Dispatcher
+  participant A as Android / ADB
 
-```text
-user.message → shortcut/content source → bash tool → tool.result
-             → LLM → bash(select) → tool.result → LLM → assistant.message
+  U->>J: user.message
+  J->>C: match app + tool intent
+  C->>J: context.contribution × N
+  C->>J: context.dynamic
+  J->>F: context.dynamic
+  F->>J: content.request
+  J->>L: llm.request → llm.invoke
+  L->>J: llm.generated + tool.call(bash)
+  J->>B: CLI command
+  B->>A: selected handler effect
+  A-->>B: observation / failure
+  B->>J: tool.result
+  J->>F: tool.result
+  F->>J: llm.request
+  J->>L: continue with the same turn context
+  L->>J: assistant.message
 ```
+
+On 2026-09-25, one device smoke Session executed 66 consecutive user requests.
+The runner deliberately waited five seconds between requests so that the phone
+could be observed. Model latency depends on the configured API.
+
+| Metric | Result |
+|---|---:|
+| User requests / distinct CLI commands covered | 66 / 56 |
+| Requests following the expected tool route | 65 / 66; one recovery retried after a failure |
+| Uncaught runtime errors | 0 |
+| Journal events / JSONL size | 880 / about 282 KB |
+| Model generations | 133, or 2.02 per user request |
+| Input tokens per model call | mean 6,055; median 6,508; maximum 10,638 |
+| Output tokens per model call | mean 27.8; median 25 |
+| Request duration, excluding the deliberate wait | mean 2.47 s; P95 5.09 s; maximum 11.69 s |
+
+The experiment preserves failures as evidence. Contact-number formatting,
+nearby search, and several ADB capabilities produced business errors, but each
+error returned as a `tool.result`, allowing the model to explain, retry, or
+degrade without breaking the Journal drain. The final complete model input was
+still 10,638 tokens after 66 turns, so a 32K configured window did not require
+compaction. A linear estimate using 200K usable tokens suggests more than 1,300
+similar requests in one Session. Earlier experience with this dynamic-context
+strategy measured cache hit rates above 72%; that figure was not measured by
+this smoke run. The central result is that intent-matched tool instructions and
+short tool results can maintain high information density.
+
+#### CASE1 code-size snapshot
+
+Compared with modules serving similar responsibilities in a comparable agent
+product:
+
+| Scope | Knot CASE1 | Android baseline | Knot share | Size difference |
+|---|---:|---:|---:|---:|
+| Agent stack, excluding UI | 5,636 | 29,544 | 19.1% | about 5.2× smaller |
+| Tool execution, ADB + Catalog | 2,962 | 17,590 | 16.8% | about 5.9× smaller |
+| Runtime, Journal + plugins | 2,393 | about 10,653 | about 22% | about 4.5× smaller |
+| Test code | 2,012 | 21,939 | 9.2% | about 10.9× smaller |
+
+The significance of this snapshot is not language choice. It is that Catalog,
+context matching, CLI parsing, Dispatcher, and handlers each have one source of
+truth, so reproducing the same core behavior requires materially less business
+code.
 
 ```bash
 npm install
 npm run case1
 ```
 
-The default path uses a deterministic mock provider and Android-shaped mock tools, with no API key required.
+The default command uses a deterministic mock provider and Android-shaped mock
+tools, with no API key required. With an ADB device and Provider configured,
+`npm run smoke:case1-adb` replays the consecutive device smoke suite.
 
 ### CASE2 — coding agent
+
+CASE2 does not define a coding state machine. `CodingFlow` advances from user
+messages and tool results, then applies Steering, Todo, and Goal guards before
+committing a final response. File operations, approval, Ask, Todo, Goal, and
+Subagent are ordinary tools. A Subagent is a persistent Session with its own
+Journal, model configuration, and workspace; its parent receives only the
+committed summary.
+
+| Plugin | Subscribes → produces | Responsibility |
+|---|---|---|
+| `WorkspaceContext` | `user.message` → `context.dynamic` | provide the workspace and `AGENTS.md` / `CLAUDE.md` project constraints |
+| `CodingFlow` | user / tool / generation events → next request or reply | advance the task and apply guards before committing completion |
+| `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | project Journal facts into model input and invoke the model |
+| `Tools` | `tool.call` → `tool.result` | run read/write/edit/bash/ask/todo/goal/spawn_agent behind the configured approval policy |
+| `CompressHistory` | `llm.generated` → checkpoint events | create a semantic checkpoint only when the context threshold is reached |
+| `JSONL` / `Output` / `ControlledBoundary` | facts → storage / UI / pause | assemble platform behavior as plugins or Host ports |
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant J as Parent Journal
+  participant W as Workspace context
+  participant F as CodingFlow + Guards
+  participant L as LLM
+  participant T as Tools / Approval
+  participant S as Child Session Journal
+
+  U->>J: user.message
+  J->>W: load workspace constraints
+  W->>J: context.dynamic
+  J->>F: user.message
+  F->>J: content.request
+  J->>L: llm.request → projected messages + tool schemas
+  L->>J: reasoning + content + tool.call
+  J->>T: read / edit / bash / ask / todo / goal
+  T->>J: tool.result
+  J->>F: continue or run completion guards
+  opt delegated investigation
+    T->>S: create persistent Subagent Session
+    S->>S: independent Journal + tools + LLM
+    S-->>T: final summary
+    T->>J: spawn_agent tool.result
+  end
+  F->>J: assistant.message
+```
+
+On 2026-09-20, `deepseek-flash` inspected and incrementally extended a real 5G
+discrete-event simulation workspace. It first understood the existing DES,
+then added UE traffic models and network-element capacity specifications, and
+finally implemented ingress flow control and periodic retry. One architecture
+investigation was delegated to an independent Subagent. The test suite grew
+from 40 to 67 tests, all passing.
+
+| Metric | Parent Session | Subagent Session |
+|---|---:|---:|
+| User / steering inputs | 4 | 1 delegated task |
+| Journal events | 783 | 47 |
+| JSONL size | about 1.03 MB | about 236 KB |
+| Model generations | 140 | 7 |
+| Individual tool calls | 145 | 15 |
+| Main tool distribution | edit 84 / bash 28 / read 21 | read 13 / bash 2 |
+| Final model input | 151,364 tokens | 30,673 tokens |
+| Mean model input | 97,821 tokens | 18,819 tokens |
+| Median model output | 315 tokens | 133 tokens |
+
+The Parent Session reported 94,073 cumulative output tokens, including
+DeepSeek's long reasoning; that is not the amount of user-visible text. The run
+demonstrates that long-horizon work, parallel tools, and a persistent Subagent
+can share the same event model. It also shows that CASE2 should next optimize
+model-visible context, tool-result budgets, and reasoning cost rather than add
+more Journal-kernel behavior.
+
+#### CASE2 and Pi code-size snapshot
+
+These counts come from local repository snapshots. Pi's loop, harness, session,
+and product layers are different boundaries, so the table reports each instead
+of presenting any single count as the definitive comparison.
+
+| Scope | Knot | Pi baseline | Observation |
+|---|---:|---:|---|
+| Agent brain: orchestration + tools + persistence | about 2,572 | loop about 1,861; harness about 10,800; harness + session about 30K | Knot is about 40% larger than the loop alone, but 76%–91% smaller than the complete harness boundaries |
+| Agent brain + LLM clients | about 2,572, including OpenAI / DeepSeek | about 1,861 + 24,384 | Knot's current Provider layer is thin and supports fewer variants |
+| Runnable coding product, excluding the LLM package | about 7,372 | about 95K | about 12.9× smaller in this snapshot |
+| Web / terminal UI increment | about 1,859 | about 18K TUI | about 9.7× smaller in this snapshot; product capabilities are not identical |
+| Tests | about 8.7K | Pi agent tests 12K+ | test scopes differ; this only describes maintenance volume |
+
+Less code is not the objective and does not prove better outcomes. The more
+important signal is that CASE2 already contains real tools, persistence, Flow,
+guards, approval, Web Run, and Subagent, while each concern still has an
+independent, explainable, replaceable boundary. The reduction follows from
+lower responsibility entropy.
 
 ```bash
 export KNOT_BASE_URL="https://example.com/v1"
@@ -240,7 +429,7 @@ Executable Cases currently demonstrate that:
 
 Still to be measured publicly:
 
-- code size and maintenance cost at comparable feature scope;
+- whether the current code-size snapshot holds as features grow and actually reduces long-term maintenance cost;
 - event dispatch throughput, latency, and memory;
 - context duplication, cache hit rate, and useful information density;
 - task success and path efficiency across model/Assembly combinations;

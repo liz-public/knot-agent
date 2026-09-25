@@ -99,27 +99,191 @@ user.message
 
 ## 已验证的案例
 
-| Case | 场景 | 已验证的边界 |
+CASE1 和 CASE2 不是为了展示更多功能，而是从两个相反方向检验同一个内核：CASE1
+面对高频、短上下文和受限动作空间；CASE2 面对长程任务、开放环境和大量工具交互。
+二者使用同一个 56 行 Journal，没有为各自业务增加内核特权。
+
+| Case | 真实场景 | 验证重点 | 结果 |
+|---|---|---|---|
+| **CASE1** | USB 真机上的终端控制助手 | 动态工具上下文、单一 Bash 入口、业务 CLI、候选状态、Mock/ADB Dispatcher | 66 个连续请求覆盖 56 个 CLI 命令；65/66 命中预期路由；无未捕获异常 |
+| **CASE2** | DeepSeek 驱动的 Coding Agent | 开放工作区、审批与交互、Todo/Goal Guard、长程工具链、独立 Subagent Journal | 完成 5G 离散事件仿真器的多阶段扩展；最终 67 个测试通过 |
+| **CASE3** | 规划中的统一助手入口 | 一个入口 Journal 路由到持久的项目/领域 Journal | 尚未实现，不计入已验证结论 |
+
+> 下列数据来自真实保存的 Journal 和当时的代码快照。它们是工程实验记录，不是跨项目的
+> 标准化 Benchmark；模型、语言、功能边界和统计口径都会影响结果。
+
+### CASE1：真实终端控制助手
+
+CASE1 参考同类 Android 终端助手的关键行为进行复刻，但没有把 Android 实现搬进一个新的
+AgentLoop：稳定系统提示词和 Bash Function Schema 保持固定；当前用户请求只匹配相关
+应用与 CLI 详细用法；统一 Catalog、Parser 和 Dispatcher 把调用交给 Mock 或 ADB
+Handler；候选列表等未完成状态留在工具域内，下一轮继续通过动态上下文提供给模型。
+
+主要插件及其唯一职责：
+
+| 插件 | 订阅 → 产出 | 职责 |
 |---|---|---|
-| **CASE1** | 真实终端助手的隔离复刻 | 有序内容源、每轮动态上下文、Function Calling、批量并行工具、外部状态与纠错 Hint、压缩检查点、Mock/真实 Provider、JSONL 恢复、非权威流式输出 |
-| **CASE2** | 可实际使用的 Coding Agent | read/write/edit/bash、权限审批、ask、Todo/Goal Guard、steering、优雅暂停、压缩、持久化、Subagent 独立 Journal、Web Run、真实 DeepSeek/Qwen 模型 |
-| **CASE3** | 规划中的统一助手入口 | 一个入口 Journal 路由到持久的项目/领域 Journal，并把结果交付回用户 |
+| `AppMatch` / `ToolIntentMatch` | `user.message` → `context.contribution` | 只匹配本轮相关应用和工具说明 |
+| `RuntimeContext` | `user.message` → `context.dynamic` | 汇总本轮贡献与仍有效的设备状态 |
+| `AgentFlow` | `context.dynamic` / `tool.result` → `content.request` / `llm.request` | 推进一次内容生成，不执行模型或工具 |
+| `ContentSources` | `content.request` → content / `llm.request` | 让 Shortcut、规则或 LLM 按装配顺序竞争同一种结果 |
+| `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | 投影模型输入并产生一次完整决策 |
+| `Tools` | `tool.call` → `tool.result` | 执行唯一的 Bash Function；CLI 内部再经 Parser、Dispatcher 到具体 Handler |
+| `CompressHistory` / `Output` | generation / reply → checkpoint / presentation | 历史检查点与最终输出，各自不进入业务编排 |
 
-### CASE1：终端助手
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant J as Journal
+  participant C as Context plugins
+  participant F as AgentFlow
+  participant L as Content / LLM
+  participant B as Bash + Dispatcher
+  participant A as Android / ADB
 
-```text
-user.message → shortcut/content source → bash tool → tool.result
-             → LLM → bash(select) → tool.result → LLM → assistant.message
+  U->>J: user.message
+  J->>C: match app + tool intent
+  C->>J: context.contribution × N
+  C->>J: context.dynamic
+  J->>F: context.dynamic
+  F->>J: content.request
+  J->>L: llm.request → llm.invoke
+  L->>J: llm.generated + tool.call(bash)
+  J->>B: CLI command
+  B->>A: selected handler effect
+  A-->>B: observation / failure
+  B->>J: tool.result
+  J->>F: tool.result
+  F->>J: llm.request
+  J->>L: continue with the same turn context
+  L->>J: assistant.message
 ```
+
+2026-09-25 的单 Session 真机冒烟连续执行 66 个用户请求，并在相邻请求间故意等待 5 秒观察手机端效果，具体模型响应时长和模型API相关。
+
+| 指标 | 结果 |
+|---|---:|
+| 用户请求 / 覆盖的不同 CLI 命令 | 66 / 56 |
+| 命中预期工具路径 | 65 / 66（1 次失败后的语义恢复选择了重试） |
+| 未捕获运行时异常 | 0 |
+| Journal 事件 / JSONL 大小 | 880 / 约 282 KB |
+| 模型生成次数 | 133（平均每个用户请求 2.02 次） |
+| 单次模型输入 tokens | 平均 6,055；中位数 6,508；最大 10,638 |
+| 单次模型输出 tokens | 平均 27.8；中位数 25 |
+| 单请求执行耗时（不含故意等待） | 平均 2.47 s；P95 5.09 s；最大 11.69 s |
+
+这轮实验同时保留了失败事实：联系人号码格式、附近搜索和部分 ADB 能力出现过业务错误，
+但错误都作为 `tool.result` 返回，模型可以解释、重试或降级，Journal drain 没有被工具异常
+击穿。最后一次请求的完整模型输入仍为 10,638 tokens；对于 32K 配置窗口，66 轮之后
+尚未触发压缩，以200k有效上下文估算，单个session可连续处理1300个以上的用户请求，
+且可以在动态上下文拼接的情况下，参照历史经验做到72%以上的缓存命中率。
+重点验证“按意图提供详细工具上下文 + 极短工具结果”可以持续保持较高信息密度。
+
+#### CASE1 代码量快照
+
+与同类智能体产品中承担相近职责的模块相比：
+
+| 对比边界 | Knot CASE1 | Android 基线 | Knot 占比 | 体量差异 |
+|---|---:|---:|---:|---:|
+| Agent 栈（不含 UI） | 5,636 | 29,544 | 19.1% | 约 5.2× 更小 |
+| 工具执行层（ADB + Catalog） | 2,962 | 17,590 | 16.8% | 约 5.9× 更小 |
+| 运行时（Journal + 插件） | 2,393 | 约 10,653 | 约 22% | 约 4.5× 更小 |
+| 测试代码 | 2,012 | 21,939 | 9.2% | 约 10.9× 更小 |
+
+该快照的意义是：当 Catalog、上下文匹配、CLI 解析、Dispatcher 与 Handler
+各自只有一个事实来源时，复刻相同核心行为所需的业务代码显著减少。
 
 ```bash
 npm install
 npm run case1
 ```
 
-默认使用确定性 Mock Provider 和 Android 形状的 Mock 工具，不需要 API Key。
+默认命令使用确定性 Mock Provider 和 Android 形状的 Mock 工具，不需要 API Key。连接
+ADB 真机并配置 Provider 后，可运行 `npm run smoke:case1-adb` 重放完整连续冒烟。
 
 ### CASE2：Coding Agent
+
+CASE2 不再定义一个“编码状态机”。`CodingFlow` 只负责从用户消息和工具结果继续生成，
+并在准备提交最终回复时调用 Steering、Todo 和 Goal Guard。文件操作、审批、Ask、Todo、
+Goal 和 Subagent 都是普通工具；Subagent 是具有独立 Journal、模型配置和工作目录的持久
+Session，父 Agent 只接收它最终返回的摘要。
+
+| 插件 | 订阅 → 产出 | 职责 |
+|---|---|---|
+| `WorkspaceContext` | `user.message` → `context.dynamic` | 提供工作目录及 `AGENTS.md` / `CLAUDE.md` 项目约束 |
+| `CodingFlow` | user / tool / generation events → next request or reply | 推进任务，并在提交最终回复前执行 Guard |
+| `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | 从 Journal 投影上下文并调用模型 |
+| `Tools` | `tool.call` → `tool.result` | 运行 read/write/edit/bash/ask/todo/goal/spawn_agent，并在外层执行审批策略 |
+| `CompressHistory` | `llm.generated` → checkpoint events | 只在达到窗口阈值时生成语义检查点 |
+| `JSONL` / `Output` / `ControlledBoundary` | facts → storage / UI / pause | 平台能力仍以普通插件或 Host 端口装配 |
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant J as Parent Journal
+  participant W as Workspace context
+  participant F as CodingFlow + Guards
+  participant L as LLM
+  participant T as Tools / Approval
+  participant S as Child Session Journal
+
+  U->>J: user.message
+  J->>W: load workspace constraints
+  W->>J: context.dynamic
+  J->>F: user.message
+  F->>J: content.request
+  J->>L: llm.request → projected messages + tool schemas
+  L->>J: reasoning + content + tool.call
+  J->>T: read / edit / bash / ask / todo / goal
+  T->>J: tool.result
+  J->>F: continue or run completion guards
+  opt delegated investigation
+    T->>S: create persistent Subagent Session
+    S->>S: independent Journal + tools + LLM
+    S-->>T: final summary
+    T->>J: spawn_agent tool.result
+  end
+  F->>J: assistant.message
+```
+
+2026-09-20 的真实验证使用 `deepseek-flash` 在一个工作目录中理解并持续扩展 5G 离散
+事件仿真器：先分析现有 DES，再增加 UE 话务模型与网元容量规格，最后加入入口流控和周期
+重试；其中一个网络仿真架构调查被委托给独立 Subagent。最终测试从 40 个增长到 67 个并
+全部通过。
+
+| 指标 | Parent Session | Subagent Session |
+|---|---:|---:|
+| 用户 / Steering 输入 | 4 | 1 个委托 |
+| Journal 事件 | 783 | 47 |
+| JSONL 大小 | 约 1.03 MB | 约 236 KB |
+| 模型生成次数 | 140 | 7 |
+| 独立工具调用 | 145 | 15 |
+| 主要工具分布 | edit 84 / bash 28 / read 21 | read 13 / bash 2 |
+| 最后一次模型输入 | 151,364 tokens | 30,673 tokens |
+| 单次模型输入平均值 | 97,821 tokens | 18,819 tokens |
+| 单次模型输出中位数 | 315 tokens | 133 tokens |
+
+Parent 的累计输出 usage 为 94,073 tokens，其中包含 DeepSeek 的长 reasoning；它不是用户
+最终看到的文本量。这组数据一方面证明了开放式长程任务、并行工具与持久 Subagent 可以在
+同一事件模型上工作，另一方面也暴露出 CASE2 当前真正需要优化的是模型可见上下文、工具
+结果预算和推理成本，而不是继续扩充 Journal 内核。
+
+#### CASE2 与 Pi 的代码量快照
+
+以下口径来自本地仓库快照；Pi 的 loop、harness、session 与产品层是不同边界，因此同时
+列出而不把其中任意一个数字包装成唯一结论。
+
+| 对比边界 | Knot | Pi 基线 | 观察 |
+|---|---:|---:|---|
+| Agent 大脑：编排 + 工具 + 持久化 | 约 2,572 | loop 约 1,861；harness 约 10,800；harness + session 约 30K | Knot 比单独 loop 多约 40%，但比完整 harness 边界少约 76%–91% |
+| Agent 大脑 + LLM 客户端 | 约 2,572（已含 OpenAI / DeepSeek） | 约 1,861 + 24,384 | Knot 当前 Provider 适配很薄，覆盖面也更窄 |
+| 可运行 Coding 产品（不含 LLM 包） | 约 7,372 | 约 95K | 当前快照约 12.9× 更小 |
+| Web / 终端 UI 增量 | 约 1,859 | 约 18K TUI | 当前快照约 9.7× 更小，产品能力并非完全等价 |
+| 测试 | 约 8.7K | Pi agent 测试 12K+ | 两边测试范围不同，仅反映维护体量 |
+
+代码少本身不是目标，也不能证明效果更好。这里更重要的信号是：CASE2 已包含真实工具、
+持久化、Flow、Guard、审批、Web Run 和 Subagent，但每项职责仍能落在独立、可描述和可替换
+的边界内；代码量下降是职责熵下降后的结果。
 
 ```bash
 export KNOT_BASE_URL="https://example.com/v1"
@@ -128,7 +292,8 @@ export KNOT_API_KEY="..." # 如果服务需要
 npm run case2 -- "检查当前工程并运行测试"
 ```
 
-CASE2 可以在真实工作目录中读取、修改和验证文件。CLI 使用 OpenAI-compatible Provider；Mock Provider 用于测试和可复现 Case 装配。Workbench 的真实 Provider 由 Host 环境配置。
+CASE2 可以在真实工作目录中读取、修改和验证文件。CLI 使用 OpenAI-compatible Provider；
+Mock Provider 用于测试和可复现 Case 装配。Workbench 的真实 Provider 由 Host 环境配置。
 
 ## Workbench
 
@@ -240,7 +405,7 @@ Knot 暂时没有插件 Marketplace，也没有冻结 `definePlugin` / `defineAs
 
 仍需通过公开实验验证：
 
-- 与其他 Harness 在同等功能边界下的代码量和维护成本；
+- 当前代码量快照能否在功能继续增长后保持，以及是否真正降低长期维护成本；
 - 事件分发的吞吐、延迟和内存；
 - 上下文重复率、缓存命中率和有效信息密度；
 - 不同模型与 Assembly 组合的任务成功率和路径效率；
