@@ -5,11 +5,13 @@ import type { AppIndex } from './app-index.js'
 import { appHandlers } from './commands/apps.js'
 import { calendarHandlers } from './commands/calendar.js'
 import { communicationHandlers } from './commands/communication.js'
+import { deeplinkHandlers } from './commands/deeplink.js'
 import { navigationHandlers } from './commands/navigation.js'
 import { screenHandlers } from './commands/screen.js'
 import { selectionHandlers } from './commands/selection.js'
 import { systemHandlers } from './commands/system.js'
 import { telecomHandlers } from './commands/telecom.js'
+import { weatherHandlers } from './commands/weather.js'
 import type { AdbExecutor } from './executor.js'
 import type { MapApiConfig } from './map-config.js'
 import type { AdbDeviceSession } from './session.js'
@@ -30,8 +32,10 @@ export function createAdbDispatcher(
   return createToolDispatcher({
     ...telecomHandlers(executor, session, { approvalPort: options.approvalPort }),
     ...navigationHandlers(executor, session, { mapApi: options.mapApi }),
+    ...weatherHandlers(executor, { mapApi: options.mapApi }),
     ...selectionHandlers(executor, session),
     ...systemHandlers(executor),
+    ...deeplinkHandlers(executor),
     ...communicationHandlers(executor),
     ...appHandlers(executor, { askPort: options.askPort, appIndex: options.appIndex }),
     ...calendarHandlers(executor),

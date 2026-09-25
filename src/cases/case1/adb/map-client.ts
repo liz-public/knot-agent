@@ -72,3 +72,25 @@ export async function searchNearby(
 ): Promise<MapApiResponse> {
   return mapApiGet(config, '/amap/search_nearby', input)
 }
+
+export async function fetchWeatherJson(
+  config: MapApiConfig,
+  params: Record<string, string>,
+): Promise<Record<string, unknown> | undefined> {
+  const query = Object.entries(params)
+    .filter(([, value]) => value.length > 0)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&')
+  const url = `${config.baseUrl}/amap/weather${query.length > 0 ? `?${query}` : ''}`
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+      signal: AbortSignal.timeout(30_000),
+    })
+    const body = asRecord(await response.json())
+    if (body === undefined || !response.ok) return undefined
+    return body
+  } catch {
+    return undefined
+  }
+}

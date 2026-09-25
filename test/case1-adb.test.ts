@@ -524,6 +524,143 @@ test('adb alarm.set dispatches SET_ALARM with skip ui', async () => {
   assert.match(seen, /--eia android\.intent\.extra\.alarm\.DAYS 2,3,4,5,6/)
 })
 
+test('adb appstore.search uses Samsung Galaxy Store when installed', async () => {
+  let seen = ''
+  const executor: AdbExecutor = {
+    async shell(command) {
+      seen = command
+      if (command.startsWith('pm list packages')) {
+        return 'package:com.sec.android.app.samsungapps'
+      }
+      return 'Starting: Intent { act=android.intent.action.VIEW dat=samsungapps://SearchResult/... }'
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const result = await adbBash(executor).execute({ command: 'appstore.search 知乎' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.action, 'store_search')
+  assert.equal(payload.store, 'samsung')
+  assert.match(seen, /samsungapps:\/\/SearchResult\//)
+  assert.match(seen, /-p com\.sec\.android\.app\.samsungapps/)
+})
+
+test('adb appstore.search falls back to market when Galaxy Store missing', async () => {
+  let seen = ''
+  const executor: AdbExecutor = {
+    async shell(command) {
+      seen = command
+      if (command.startsWith('pm list packages')) return ''
+      return 'Starting: Intent { act=android.intent.action.VIEW dat=market://search/... }'
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const result = await adbBash(executor).execute({ command: 'appstore.search 知乎' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.action, 'store_search')
+  assert.equal(payload.store, 'market')
+  assert.match(seen, /market:\/\/search\?q=/)
+})
+
+test('adb content.search returns app_not_installed for missing provider app', async () => {
+  const executor = mockExecutor({
+    'pm list packages': '',
+  })
+  const result = await adbBash(executor).execute(
+    { command: 'content.search 火锅 --provider douyin' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, false)
+  assert.equal(payload.error, 'app_not_installed')
+  assert.equal(payload.provider, 'douyin')
+})
+
+test('adb content.search falls back to first installed provider', async () => {
+  let seen = ''
+  const executor: AdbExecutor = {
+    async shell(command) {
+      if (command.startsWith('pm list packages')) return 'package:com.zhihu.android'
+      seen = command
+      return 'Starting: Intent { act=android.intent.action.VIEW dat=zhihu://search/... }'
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const result = await adbBash(executor).execute(
+    { command: 'content.search AI --provider zhihu' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.provider, 'zhihu')
+  assert.match(seen, /zhihu:\/\/search/)
+})
+
+test('adb meeting.join builds wemeet deeplink with password', async () => {
+  let seen = ''
+  const executor: AdbExecutor = {
+    async shell(command) {
+      if (command.includes('pm list packages com.tencent.wemeet.app')) return 'package:com.tencent.wemeet.app'
+      seen = command
+      return 'Starting: Intent { act=android.intent.action.VIEW dat=wemeet://page/inmeeting?... }'
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const result = await adbBash(executor).execute(
+    { command: 'meeting.join wemeet 927318171 --password 123456' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.match(seen, /wemeet:\/\/page\/inmeeting/)
+  assert.match(seen, /password=123456/)
+})
+
+test('adb timer.set dispatches SET_TIMER with message', async () => {
+  let seen = ''
+  const executor: AdbExecutor = {
+    async shell(command) {
+      seen = command
+      return 'Starting: Intent { act=android.intent.action.SET_TIMER ... }'
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const result = await adbBash(executor).execute({ command: 'timer 300 --message 泡茶' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.seconds, 300)
+  assert.match(seen, /SET_TIMER/)
+  assert.match(seen, /MESSAGE/)
+})
+
+test('adb hotspot opens wireless settings page', async () => {
+  let seen = ''
+  const executor: AdbExecutor = {
+    async shell(command) {
+      seen = command
+      return 'Starting: Intent { act=android.settings.WIRELESS_SETTINGS }'
+    },
+    async shellLines(command) {
+      return (await this.shell(command)).split('\n').filter(Boolean)
+    },
+  }
+  const result = await adbBash(executor).execute({ command: 'hotspot' }, { turnId: 't1', callId: 'c1' })
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, true)
+  assert.match(seen, /WIRELESS_SETTINGS/)
+})
+
 test('ADB relative volume uses the reported current index and range', async () => {
   const commands: string[] = []
   const executor: AdbExecutor = {

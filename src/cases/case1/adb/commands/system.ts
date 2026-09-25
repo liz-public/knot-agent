@@ -1,11 +1,14 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import { parseDeviceStatusFields, readDeviceStatus, unknownDeviceStatusFields } from '../device-status.js'
 import type { AdbExecutor } from '../executor.js'
+import { launchAction } from '../intent-launch.js'
 import { err, ok } from '../json.js'
 import { readCachedLocation } from '../location.js'
-import { parsePercent } from '../parse.js'
+import { parsePercent, shellQuote } from '../parse.js'
+import { resolveSettingsPage } from '../settings-catalog.js'
 
 const STREAM_IDS: Record<string, number> = { music: 3, ring: 2, alarm: 4, notification: 5 }
+const RINGTONE_TYPES: Record<string, number> = { ring: 1, alarm: 4, notification: 2 }
 
 export function systemHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {
   return {
@@ -61,5 +64,58 @@ export function systemHandlers(executor: AdbExecutor): Readonly<Record<string, T
       return ok({ mode }, '屏幕旋转已设置。')
     },
     async media_play_pause() { await executor.shell('cmd media_session dispatch play-pause'); return ok({ action: 'media_play_pause_dispatch' }, '已派发播放/暂停键。') },
+
+    async set_timer(arguments_) {
+      const secondsRaw = arguments_['seconds']
+      const message = typeof arguments_['message'] === 'string' ? arguments_['message'].trim() : ''
+      if (secondsRaw === undefined || (typeof secondsRaw === 'string' && secondsRaw.trim().length === 0)) {
+        const launched = await launchAction(executor, 'android.intent.action.SHOW_TIMERS')
+        return launched
+          ? ok({ action: 'show_timers' }, '已打开计时器页面。')
+          : err('open_failed', '无法打开计时器页面。')
+      }
+      const seconds = Number(secondsRaw)
+      if (!Number.isInteger(seconds) || seconds < 1 || seconds > 24 * 3600) return err('invalid_seconds')
+      const extras = [
+        `--ei android.intent.extra.alarm.LENGTH ${seconds}`,
+        ...(message.length > 0 ? [`--es android.intent.extra.alarm.MESSAGE ${shellQuote(message)}`] : []),
+      ]
+      const launched = await launchAction(executor, 'android.intent.action.SET_TIMER', extras)
+      return launched
+        ? ok({ action: 'timer_set', seconds, ...(message.length > 0 ? { message } : {}) }, '已向系统发起设置计时器请求。')
+        : err('open_failed', '无法打开计时器。')
+    },
+
+    async set_hotspot_enabled() {
+      const page = resolveSettingsPage('hotspot')
+      if (page === undefined) return err('settings_not_matched', '未匹配到热点设置页。')
+      const launched = await launchAction(executor, page.action)
+      return launched
+        ? ok({ action: 'hotspot_settings_opened', matched_id: page.id }, '已打开热点设置页。')
+        : err('open_failed', '无法打开热点设置页。')
+    },
+
+    async pick_ringtone(arguments_) {
+      const type = typeof arguments_['type'] === 'string' ? arguments_['type'] : 'ring'
+      const ringtoneType = RINGTONE_TYPES[type]
+      if (ringtoneType === undefined) return err('invalid_type')
+      const launched = await launchAction(executor, 'android.intent.action.RINGTONE_PICKER', [
+        `--ei android.intent.extra.ringtone.TYPE ${ringtoneType}`,
+      ])
+      return launched
+        ? ok({ action: 'ringtone_picker_started', type }, '已打开铃声选择器。')
+        : err('open_failed', '无法打开铃声选择器。')
+    },
+
+    async show_input_method_picker() {
+      const output = await executor.shell('cmd input_method show-input-method-picker')
+      if (!/Error|Unknown command/i.test(output)) {
+        return ok({ action: 'input_method_picker_shown' }, '已弹出输入法选择器。')
+      }
+      const launched = await launchAction(executor, 'android.settings.INPUT_METHOD_SETTINGS')
+      return launched
+        ? ok({ action: 'input_method_settings_opened' }, '已打开输入法设置页。')
+        : err('open_failed', '无法弹出输入法选择器。')
+    },
   }
 }
