@@ -53,30 +53,13 @@ function fuzzyScore(a: string, b: string): number {
   return hits >= 2 ? hits * 5 : 0
 }
 
-export function resolveSettingsPage(keyword: string, minScore = 8): SettingsEntry | undefined {
+export function resolveSettingsPage(keyword: string): SettingsEntry | undefined {
   const norm = normalize(keyword)
   if (norm.length === 0) return undefined
   for (const entry of ENTRIES) {
-    if (entry.id === norm || normalize(entry.id) === norm) return entry
+    if (normalize(entry.id) === norm || entry.aliases.some(alias => normalize(alias) === norm)) return entry
   }
-  let best: { entry: SettingsEntry; score: number } | undefined
-  for (const entry of ENTRIES) {
-    for (const alias of entry.aliases) {
-      const a = normalize(alias)
-      if (a.length === 0) continue
-      const score = norm === a
-        ? 100
-        : norm.includes(a) && a.length >= 2
-          ? 50 + a.length
-          : a.includes(norm) && norm.length >= 2
-            ? 40 + norm.length
-            : fuzzyScore(norm, a)
-      if (score >= minScore && (best === undefined || score > best.score)) {
-        best = { entry, score }
-      }
-    }
-  }
-  return best?.entry
+  return undefined
 }
 
 export function suggestSettingsPages(keyword: string, limit = 8): readonly SettingsEntry[] {

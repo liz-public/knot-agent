@@ -13,21 +13,6 @@ export type ContentSearchProvider =
   | 'iqiyi'
   | 'youku'
 
-export const CONTENT_SEARCH_PROVIDER_ORDER: readonly ContentSearchProvider[] = [
-  'douyin',
-  'zhihu',
-  'xhs',
-  'toutiao',
-  'weibo',
-  'ximalaya',
-  'qqmusic',
-  'neteasemusic',
-  'bilibili',
-  'tencentvideo',
-  'iqiyi',
-  'youku',
-]
-
 interface ContentSearchTarget {
   readonly packageName: string
   readonly buildUri: (keyword: string) => string

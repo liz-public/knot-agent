@@ -14,3 +14,20 @@ export async function listInstalledPackages(executor: AdbExecutor): Promise<Read
   }
   return packages
 }
+
+export interface PackageProvider {
+  readonly id: string
+  readonly packageName: string
+}
+
+export function pickInstalledProvider<T extends PackageProvider>(
+  installed: ReadonlySet<string>,
+  providers: readonly T[],
+  preferredId?: string,
+): T | undefined {
+  if (preferredId !== undefined) {
+    const preferred = providers.find(provider => provider.id === preferredId)
+    return preferred !== undefined && installed.has(preferred.packageName) ? preferred : undefined
+  }
+  return providers.find(provider => installed.has(provider.packageName))
+}

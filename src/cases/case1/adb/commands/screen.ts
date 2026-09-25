@@ -41,30 +41,5 @@ export function screenHandlers(executor: AdbExecutor): Readonly<Record<string, T
         detectQr ? '已识别屏幕文字；ADB 读屏不支持二维码识别。' : text.length === 0 ? '抓屏成功但未识别到文字。' : '已识别屏幕文字。',
       )
     },
-    async scan(arguments_) {
-      const provider = typeof arguments_['provider'] === 'string' ? arguments_['provider'] : 'wechat'
-      if (provider === 'wechat') await executor.shell('am start -n com.tencent.mm/.ui.LauncherUI --ez LauncherUI.From.Scaner.Shortcut true')
-      else if (provider === 'alipay') await executor.shell('am start -a android.intent.action.VIEW -d "alipayqr://platformapi/startapp?saId=10000007" com.eg.android.AlipayGphone')
-      else if (provider === 'unionpay') await executor.shell('am start -a android.intent.action.VIEW -d "upwallet://native/scanCode" com.unionpay')
-      else if (provider === 'meituan') await executor.shell('am start -a android.intent.action.VIEW -d "imeituan://www.meituan.com/scan"')
-      else return err('invalid_provider')
-      return ok({ provider, action: 'scan_requested' }, '已向系统发起打开扫一扫请求。')
-    },
-    async pay(arguments_) {
-      const provider = typeof arguments_['provider'] === 'string' ? arguments_['provider'] : 'wechat'
-      const receive = arguments_['receive'] === true
-      if (provider === 'wechat') await executor.shell('am start -n com.tencent.mm/.ui.ShortCutDispatchActivity --es LauncherUI.Shortcut.LaunchType launch_type_offline_wallet')
-      else if (provider === 'alipay') await executor.shell(`am start -a android.intent.action.VIEW -d "${receive ? 'alipays://platformapi/startapp?appId=20000123' : 'alipays://platformapi/startapp?appId=20000056'}" com.eg.android.AlipayGphone`)
-      else if (provider === 'unionpay') await executor.shell('am start -a android.intent.action.VIEW -d "upwallet://native/qrcode" com.unionpay')
-      else return err('invalid_provider')
-      return ok({ provider, receive }, '已向系统发起打开付款/收款码请求。')
-    },
-    async ride(arguments_) {
-      const provider = typeof arguments_['provider'] === 'string' ? arguments_['provider'] : 'alipay'
-      if (provider === 'alipay') await executor.shell('am start -a android.intent.action.VIEW -d "alipayqr://platformapi/startapp?saId=200011235" com.eg.android.AlipayGphone')
-      else if (provider === 'unionpay') await executor.shell('am start -a android.intent.action.VIEW -d "upwallet://native/rideCode" com.unionpay')
-      else return err('invalid_provider')
-      return ok({ provider, action: 'ride_requested' }, '已向系统发起打开乘车码请求。')
-    },
   }
 }

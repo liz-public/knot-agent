@@ -581,7 +581,7 @@ test('adb content.search returns app_not_installed for missing provider app', as
   assert.equal(payload.provider, 'douyin')
 })
 
-test('adb content.search falls back to first installed provider', async () => {
+test('adb content.search opens the required installed provider', async () => {
   let seen = ''
   const executor: AdbExecutor = {
     async shell(command) {
@@ -601,6 +601,199 @@ test('adb content.search falls back to first installed provider', async () => {
   assert.equal(payload.ok, true)
   assert.equal(payload.provider, 'zhihu')
   assert.match(seen, /zhihu:\/\/search/)
+})
+
+test('adb content.search rejects a missing required provider before dispatch', async () => {
+  const result = await adbBash(mockExecutor({})).execute(
+    { command: 'content.search AI' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  const payload = JSON.parse(result.content)
+  assert.equal(payload.ok, false)
+  assert.equal(payload.error, 'bad_arguments')
+})
+
+test('ADB launch treats an intent delivered to the running activity as success', async () => {
+  const executor = mockExecutor({
+    'pm list packages com.sec.android.app.samsungapps': 'package:com.sec.android.app.samsungapps',
+    'am start': 'Warning: Activity not started, intent has been delivered to currently running top-most instance.',
+  })
+  const result = await adbBash(executor).execute(
+    { command: 'appstore.search 知乎' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  assert.equal(JSON.parse(result.content).ok, true)
+})
+
+test('ADB launch reports an explicit activity resolution failure', async () => {
+  const executor = mockExecutor({
+    'pm list packages com.sec.android.app.samsungapps': 'package:com.sec.android.app.samsungapps',
+    'am start': 'Error type 3\nError: Activity class does not exist.',
+  })
+  const result = await adbBash(executor).execute(
+    { command: 'appstore.search 知乎' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  assert.equal(JSON.parse(result.content).error, 'open_failed')
+})
+
+test('adb settings executes only exact ids or aliases', async () => {
+  const commands: string[] = []
+  const executor: AdbExecutor = {
+    async shell(command) {
+      commands.push(command)
+      return 'Starting: Intent'
+    },
+    async shellLines(command) { return (await this.shell(command)).split('\n').filter(Boolean) },
+  }
+  const bash = adbBash(executor)
+  const matched = await bash.execute({ command: 'sys.settings.open wifi' }, { turnId: 't1', callId: 'c1' })
+  const unmatched = await bash.execute({ command: 'sys.settings.open 系统升级' }, { turnId: 't2', callId: 'c2' })
+  assert.equal(JSON.parse(matched.content).matched_id, 'wifi')
+  assert.equal(JSON.parse(unmatched.content).error, 'settings_not_matched')
+  assert.equal(commands.filter(command => command.includes('am start')).length, 1)
+})
+
+test('optional food and shopping providers fall back in declared order without duplicate package probes', async () => {
+  const commands: string[] = []
+  const executor: AdbExecutor = {
+    async shell(command) {
+      commands.push(command)
+      if (command === 'pm list packages') {
+        return ['package:com.dianping.v1', 'package:com.sankuai.meituan', 'package:com.jingdong.app.mall', 'package:com.xunmeng.pinduoduo'].join('\n')
+      }
+      return 'Starting: Intent'
+    },
+    async shellLines(command) { return (await this.shell(command)).split('\n').filter(Boolean) },
+  }
+  const bash = adbBash(executor)
+  const food = await bash.execute({ command: 'food.explore 火锅' }, { turnId: 't1', callId: 'c1' })
+  const shopping = await bash.execute({ command: 'shopping.search 手机' }, { turnId: 't2', callId: 'c2' })
+  assert.equal(JSON.parse(food.content).provider, 'dianping')
+  assert.equal(JSON.parse(shopping.content).provider, 'jd')
+  assert.equal(commands.filter(command => command === 'pm list packages').length, 2)
+  assert.equal(commands.some(command => command.startsWith('pm list packages ')), false)
+})
+
+test('optional QR providers fall back to the first installed compatible app', async () => {
+  const executor = mockExecutor({
+    'pm list packages': 'package:com.unionpay',
+    'am start': 'Starting: Intent',
+  })
+  const bash = adbBash(executor)
+  const scan = await bash.execute({ command: 'qrcode.scan' }, { turnId: 't1', callId: 'c1' })
+  const pay = await bash.execute({ command: 'qrcode.pay' }, { turnId: 't2', callId: 'c2' })
+  const ride = await bash.execute({ command: 'qrcode.ride' }, { turnId: 't3', callId: 'c3' })
+  assert.equal(JSON.parse(scan.content).provider, 'unionpay')
+  assert.equal(JSON.parse(pay.content).provider, 'unionpay')
+  assert.equal(JSON.parse(ride.content).provider, 'unionpay')
+})
+
+test('optional QR provider reports when no compatible app is installed', async () => {
+  const result = await adbBash(mockExecutor({ 'pm list packages': '' })).execute(
+    { command: 'qrcode.pay' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  assert.equal(JSON.parse(result.content).error, 'app_not_installed')
+})
+
+test('explicit optional provider fails when its app is not installed', async () => {
+  const result = await adbBash(mockExecutor({ 'pm list packages': 'package:com.dianping.v1' })).execute(
+    { command: 'food.explore 火锅 --provider meituan' },
+    { turnId: 't1', callId: 'c1' },
+  )
+  assert.equal(JSON.parse(result.content).error, 'app_not_installed')
+})
+
+test('adb express checks Alipay once before opening its express page', async () => {
+  const commands: string[] = []
+  const executor: AdbExecutor = {
+    async shell(command) {
+      commands.push(command)
+      if (command.startsWith('pm list packages')) return 'package:com.eg.android.AlipayGphone'
+      return 'Starting: Intent'
+    },
+    async shellLines(command) { return (await this.shell(command)).split('\n').filter(Boolean) },
+  }
+  const result = await adbBash(executor).execute({ command: 'express' }, { turnId: 't1', callId: 'c1' })
+  assert.equal(JSON.parse(result.content).mode, 'alipay')
+  assert.equal(commands.filter(command => command.startsWith('pm list packages')).length, 1)
+})
+
+test('adb weather maps a forecast response to compact tool content', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async input => {
+    assert.match(String(input), /\/amap\/weather/)
+    return new Response(JSON.stringify({
+      ok: true,
+      city: '北京',
+      daily: [{ date: '2026-09-26', dayweather: '晴' }],
+    }), { status: 200 })
+  }
+  try {
+    const result = await adbBash(mockExecutor({}), createAdbDeviceSession(), {
+      mapApi: { baseUrl: 'https://map.example.test', apiKey: 'test-key' },
+    }).execute({ command: 'weather 北京 --mode forecast' }, { turnId: 't1', callId: 'c1' })
+    const payload = JSON.parse(result.content)
+    assert.equal(payload.ok, true)
+    assert.equal(payload.city, '北京')
+    assert.equal(payload.forecast.length, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('adb weather reports missing map API configuration without fetching', async () => {
+  const originalFetch = globalThis.fetch
+  let fetched = false
+  globalThis.fetch = async () => {
+    fetched = true
+    return new Response('{}')
+  }
+  try {
+    const result = await adbBash(mockExecutor({})).execute(
+      { command: 'weather 北京' },
+      { turnId: 't1', callId: 'c1' },
+    )
+    assert.equal(JSON.parse(result.content).error, 'map_api_unconfigured')
+    assert.equal(fetched, false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('adb scenic ticket checks Ctrip and opens the requested search', async () => {
+  let launch = ''
+  const executor: AdbExecutor = {
+    async shell(command) {
+      if (command.startsWith('pm list packages ctrip.android.view')) return 'package:ctrip.android.view'
+      launch = command
+      return 'Starting: Intent'
+    },
+    async shellLines(command) { return (await this.shell(command)).split('\n').filter(Boolean) },
+  }
+  const result = await adbBash(executor).execute({ command: 'ticket.query 故宫' }, { turnId: 't1', callId: 'c1' })
+  assert.equal(JSON.parse(result.content).action, 'ticket_search')
+  assert.match(launch, /ctrip:\/\/wireless/)
+})
+
+test('adb ringtone and IME handlers expose their successful fallback paths', async () => {
+  const commands: string[] = []
+  const executor: AdbExecutor = {
+    async shell(command) {
+      commands.push(command)
+      if (command === 'cmd input_method show-input-method-picker') return 'Unknown command'
+      return 'Starting: Intent'
+    },
+    async shellLines(command) { return (await this.shell(command)).split('\n').filter(Boolean) },
+  }
+  const bash = adbBash(executor)
+  const ringtone = await bash.execute({ command: 'ringtone --type alarm' }, { turnId: 't1', callId: 'c1' })
+  const ime = await bash.execute({ command: 'ime' }, { turnId: 't2', callId: 'c2' })
+  assert.equal(JSON.parse(ringtone.content).type, 'alarm')
+  assert.equal(JSON.parse(ime.content).action, 'input_method_settings_opened')
+  assert.ok(commands.some(command => command.includes('RINGTONE_PICKER')))
+  assert.ok(commands.some(command => command.includes('INPUT_METHOD_SETTINGS')))
 })
 
 test('adb meeting.join builds wemeet deeplink with password', async () => {

@@ -2,7 +2,8 @@ import type { AdbExecutor } from './executor.js'
 import { shellQuote } from './parse.js'
 
 function launchSucceeded(output: string): boolean {
-  return !/Error|Unable to resolve|Activity not started|No Activity found/i.test(output)
+  if (/intent has been delivered to currently running/i.test(output)) return true
+  return !/Error(?: type)?|Unable to resolve|No Activity found|Activity class .* does not exist|Exception/i.test(output)
 }
 
 /** Launch a VIEW intent; returns false when the shell command fails. */
