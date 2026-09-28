@@ -1,4 +1,4 @@
-import type { Event } from '../../journal.js'
+import type { Event } from '../journal.js'
 import {
   ASSISTANT_MESSAGE,
   CONTEXT_DYNAMIC,

@@ -1,5 +1,5 @@
 import type { Plugin } from '../../journal.js'
-import { SESSION_START, SYSTEM_PROMPT } from '../case1/protocol.js'
+import { SESSION_START, SYSTEM_PROMPT } from '../../agent/protocol.js'
 
 export const CASE2_SYSTEM_PROMPT = `You are a coding agent working in the provided workspace.
 Inspect the relevant files before editing. Use read, write, edit, and bash tools to make the requested change and verify it.

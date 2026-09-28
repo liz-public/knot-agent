@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { LlmProvider } from '../cases/case1/llm.js'
+import type { LlmProvider } from '../agent/plugins/llm.js'
 import type { AgentAssemblyFactory } from './assembly.js'
 import { createAssemblyCatalog } from './assembly-catalog.js'
 import { createWorkbenchServer } from './http-server.js'

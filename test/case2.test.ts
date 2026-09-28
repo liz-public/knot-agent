@@ -6,8 +6,8 @@ import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createCase2Agent, createPersistentCase2Agent } from '../src/cases/case2/case2.js'
 import { codingTools } from '../src/cases/case2/coding-tools.js'
-import type { LlmProvider } from '../src/cases/case1/llm.js'
-import type { ToolDefinition } from '../src/cases/case1/tools.js'
+import type { LlmProvider } from '../src/agent/plugins/llm.js'
+import type { ToolDefinition } from '../src/agent/plugins/tools.js'
 import {
   ASSISTANT_MESSAGE,
   HISTORY_CHECKPOINT,
@@ -17,7 +17,7 @@ import {
   TOOL_RESULT,
   USER_MESSAGE,
   type ToolResult,
-} from '../src/cases/case1/protocol.js'
+} from '../src/agent/protocol.js'
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
 

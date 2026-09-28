@@ -4,7 +4,7 @@ import type {
   PluginNode,
   PluginToolDescription,
 } from '../assembly-definition.js'
-import type { LlmProvider } from '../cases/case1/llm.js'
+import type { LlmProvider } from '../agent/plugins/llm.js'
 import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
 import type { ApprovalMode } from './session.js'
 

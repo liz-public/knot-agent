@@ -10,7 +10,7 @@ import {
   type LlmInvoke,
   type ToolResult,
   type UserMessage,
-} from '../case1/protocol.js'
+} from '../../agent/protocol.js'
 
 export interface CompletionBlocker {
   readonly reason: string

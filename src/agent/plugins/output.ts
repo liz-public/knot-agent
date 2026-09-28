@@ -4,7 +4,7 @@ import {
   ASSISTANT_REASONING,
   type AssistantMessage,
   type AssistantReasoning,
-} from './protocol.js'
+} from '../protocol.js'
 
 export interface OutputSinks {
   readonly content: (content: string) => void

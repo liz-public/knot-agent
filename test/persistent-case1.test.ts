@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createPersistentCase1Agent as createPersistentCase1AgentCore, type PersistentCase1Options } from '../src/cases/case1/case1.js'
-import { llmPlugin } from '../src/cases/case1/llm.js'
+import { llmPlugin } from '../src/agent/plugins/llm.js'
 import { mockLlmProvider } from '../src/cases/case1/llm-mock.js'
 import { createMockAndroidDispatcher } from '../src/cases/case1/mock-android-tools.js'
 import {

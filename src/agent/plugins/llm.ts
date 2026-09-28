@@ -1,5 +1,5 @@
 import type { Plugin } from '../../journal.js'
-import { projectMessages, projectTools } from './projection.js'
+import { projectMessages, projectTools } from '../projection.js'
 import {
   ASSISTANT_MESSAGE,
   ASSISTANT_REASONING,
@@ -10,7 +10,7 @@ import {
   type LlmGenerated,
   type LlmInvoke,
   type LlmRequest,
-} from './protocol.js'
+} from '../protocol.js'
 
 export interface LlmCall {
   readonly request: LlmRequest

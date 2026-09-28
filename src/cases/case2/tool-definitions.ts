@@ -1,4 +1,4 @@
-import type { ToolDefinition } from '../case1/tools.js'
+import type { ToolDefinition } from '../../agent/plugins/tools.js'
 import { codingTools, type ToolOutput } from './coding-tools.js'
 import { goalTool } from './goal-tool.js'
 import { spawnAgentTool, type SubagentFactory } from './subagent-tool.js'

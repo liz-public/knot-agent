@@ -1,4 +1,4 @@
-import type { ToolDefinition } from '../case1/tools.js'
+import type { ToolDefinition } from '../../agent/plugins/tools.js'
 
 export interface SubagentFactory {
   run(input: {

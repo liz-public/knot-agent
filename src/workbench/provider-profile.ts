@@ -1,6 +1,6 @@
-import { deepSeekLlmProvider } from '../cases/case1/llm-deepseek.js'
-import type { LlmProvider } from '../cases/case1/llm.js'
-import { openAiLlmProvider } from '../cases/case1/llm-openai.js'
+import type { LlmProvider } from '../agent/plugins/llm.js'
+import { deepSeekLlmProvider } from '../agent/providers/deepseek.js'
+import { openAiLlmProvider } from '../agent/providers/openai.js'
 import type { ReasoningEffort } from './session.js'
 
 export type ProviderAdapter = 'openai-compatible' | 'deepseek'

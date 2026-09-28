@@ -5,7 +5,7 @@ import {
   CONTEXT_DYNAMIC,
   USER_MESSAGE,
   type UserMessage,
-} from '../case1/protocol.js'
+} from '../../agent/protocol.js'
 
 const instructionFiles = ['AGENTS.md', 'CLAUDE.md'] as const
 
@@ -32,9 +32,6 @@ export const workspaceContextPlugin = (cwd: string): Plugin => journal => {
         `Current workspace: ${cwd}`,
         ...instructions.map(item => `Project instructions from ${item.name}:\n${item.content}`),
       ].join('\n\n'),
-      matchedPackages: [],
-      matchedCommands: [],
-      activeState: {},
     })
   })
 }

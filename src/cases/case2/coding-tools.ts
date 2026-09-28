@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
-import type { ToolDefinition, ToolExecution } from '../case1/tools.js'
+import type { ToolDefinition, ToolExecution } from '../../agent/plugins/tools.js'
 
 const READ_MAX_LINES = 2000
 const READ_MAX_BYTES = 50 * 1024

@@ -15,16 +15,16 @@ import {
   type GenerationUpdate,
   type LiveOutput,
   type LlmProvider,
-} from '../src/cases/case1/llm.js'
+} from '../src/agent/plugins/llm.js'
 import { mockLlmPlugin, mockLlmProvider } from '../src/cases/case1/llm-mock.js'
-import { deepSeekLlmProvider } from '../src/cases/case1/llm-deepseek.js'
-import { openAiLlmPlugin } from '../src/cases/case1/llm-openai.js'
+import { deepSeekLlmProvider } from '../src/agent/providers/deepseek.js'
+import { openAiLlmPlugin } from '../src/agent/providers/openai.js'
 import { createMockCase1ToolRuntime } from '../src/cases/case1/tool-runtimes.js'
 import {
   isDynamicContextMessage,
   projectMessages,
   projectTools,
-} from '../src/cases/case1/projection.js'
+} from '../src/agent/projection.js'
 import {
   ASSISTANT_MESSAGE,
   CONTENT_REQUEST,

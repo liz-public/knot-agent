@@ -6,11 +6,11 @@ import {
   type PluginMetadata,
   type PluginNode,
 } from '../../assembly-definition.js'
-import { compressHistoryPlugin, type CompressHistoryOptions } from '../case1/compress-history.js'
-import { contextAssemblerPlugin } from '../case1/context-assembler.js'
-import { llmPlugin, type LiveOutput, type LlmProvider } from '../case1/llm.js'
-import { outputPlugin, type OutputSinks } from '../case1/output.js'
-import { toolsPlugin, type ToolDefinition } from '../case1/tools.js'
+import { compressHistoryPlugin, type CompressHistoryOptions } from '../../agent/plugins/compress-history.js'
+import { contextAssemblerPlugin } from '../../agent/plugins/context-assembler.js'
+import { llmPlugin, type LiveOutput, type LlmProvider } from '../../agent/plugins/llm.js'
+import { outputPlugin, type OutputSinks } from '../../agent/plugins/output.js'
+import { toolsPlugin, type ToolDefinition } from '../../agent/plugins/tools.js'
 import { codingFlowPlugin } from './coding-flow.js'
 import { CASE2_SYSTEM_PROMPT, codingSystemPromptPlugin } from './system-prompt.js'
 import { case2ToolDefinitions } from './tool-definitions.js'
@@ -40,12 +40,12 @@ const describedTools = pluginTools(case2ToolDefinitions({
 const business: readonly PluginDefinition<BuildContext>[] = [
   definePlugin({ metadata: { id: 'system-prompt', name: 'CodingSystemPrompt', category: 'context', responsibility: 'Install the stable coding instruction once.', listens: ['session.start'], emits: ['system.prompt'], source: 'src/cases/case2/system-prompt.ts' }, create: () => codingSystemPromptPlugin(CASE2_SYSTEM_PROMPT), inspect: () => ({ systemPrompts: [CASE2_SYSTEM_PROMPT] }) }),
   { metadata: { id: 'workspace-context', name: 'WorkspaceContext', category: 'context', responsibility: 'Describe the workspace and load AGENTS.md or CLAUDE.md for the active user turn.', listens: ['user.message'], emits: ['context.dynamic'], source: 'src/cases/case2/workspace-context.ts' }, create: context => workspaceContextPlugin(context.cwd) },
-  { metadata: { id: 'history-compression', name: 'CompressHistory', category: 'context', responsibility: 'Create a semantic checkpoint after the context threshold.', listens: ['llm.generated'], emits: ['history.compaction.required', 'history.checkpoint'], source: 'src/cases/case1/compress-history.ts' }, create: context => compressHistoryPlugin(context.compression) },
+  { metadata: { id: 'history-compression', name: 'CompressHistory', category: 'context', responsibility: 'Create a semantic checkpoint after the context threshold.', listens: ['llm.generated'], emits: ['history.compaction.required', 'history.checkpoint'], source: 'src/agent/plugins/compress-history.ts' }, create: context => compressHistoryPlugin(context.compression) },
   { metadata: { id: 'coding-flow', name: 'CodingFlow', category: 'flow', responsibility: 'Advance one coding turn and guard completion.', listens: ['user.message', 'tool.result', 'llm.generated'], emits: ['llm.request', 'assistant.message'], source: 'src/cases/case2/coding-flow.ts' }, create: () => codingFlowPlugin() },
-  { metadata: { id: 'context-assembler', name: 'ContextAssembler', category: 'content', responsibility: 'Project Journal facts into a provider-neutral request.', listens: ['llm.request'], emits: ['llm.invoke'], source: 'src/cases/case1/context-assembler.ts' }, create: () => contextAssemblerPlugin() },
-  { metadata: { id: 'llm', name: 'LLMProvider', category: 'content', responsibility: 'Produce one complete model decision.', listens: ['llm.invoke'], emits: ['llm.generated', 'assistant.reasoning', 'tool.call'], source: 'src/cases/case1/llm.ts' }, create: context => llmPlugin(context.llm, context.liveOutput, { commitAssistantMessage: false }) },
-  definePlugin({ metadata: { id: 'tools', name: 'Tools', category: 'effect', responsibility: 'Execute one tool-call batch and return every outcome.', listens: ['tool.call'], emits: ['tool.result'], source: 'src/cases/case1/tools.ts' }, create: context => toolsPlugin(context.tools), inspect: () => ({ tools: describedTools }) }),
-  { metadata: { id: 'output', name: 'Output', category: 'presentation', responsibility: 'Publish committed assistant replies.', listens: ['assistant.message'], emits: [], source: 'src/cases/case1/output.ts' }, create: context => outputPlugin(context.output ?? { content: () => undefined }) },
+  { metadata: { id: 'context-assembler', name: 'ContextAssembler', category: 'content', responsibility: 'Project Journal facts into a provider-neutral request.', listens: ['llm.request'], emits: ['llm.invoke'], source: 'src/agent/plugins/context-assembler.ts' }, create: () => contextAssemblerPlugin() },
+  { metadata: { id: 'llm', name: 'LLMProvider', category: 'content', responsibility: 'Produce one complete model decision.', listens: ['llm.invoke'], emits: ['llm.generated', 'assistant.reasoning', 'tool.call'], source: 'src/agent/plugins/llm.ts' }, create: context => llmPlugin(context.llm, context.liveOutput, { commitAssistantMessage: false }) },
+  definePlugin({ metadata: { id: 'tools', name: 'Tools', category: 'effect', responsibility: 'Execute one tool-call batch and return every outcome.', listens: ['tool.call'], emits: ['tool.result'], source: 'src/agent/plugins/tools.ts' }, create: context => toolsPlugin(context.tools), inspect: () => ({ tools: describedTools }) }),
+  { metadata: { id: 'output', name: 'Output', category: 'presentation', responsibility: 'Publish committed assistant replies.', listens: ['assistant.message'], emits: [], source: 'src/agent/plugins/output.ts' }, create: context => outputPlugin(context.output ?? { content: () => undefined }) },
 ]
 
 export const case2PluginDefinitions: readonly PluginDefinition<BuildContext>[] = [boundary, ...business]

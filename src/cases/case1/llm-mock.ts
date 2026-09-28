@@ -5,7 +5,7 @@ import {
   type LiveOutput,
   type LlmCall,
   type LlmProvider,
-} from './llm.js'
+} from '../../agent/plugins/llm.js'
 import type { LlmGenerated, LlmUsage } from './protocol.js'
 
 export interface MockLlmOptions {

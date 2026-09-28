@@ -1,5 +1,5 @@
 import type { Event } from '../journal.js'
-import { projectMessages, projectTools } from '../cases/case1/projection.js'
+import { projectMessages, projectTools } from '../agent/projection.js'
 import {
   LLM_GENERATED,
   LLM_INVOKE,
@@ -7,7 +7,7 @@ import {
   type LlmGenerated,
   type LlmInvoke,
   type LlmUsage,
-} from '../cases/case1/protocol.js'
+} from '../agent/protocol.js'
 
 export interface ContextMessageDto extends ChatMessage {
   readonly estimatedTokens: number

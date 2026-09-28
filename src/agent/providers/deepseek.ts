@@ -1,5 +1,5 @@
-import type { LlmProvider } from './llm.js'
-import { openAiLlmProvider } from './llm-openai.js'
+import type { LlmProvider } from '../plugins/llm.js'
+import { openAiLlmProvider } from './openai.js'
 
 export interface DeepSeekLlmOptions {
   readonly apiKey: string

@@ -9,7 +9,7 @@ import {
   type HistoryCompactionRequired,
   type HistoryCompressRequest,
   type LlmGenerated,
-} from './protocol.js'
+} from '../protocol.js'
 
 export interface CompressHistoryOptions {
   readonly threshold?: number

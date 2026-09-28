@@ -5,10 +5,10 @@ import {
   createCase1Agent,
   createPersistentCase1Agent,
 } from './case1.js'
-import type { LiveOutput } from './llm.js'
+import type { LiveOutput } from '../../agent/plugins/llm.js'
 import { mockLlmPlugin } from './llm-mock.js'
-import { openAiLlmPlugin } from './llm-openai.js'
-import { createTerminalUi } from './terminal-ui.js'
+import { openAiLlmPlugin } from '../../agent/providers/openai.js'
+import { createTerminalUi } from '../../agent/presentation/terminal-ui.js'
 import { createMockCase1ToolRuntime } from './tool-runtimes.js'
 
 function configuredLlm(liveOutput: LiveOutput): Plugin {

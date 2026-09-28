@@ -1,7 +1,7 @@
 # knot-agent 开发约束
 
 > 适用范围：本仓库全部代码。写新 case、改插件、评审实现之前先读这一份。
-> 现状基线：内核 `src/journal.ts` 56 行，自 `7619936` 起零改动；`npm test` 23 项通过。
+> 现状基线：内核 `src/journal.ts` 56 行，自 `7619936` 起零改动；`npm test` 135 项通过。
 > 推导过程在 [docs/reviews/](docs/reviews/)，本文只给结论和可执行的检查项。
 
 ## 0. 这个项目在验证什么
@@ -82,7 +82,12 @@ grep -niE "tool|trace|prompt|llm|session|priority|context|runtime" src/journal.t
 | 位置 | 是什么 | 该怎么用 |
 |---|---|---|
 | `src/main.ts` + `src/plugins/*` + `src/protocol.ts` | **内核契约的最小演示**，6 个事件类型 | 读它理解内核怎么用 |
-| `src/cases/case1/*` | **一个真实 case 的形状**，16 个事件类型 | 写新 case 时参照它 |
+| `src/agent/protocol.ts` | **跨 case 的 agent 协议** | 仅放通用事件常量和 payload 类型 |
+| `src/agent/plugins/*` | **已被多个 case 验证的共享插件** | 由 case 装配，不带 Android 或 coding 领域语义 |
+| `src/agent/providers/*` | **LLM Provider 适配** | 只处理模型 API 差异，不知道具体 case |
+| `src/agent/presentation/*` | **瞬时展示适配** | 不改变 Journal 推进语义 |
+| `src/cases/case1/*` | **真实手机助手 case** | 放该领域的装配、协议扩展、策略与工具实现 |
+| `src/cases/case2/*` | **真实编码 agent case** | 放该领域的 flow、workspace context 和 coding tools |
 
 **默认模板在若干处已经落后于 CASE1 的结论，直接复制会把已修掉的问题带回来：**
 
@@ -100,18 +105,19 @@ grep -niE "tool|trace|prompt|llm|session|priority|context|runtime" src/journal.t
 
 ```text
 src/cases/caseN/
-  protocol.ts        纯声明：事件类型常量 + payload interface。零运行时逻辑
+  protocol.ts        可选：只声明该 case 独有的事件和 payload
   caseN.ts           装配表 + start/submit。唯一能看到"这个 agent 由什么构成"的地方
   run.ts             CLI 入口：trace 写 stderr，答案写 stdout
   <plugin>.ts        每个插件一个文件，导出 (config) => Plugin
-  projection.ts      纯函数：Journal + manifest -> 模型输入。不是插件
+  <pure-helper>.ts   可选的领域纯函数
 ```
 
 约定：
 
 - **插件是函数**：`(journal) => void`。安装就是调用一次。私有状态用闭包，带配置用柯里化。
 - **插件不导入其他插件的实现**。可以导入：协议（`protocol.ts`）、纯函数库（`projection.ts`、谓词）。
-- **`protocol.ts` 不属于内核**，内核不导入它。文件里只能有 `const` 字符串和 `interface`。
+- **协议不属于内核**，内核不导入协议。跨 case 的事件放 `src/agent/protocol.ts`，领域扩展才放 case 内的 `protocol.ts`；两者都只能有常量和类型。
+- **只有被两个真实 case 共同使用的能力才进 `src/agent/`**。不为未来 case 预留 registry、lifecycle 或抽象层。
 - **装配期只注册订阅，不产生业务事件。** 全部插件安装完成后，装配层才追加第一个 seed 事件。
 - 装配表里插件的**顺序有语义**（注册顺序 = 优先级），改顺序等于改行为。
 
@@ -133,7 +139,7 @@ CASE1 曾经把模型一次生成的 N 个工具调用拆成 N 条 `tool.call`�
 
 正确的粒度是**模型的一次决策**：一条 `tool.call` 带 `calls: [...]`，一条 `tool.result` 带 `results: [...]`。于是 join 整段消失（`tool.result` 存在就意味着整批齐了）、工具插件可以自己 `Promise.all` 拿回并行度、投影天然是合法的一条 assistant 带全部 `tool_calls`。顺带 `assistantContent` 也回到批级别，不再被抄 N 份。
 
-**判据：如果一个事实"只有凑齐若干条才有意义"，那它本来就该是一条事件。** 需要 join 是数据模型错了的信号，不是需要更聪明的插件。参照 `src/cases/case1/protocol.ts` 的 `ToolCall` / `ToolResult`。
+**判据：如果一个事实"只有凑齐若干条才有意义"，那它本来就该是一条事件。** 需要 join 是数据模型错了的信号，不是需要更聪明的插件。参照 `src/agent/protocol.ts` 的 `ToolCall` / `ToolResult`。
 
 ### 4.2 引用事实要用内容标识，不要用位置
 
@@ -248,7 +254,7 @@ CASE1 的五个问题，**没有一个的正确解法需要内核提供新能力
 遇到以下情况请先停下来讨论，不要顺手实现：
 
 1. **内核 `seq`。** §4.2 和 §4.5 都出现过"我需要知道某个事实在 Journal 里的位置"（`events.indexOf`），目前都用内容标识绕开了。**如果 CASE2、CASE3 继续出现同样诉求，那才是加 `seq` 的第一个正当理由**——届时它的语义（数组下标？全局单调 id？跨 session 怎么办？）会有三个真实用例来约束，而不是靠猜。
-2. **共享传输层。** `src/plugins/llm-openai.ts` 和 `src/cases/case1/llm-openai.ts` 里 fetch 加解析那段是实打实的重复。按现在只按 case 切分的方式，到 CASE3 会有第三份。建议方向：把 `chatCompletion(options, messages, tools)` 提成**零 Journal 知识、零协议知识**的纯传输函数，各 case 用自己的协议包成插件。动手前先定。
+2. **更低层的 Provider 传输拆分。** OpenAI 兼容适配已收敛到 `src/agent/providers/`；在出现第二个共享同一 HTTP/SSE 细节、但不能共享 Provider 语义的真实适配前，不再抽新的 transport 层。
 3. **失控循环保护。** 一个每次都返回工具调用的 provider 会让 Journal 无限增长直到 V8 OOM（写 CASE1 测试时撞到过）。这符合"由业务插件自己保证终止"的约定，但真机上需要一个普通插件来数轮数并追加终止事件。谁来做、终止事件叫什么，先定。
 4. **流式输出**。第一版明确不做。真要做时先证明"追加普通 delta 事件"不可接受，再考虑内核。
 

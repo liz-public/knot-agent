@@ -1,13 +1,13 @@
 import { performance } from 'node:perf_hooks'
 import type { Event } from '../../journal.js'
-import { openAiLlmProvider } from '../case1/llm-openai.js'
-import { createTerminalUi } from '../case1/terminal-ui.js'
+import { openAiLlmProvider } from '../../agent/providers/openai.js'
+import { createTerminalUi } from '../../agent/presentation/terminal-ui.js'
 import {
   TOOL_CALL,
   TOOL_RESULT,
   type ToolCall,
   type ToolResult,
-} from '../case1/protocol.js'
+} from '../../agent/protocol.js'
 import { createCase2Agent, createPersistentCase2Agent, type Case2Options } from './case2.js'
 
 function required(name: string): string {

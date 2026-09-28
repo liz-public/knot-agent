@@ -10,7 +10,7 @@ import {
   type HistoryCompactionRequired,
   type LlmInvoke,
   type LlmRequest,
-} from './protocol.js'
+} from '../protocol.js'
 
 function pendingCompaction(events: readonly Event[]): HistoryCompactionRequired | undefined {
   const completed = new Set(events

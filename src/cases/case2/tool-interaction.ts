@@ -1,4 +1,4 @@
-import type { ToolDefinition, ToolExecution } from '../case1/tools.js'
+import type { ToolDefinition, ToolExecution } from '../../agent/plugins/tools.js'
 
 export type PermissionDecision = 'allow' | 'deny' | 'ask'
 

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createPersistentCase1Agent } from '../dist/src/cases/case1/case1.js'
-import { openAiLlmPlugin } from '../dist/src/cases/case1/llm-openai.js'
+import { openAiLlmPlugin } from '../dist/src/agent/providers/openai.js'
 import { createAdbCase1ToolRuntime } from '../dist/src/cases/case1/tool-runtimes.js'
 
 const required = name => {

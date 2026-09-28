@@ -1,5 +1,5 @@
-import type { LiveOutput } from './llm.js'
-import type { OutputSinks } from './output.js'
+import type { LiveOutput } from '../plugins/llm.js'
+import type { OutputSinks } from '../plugins/output.js'
 
 /**
  * One terminal adapter exposes two faces: a transient live port and the normal

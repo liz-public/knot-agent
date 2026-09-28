@@ -5,7 +5,7 @@ import {
   type LiveOutput,
   type LlmCall,
   type LlmProvider,
-} from './llm.js'
+} from '../plugins/llm.js'
 
 export interface OpenAiLlmOptions {
   readonly baseUrl: string

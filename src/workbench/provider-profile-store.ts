@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { deepSeekLlmProvider } from '../cases/case1/llm-deepseek.js'
-import { openAiLlmProvider } from '../cases/case1/llm-openai.js'
+import { deepSeekLlmProvider } from '../agent/providers/deepseek.js'
+import { openAiLlmProvider } from '../agent/providers/openai.js'
 import type {
   ProviderAdapter,
   ProviderProfile,

@@ -4,7 +4,7 @@ import type { AskPort } from '../cases/case1/ask-port.js'
 import type { ApprovalPort } from '../cases/case1/approval-port.js'
 import { createBashTool, createCliCatalog } from '../cases/case1/cli.js'
 import { createToolDispatcher } from '../cases/case1/dispatcher.js'
-import { llmPlugin } from '../cases/case1/llm.js'
+import { llmPlugin } from '../agent/plugins/llm.js'
 import { describeCase1Plugins } from '../cases/case1/plugin-definitions.js'
 import {
   createMockCase1ToolRuntime,

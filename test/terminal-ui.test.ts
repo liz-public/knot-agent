@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createTerminalUi } from '../src/cases/case1/terminal-ui.js'
+import { createTerminalUi } from '../src/agent/presentation/terminal-ui.js'
 
 test('terminal UI only deduplicates the current generation preview', async () => {
   let stdout = ''
