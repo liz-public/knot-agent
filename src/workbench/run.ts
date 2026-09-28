@@ -88,7 +88,6 @@ async function newLiveSession(input: {
   assemblyId?: string
   parentSessionId?: string
   delegationDepth?: number
-  assemblyGenerationId?: string
   assemblyOverride?: AgentAssemblyFactory
 } = {}): Promise<WorkbenchSession> {
   const projectId = input.projectId ?? input.assemblyId ?? input.assemblyOverride?.id ?? 'case2'
@@ -98,12 +97,6 @@ async function newLiveSession(input: {
     ?? projectId
   if (input.assemblyOverride === undefined && assemblies.get(assemblyId) === undefined) {
     throw new Error(`Unknown assembly ${assemblyId}`)
-  }
-  const assemblyGenerationId = input.assemblyGenerationId ?? await studio?.activeGenerationId(projectId)
-  if (assemblyGenerationId !== undefined
-    && studio !== undefined
-    && !await studio.hasGeneration(assemblyGenerationId, projectId)) {
-    throw new Error(`Unknown assembly generation ${assemblyGenerationId}`)
   }
   const profile = input.assemblyOverride === undefined
     ? input.providerProfileId === undefined
@@ -132,9 +125,6 @@ async function newLiveSession(input: {
     cwd: input.cwd?.trim() || defaultCwd,
     journalPath: join(sessionDirectory, `${id}.jsonl`),
     assembly: assembly.id,
-    ...(assemblyGenerationId === undefined
-      ? {}
-      : { assemblyGenerationId }),
     model: assembly.model,
     ...(profile === undefined ? {} : { providerProfileId: profile.id }),
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
@@ -198,7 +188,6 @@ async function createStudioRunSession(input: StudioRunInput): Promise<WorkbenchS
       cwd: input.workspace,
       assemblyId: input.assemblyId,
       projectId: input.projectId,
-      assemblyGenerationId: input.generationId,
       approvalMode: 'auto',
       delegationDepth: 0,
       assemblyOverride: assemblies.get(input.assemblyId)!.create({
@@ -211,7 +200,6 @@ async function createStudioRunSession(input: StudioRunInput): Promise<WorkbenchS
       cwd: input.workspace,
       assemblyId: input.assemblyId,
       projectId: input.projectId,
-      assemblyGenerationId: input.generationId,
       ...(input.providerProfileId === undefined ? {} : { providerProfileId: input.providerProfileId }),
       ...(input.reasoningEffort === undefined ? {} : { reasoningEffort: input.reasoningEffort }),
       approvalMode: 'ask',
@@ -271,9 +259,6 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
     : await createLiveSession({
       ...descriptor,
       providerProfileId: profile.id,
-      ...(descriptor.assemblyGenerationId === undefined
-        ? {}
-        : { assemblyGenerationId: descriptor.assemblyGenerationId }),
       assembly: assemblyFor(descriptor.assembly, profile, descriptor.reasoningEffort, descriptor.approvalMode, {
         id: descriptor.id,
         projectId: descriptor.projectId ?? descriptor.assembly,
@@ -324,7 +309,6 @@ if (configuredJournal !== undefined) {
 if (registry.list().length === 0 && providerStore.default() !== undefined) registry.add(await newLiveSession({
   title: 'CASE2 coding session',
   projectId: 'case2',
-  assemblyGenerationId: await studio.activeGenerationId('case2'),
 }))
 
 const port = Number(process.env['KNOT_WORKBENCH_PORT'] ?? '4317')

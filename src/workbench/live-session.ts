@@ -14,7 +14,6 @@ export interface LiveSessionOptions {
   readonly cwd: string
   readonly journalPath: string
   readonly assembly: AgentAssemblyFactory
-  readonly assemblyGenerationId?: string
   readonly providerProfileId?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly approvalMode?: ApprovalMode
@@ -57,9 +56,6 @@ export async function createLiveSession(
         title: options.title,
         ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
         assembly: options.assembly.id,
-        ...(options.assemblyGenerationId === undefined
-          ? {}
-          : { assemblyGenerationId: options.assemblyGenerationId }),
         workspace: options.cwd,
         model: options.assembly.model,
         ...(options.providerProfileId === undefined

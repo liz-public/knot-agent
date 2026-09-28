@@ -11,7 +11,6 @@ export interface SessionSummary {
   readonly title: string
   readonly projectId?: string
   readonly assembly: string
-  readonly assemblyGenerationId?: string
   readonly workspace?: string
   readonly model?: string
   readonly providerProfileId?: string
@@ -104,7 +103,6 @@ export interface StudioAssembly {
   readonly plugins: readonly StudioPlugin[]
   readonly tools: ReadonlyArray<{ readonly name: string; readonly description: string }>
   readonly protocols: readonly string[]
-  readonly fingerprint: string
 }
 
 export interface StudioProject {
@@ -113,7 +111,6 @@ export interface StudioProject {
   readonly summary: string
   readonly projectRoot: string
   readonly assembly: StudioAssembly
-  readonly activeGenerationId: string
 }
 
 export interface StudioCase {
@@ -128,32 +125,12 @@ export interface StudioCase {
   readonly runCount: number
 }
 
-export interface StudioValidation {
-  readonly id: string
-  readonly caseId: string
-  readonly assemblyFingerprint: string
-  readonly createdAt: string
-  readonly passed: boolean
-  readonly checks: ReadonlyArray<{ readonly id: string; readonly label: string; readonly passed: boolean; readonly detail: string }>
-}
-
-export interface StudioGeneration {
-  readonly id: string
-  readonly projectId: string
-  readonly assemblyFingerprint: string
-  readonly validationId: string
-  readonly createdAt: string
-  readonly active: boolean
-  readonly restorable: boolean
-}
-
 export interface StudioRun {
   readonly id: string
   readonly caseId: string
   readonly projectId: string
   readonly mode: 'mock' | 'real'
   readonly sessionId: string
-  readonly generationId: string
   readonly providerProfileId?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly createdAt: string
@@ -172,8 +149,6 @@ export interface StudioRun {
 export interface StudioSnapshot {
   readonly projects: readonly StudioProject[]
   readonly cases: readonly StudioCase[]
-  readonly validations: readonly StudioValidation[]
-  readonly generations: readonly StudioGeneration[]
   readonly runs: readonly StudioRun[]
 }
 
@@ -313,7 +288,6 @@ export async function createSession(input: {
   approvalMode?: ApprovalMode
   projectId?: string
   assemblyId?: string
-  assemblyGenerationId?: string
 } = {}): Promise<SessionSummary> {
   return (await post<{ session: SessionSummary }>('/api/workbench/sessions', input)).session
 }
@@ -341,14 +315,6 @@ export async function createStudioCase(input: {
 
 export async function loadStudioFlow(runId: string, signal?: AbortSignal): Promise<StudioFlow> {
   return await readJson<StudioFlow>(await fetch(`/api/workbench/studio/runs/${encodeURIComponent(runId)}/flow`, { signal }))
-}
-
-export async function checkStudioAssembly(caseId: string): Promise<StudioValidation> {
-  return (await post<{ validation: StudioValidation }>('/api/workbench/studio/check', { caseId })).validation
-}
-
-export async function publishStudioGeneration(caseId: string): Promise<StudioGeneration> {
-  return (await post<{ generation: StudioGeneration }>('/api/workbench/studio/publish', { caseId })).generation
 }
 
 export async function runStudioCase(input: {

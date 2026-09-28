@@ -41,7 +41,6 @@ test('an Assembly may intentionally declare no prompt, tools, or chat protocols'
   assert.deepEqual(definition.description.plugins, [])
   assert.deepEqual(definition.description.tools, [])
   assert.deepEqual(definition.description.protocols, [])
-  assert.equal(definition.description.fingerprint.length, 16)
 })
 
 test('Workbench runs a CASE1 assembly through the same live Session boundary', async t => {

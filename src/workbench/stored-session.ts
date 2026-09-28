@@ -7,7 +7,6 @@ export interface StoredSessionConfig {
   readonly title: string
   readonly projectId?: string
   readonly assembly: string
-  readonly assemblyGenerationId?: string
   readonly journalPath: string
   readonly workspace?: string
   readonly model?: string
@@ -37,9 +36,6 @@ export function storedSession(
         title: config.title,
         projectId: config.projectId ?? config.assembly,
         assembly: config.assembly,
-        ...(config.assemblyGenerationId === undefined
-          ? {}
-          : { assemblyGenerationId: config.assemblyGenerationId }),
         ...(config.workspace === undefined ? {} : { workspace: config.workspace }),
         ...(config.model === undefined ? {} : { model: config.model }),
         ...(config.providerProfileId === undefined

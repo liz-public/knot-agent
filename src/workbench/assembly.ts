@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type {
   PluginInspection,
   PluginMetadata,
@@ -79,7 +78,6 @@ export interface AssemblyDescription {
   readonly plugins: readonly PluginMetadata[]
   readonly tools: readonly PluginToolDescription[]
   readonly protocols: readonly string[]
-  readonly fingerprint: string
 }
 
 export interface AssemblyBuildOptions {
@@ -114,10 +112,6 @@ export function defineAssembly(input: {
   const protocols = [...new Set(plugins.flatMap(plugin => [...plugin.listens, ...plugin.emits]))]
     .filter(protocol => protocol !== '*')
     .sort()
-  const source = { id: input.id, title: input.title, systemPrompt, plugins, tools, protocols }
-  const description = {
-    ...source,
-    fingerprint: createHash('sha256').update(JSON.stringify(source)).digest('hex').slice(0, 16),
-  }
+  const description = { id: input.id, title: input.title, systemPrompt, plugins, tools, protocols }
   return { description, create: input.create }
 }

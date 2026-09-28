@@ -28,7 +28,6 @@ export interface WorkbenchServerOptions {
     approvalMode?: ApprovalMode
     projectId?: string
     assemblyId?: string
-    assemblyGenerationId?: string
   }) => Promise<WorkbenchSession>
   readonly webRoot?: string
 }
@@ -261,28 +260,6 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         return
       }
 
-      if (request.method === 'POST' && url.pathname === '/api/workbench/studio/check') {
-        if (options.studio === undefined) {
-          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
-          return
-        }
-        const body = await readBody(request)
-        if (typeof body['caseId'] !== 'string') throw new Error('caseId must be a string')
-        sendJson(response, 200, { validation: await options.studio.check(body['caseId']) })
-        return
-      }
-
-      if (request.method === 'POST' && url.pathname === '/api/workbench/studio/publish') {
-        if (options.studio === undefined) {
-          sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
-          return
-        }
-        const body = await readBody(request)
-        if (typeof body['caseId'] !== 'string') throw new Error('caseId must be a string')
-        sendJson(response, 201, { generation: await options.studio.publish(body['caseId']) })
-        return
-      }
-
       if (request.method === 'POST' && url.pathname === '/api/workbench/studio/runs') {
         if (options.studio === undefined) {
           sendJson(response, 404, { error: { code: 'studio_unavailable', message: 'Studio is unavailable' } })
@@ -335,9 +312,6 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
             : {}),
           ...(['ask', 'auto'].includes(String(body['approvalMode']))
             ? { approvalMode: body['approvalMode'] as ApprovalMode }
-            : {}),
-          ...(typeof body['assemblyGenerationId'] === 'string'
-            ? { assemblyGenerationId: body['assemblyGenerationId'] }
             : {}),
         })
         registry.add(session)
