@@ -1,12 +1,9 @@
-import type { ApprovalPort } from '../../approval-port.js'
 import type { ToolHandler } from '../../dispatcher.js'
 import { deleteContactByPhone, lookupContactByPhone, upsertContactByPhone } from '../contacts.js'
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
 import { parseContentRows } from '../parse.js'
 import type { AdbDeviceSession, ContactCandidate } from '../session.js'
-
-export interface TelecomHandlerOptions { readonly approvalPort?: ApprovalPort }
 
 const MAX_CONTACT_CANDIDATES = 5
 
@@ -23,7 +20,7 @@ async function queryContacts(executor: AdbExecutor, query: string): Promise<Cont
   return result
 }
 
-export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession, options: TelecomHandlerOptions = {}): Readonly<Record<string, ToolHandler>> {
+export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession): Readonly<Record<string, ToolHandler>> {
   return {
     async contact_add(arguments_) {
       const phone = arguments_['phone']; const name = arguments_['name']
@@ -46,12 +43,6 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
       try {
         const existing = await lookupContactByPhone(executor, phone)
         if (existing === undefined) return err('not_found', '未找到该号码对应的联系人。')
-        if (options.approvalPort === undefined) return err('approval_required', '删除联系人前需要用户审批。')
-        const approval = await options.approvalPort.request({
-          toolName: 'contact.delete',
-          arguments: { display_name: existing.displayName, phone },
-        })
-        if (approval !== 'allow') return err('user_denied')
         const deleted = await deleteContactByPhone(executor, phone)
         return deleted
           ? ok({ action: 'deleted', contact_id: existing.contactId }, '联系人已删除。')
@@ -69,9 +60,6 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
       if (sub === 'call' && candidates.length === 1) {
         const only = candidates[0]!
         if (only.phone === undefined) return err('no_phone')
-        if (options.approvalPort === undefined) return err('approval_required', '拨号前需要用户审批。')
-        const approval = await options.approvalPort.request({ toolName: 'contact.call', arguments: { display_name: only.display_name, phone: only.phone } })
-        if (approval !== 'allow') return err('user_denied')
         await executor.shell(`am start -a android.intent.action.CALL -d tel:${only.phone}`)
         session.pending = undefined
         return ok(

@@ -1,10 +1,9 @@
 import type { Event, Plugin } from '../../journal.js'
+import type { ContextContribution, ContextSource } from './context-contributions.js'
 import {
-  CONTEXT_CONTRIBUTION,
   CONTEXT_DYNAMIC,
   TOOL_RESULT,
   USER_MESSAGE,
-  type ContextContribution,
   type ToolResult,
   type UserMessage,
 } from './protocol.js'
@@ -27,13 +26,16 @@ function activeState(events: readonly Event[]): Record<string, unknown> {
   return state
 }
 
-export const runtimeContextPlugin = (options: RuntimeContextOptions): Plugin =>
-  journal => journal.subscribe(USER_MESSAGE, event => {
+export const runtimeContextPlugin = (
+  sources: readonly ContextSource[],
+  options: RuntimeContextOptions,
+): Plugin => journal => journal.subscribe(USER_MESSAGE, async event => {
     const message = event.data as UserMessage
-    const contributions = journal.read()
-      .filter(item => item.type === CONTEXT_CONTRIBUTION)
-      .map(item => item.data as ContextContribution)
-      .filter(item => item.turnId === message.turnId)
+    const contributions: ContextContribution[] = []
+    for (const source of sources) {
+      const contribution = await source(message.content)
+      if (contribution !== undefined) contributions.push(contribution)
+    }
     const matchedPackages = contributions.flatMap(item => item.matchedPackages ?? [])
     const matchedCommands = contributions.flatMap(item => item.matchedCommands ?? [])
     const state = activeState(journal.read())

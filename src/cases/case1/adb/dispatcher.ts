@@ -1,5 +1,4 @@
 import type { AskPort } from '../ask-port.js'
-import type { ApprovalPort } from '../approval-port.js'
 import { createToolDispatcher, type ToolDispatcher } from '../dispatcher.js'
 import type { AppIndex } from './app-index.js'
 import { appHandlers } from './commands/apps.js'
@@ -23,7 +22,6 @@ import type { AdbDeviceSession } from './session.js'
 
 export interface AdbDispatcherOptions {
   readonly askPort?: AskPort
-  readonly approvalPort?: ApprovalPort
   readonly appIndex?: AppIndex
   readonly mapApi?: MapApiConfig
 }
@@ -35,7 +33,7 @@ export function createAdbDispatcher(
   options: AdbDispatcherOptions = {},
 ): ToolDispatcher {
   return createToolDispatcher({
-    ...telecomHandlers(executor, session, { approvalPort: options.approvalPort }),
+    ...telecomHandlers(executor, session),
     ...navigationHandlers(executor, session, { mapApi: options.mapApi }),
     ...weatherHandlers(executor, { mapApi: options.mapApi }),
     ...selectionHandlers(executor, session),

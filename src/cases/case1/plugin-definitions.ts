@@ -11,7 +11,7 @@ import { agentFlowPlugin } from './agent-flow.js'
 import { compressHistoryPlugin, type CompressHistoryOptions } from '../../agent/plugins/compress-history.js'
 import type { CliCatalog } from './cli.js'
 import { contentPlugin, llmContentSource, type ContentSource } from './content.js'
-import { appMatchPlugin, toolIntentMatchPlugin, type AppMatcher } from './context-contributions.js'
+import { appMatchSource, toolIntentMatchSource, type AppMatcher } from './context-contributions.js'
 import { contextAssemblerPlugin } from '../../agent/plugins/context-assembler.js'
 import { outputPlugin, type OutputSinks } from '../../agent/plugins/output.js'
 import { toolsPlugin, type ToolDefinition } from '../../agent/plugins/tools.js'
@@ -38,9 +38,7 @@ const boundary = definePlugin<BuildContext>({
 
 const business: readonly PluginDefinition<BuildContext>[] = [
   definePlugin({ metadata: { id: 'system-prompt', name: 'SystemPrompt', category: 'context', responsibility: 'Install the stable mobile-assistant instruction once.', listens: ['session.start'], emits: ['system.prompt'], source: 'src/cases/case1/system-prompt.ts' }, create: () => systemPromptPlugin(CASE1_SYSTEM_PROMPT), inspect: () => ({ systemPrompts: [CASE1_SYSTEM_PROMPT] }) }),
-  { metadata: { id: 'app-match', name: 'AppMatch', category: 'context', responsibility: 'Match app names in the current user query and contribute installed package names.', listens: ['user.message'], emits: ['context.contribution'], source: 'src/cases/case1/context-contributions.ts' }, create: context => appMatchPlugin(context.appMatcher) },
-  { metadata: { id: 'tool-intent-match', name: 'ToolIntentMatch', category: 'context', responsibility: 'Match the current user query to detailed CLI usage from the common catalog.', listens: ['user.message'], emits: ['context.contribution'], source: 'src/cases/case1/context-contributions.ts' }, create: context => toolIntentMatchPlugin(context.catalog) },
-  { metadata: { id: 'runtime-context', name: 'RuntimeContext', category: 'context', responsibility: 'Assemble this user turn\'s contributions and active device state into one dynamic context.', listens: ['user.message'], emits: ['context.dynamic'], source: 'src/cases/case1/runtime-context.ts' }, create: context => runtimeContextPlugin({ now: context.now }) },
+  { metadata: { id: 'runtime-context', name: 'RuntimeContext', category: 'context', responsibility: 'Build one turn-scoped context from app, tool-intent, time, and active-state sources.', listens: ['user.message'], emits: ['context.dynamic'], source: 'src/cases/case1/runtime-context.ts' }, create: context => runtimeContextPlugin([appMatchSource(context.appMatcher), toolIntentMatchSource(context.catalog)], { now: context.now }) },
   { metadata: { id: 'history-compression', name: 'CompressHistory', category: 'context', responsibility: 'Create a semantic checkpoint after the context threshold.', listens: ['llm.generated'], emits: ['history.compaction.required', 'history.checkpoint'], source: 'src/agent/plugins/compress-history.ts' }, create: context => compressHistoryPlugin(context.compression) },
   { metadata: { id: 'agent-flow', name: 'AgentFlow', category: 'flow', responsibility: 'Advance one mobile-assistant turn after dynamic context or tool output is complete.', listens: ['context.dynamic', 'tool.result'], emits: ['content.request', 'llm.request'], source: 'src/cases/case1/agent-flow.ts' }, create: () => agentFlowPlugin() },
   { metadata: { id: 'content', name: 'ContentSources', category: 'content', responsibility: 'Select the first configured source or LLM source that can answer.', listens: ['content.request'], emits: ['assistant.message', 'tool.call', 'llm.request'], source: 'src/cases/case1/content.ts' }, create: context => contentPlugin([...(context.contentSources ?? []), llmContentSource]) },

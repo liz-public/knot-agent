@@ -28,7 +28,6 @@ import {
 import {
   ASSISTANT_MESSAGE,
   CONTENT_REQUEST,
-  CONTEXT_CONTRIBUTION,
   CONTEXT_DYNAMIC,
   HISTORY_CHECKPOINT,
   HISTORY_COMPACTION_REQUIRED,
@@ -55,7 +54,9 @@ type TestCase1Options = Omit<Case1Options, 'dispatcher'> & {
 
 function createCase1Agent(options: TestCase1Options) {
   const { dispatcher, ...rest } = options
-  const defaults = createMockCase1ToolRuntime()
+  const defaults = createMockCase1ToolRuntime({
+    approvalPort: { request: async () => 'allow' },
+  })
   return createCase1AgentCore({
     ...rest,
     dispatcher: dispatcher ?? defaults.dispatcher,
@@ -92,11 +93,7 @@ test('CASE1 keeps one dynamic context through shortcut, tools, compression, and 
   assert.deepEqual((dynamic[0]!.data as DynamicContext).matchedPackages, [
     '电话: com.samsung.android.dialer',
   ])
-  assert.deepEqual(
-    seen.filter(event => event.type === CONTEXT_CONTRIBUTION)
-      .map(event => (event.data as { source: string }).source),
-    ['apps', 'tools'],
-  )
+  assert.equal(seen.some(event => event.type === 'context.contribution'), false)
   assert.ok(seen.findIndex(event => event.type === CONTEXT_DYNAMIC)
     < seen.findIndex(event => event.type === CONTENT_REQUEST))
 
@@ -837,6 +834,28 @@ test('the mock device rejects a selection it never offered', async () => {
   const outOfRange = await tool.execute({ command: 'select 2' }, context)
   assert.match(outOfRange.content, /invalid_selection/)
   assert.equal(session.pendingContact, '李行素')
+})
+
+test('CASE1 approval policy guards the mock backend before execution', async () => {
+  let approvals = 0
+  const runtime = createMockCase1ToolRuntime({
+    approvalPort: {
+      async request(input) {
+        approvals += 1
+        assert.equal(input.toolName, 'contact.call')
+        return 'deny'
+      },
+    },
+  })
+
+  const result = await runtime.dispatcher.dispatch({
+    toolId: 'contact',
+    arguments: { sub: 'call', query: '李行素' },
+    context: { turnId: 'turn-1', callId: 'call-1' },
+  })
+
+  assert.equal(approvals, 1)
+  assert.equal(JSON.parse(result.content).error, 'user_denied')
 })
 
 test('the common catalog remains visible when a dispatcher lacks the capability', async () => {

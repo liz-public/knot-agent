@@ -58,6 +58,6 @@ export const case1Assembly = defineAssembly({
   plugins: pluginsFor(),
   create: options => case1AssemblyFactory(
     options,
-    ports => createMockCase1ToolRuntime({ askPort: ports.askPort }),
+    ports => createMockCase1ToolRuntime({ askPort: ports.askPort, approvalPort: ports.approvalPort }),
   ),
 })

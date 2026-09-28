@@ -39,7 +39,9 @@ const traceEnabled = process.env['KNOT_TRACE'] !== '0'
 const startedAt = performance.now()
 let eventNumber = 0
 const ui = createTerminalUi(interactive)
-const toolRuntime = createMockCase1ToolRuntime()
+const toolRuntime = createMockCase1ToolRuntime({
+  approvalPort: { request: async () => 'allow' },
+})
 const options = {
   llm: configuredLlm(ui.live),
   dispatcher: toolRuntime.dispatcher,

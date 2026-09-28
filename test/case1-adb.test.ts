@@ -3,6 +3,7 @@ import test from 'node:test'
 import { ANDROID_TOOL_CATALOG } from '../src/cases/case1/android-tool-catalog.js'
 import { createBashTool, createCliCatalog } from '../src/cases/case1/cli.js'
 import { createAdbDispatcher, type AdbDispatcherOptions } from '../src/cases/case1/adb/dispatcher.js'
+import type { ApprovalPort } from '../src/cases/case1/approval-port.js'
 import { createAdbDeviceSession } from '../src/cases/case1/adb/session.js'
 import { parseContentRows, parsePercent } from '../src/cases/case1/adb/parse.js'
 import { extractScreenText } from '../src/cases/case1/adb/screen-xml.js'
@@ -12,6 +13,9 @@ import { queryCallLog } from '../src/cases/case1/adb/call-log.js'
 import { parseDeviceStatusFields } from '../src/cases/case1/adb/device-status.js'
 import { parseCachedLocations } from '../src/cases/case1/adb/location.js'
 import { POI_TYPE_TO_CODE } from '../src/cases/case1/adb/map-geo.js'
+import { applyCase1ApprovalPolicy } from '../src/cases/case1/tool-runtimes.js'
+
+type AdbTestOptions = AdbDispatcherOptions & { readonly approvalPort?: ApprovalPort }
 
 function mockExecutor(responses: Record<string, string>): AdbExecutor {
   return {
@@ -31,11 +35,15 @@ function mockExecutor(responses: Record<string, string>): AdbExecutor {
 function adbBash(
   executor: AdbExecutor,
   session = createAdbDeviceSession(),
-  options: AdbDispatcherOptions = {},
+  options: AdbTestOptions = {},
 ) {
+  const { approvalPort, ...dispatcherOptions } = options
   return createBashTool(
     createCliCatalog(ANDROID_TOOL_CATALOG),
-    createAdbDispatcher(executor, session, options),
+    applyCase1ApprovalPolicy(
+      createAdbDispatcher(executor, session, dispatcherOptions),
+      approvalPort,
+    ),
   )
 }
 
