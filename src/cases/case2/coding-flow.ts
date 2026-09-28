@@ -1,7 +1,6 @@
 import type { Event, Plugin } from '../../journal.js'
 import {
   ASSISTANT_MESSAGE,
-  CONTENT_REQUEST,
   LLM_GENERATED,
   LLM_INVOKE,
   LLM_REQUEST,
@@ -93,7 +92,7 @@ export const codingFlowPlugin = (
     const message = event.data as UserMessage
     if (activeTurnId !== undefined) return
     activeTurnId = message.turnId
-    journal.append(CONTENT_REQUEST, { turnId: message.turnId, query: message.content })
+    journal.append(LLM_REQUEST, { purpose: 'agent', turnId: message.turnId })
   })
 
   journal.subscribe(TOOL_RESULT, event => {

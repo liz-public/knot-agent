@@ -124,10 +124,9 @@ export async function createPersistentCase2Agent(options: PersistentCase2Options
   const runtime = createJournal()
 
   jsonlLoadPlugin(journalPath)(runtime.journal)
-  const before = runtime.journal.read().length
   runtime.journal.append(JSONL_LOAD, {})
   await runtime.runUntilIdle()
-  const restored = runtime.journal.read().length > before + 1
+  const restored = runtime.journal.read().some(event => event.type === SESSION_START)
 
   return assembleCase2Agent(
     caseOptions,

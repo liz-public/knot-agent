@@ -81,7 +81,7 @@ export const llmPlugin = (
         {
           request: invoke.request,
           messages: projectMessages(events, invoke),
-          tools: invoke.manifest.kind === 'agent' ? projectTools(events) : [],
+          tools: invoke.manifest.kind === 'agent' ? projectTools(events, invoke) : [],
         },
         channel === undefined ? undefined : async update => {
           try {

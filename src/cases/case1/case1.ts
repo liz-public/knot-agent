@@ -123,10 +123,9 @@ export async function createPersistentCase1Agent(options: PersistentCase1Options
   // events therefore advance the private head without reaching business
   // handlers; those handlers are installed only after this drain is idle.
   jsonlLoadPlugin(journalPath)(runtime.journal)
-  const before = runtime.journal.read().length
   runtime.journal.append(JSONL_LOAD, {})
   await runtime.runUntilIdle()
-  const restored = runtime.journal.read().length > before + 1
+  const restored = runtime.journal.read().some(event => event.type === SESSION_START)
 
   return assembleCase1Agent(
     caseOptions,

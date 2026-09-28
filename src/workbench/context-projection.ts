@@ -53,7 +53,7 @@ export function projectModelContext(
     ...message,
     estimatedTokens: estimatedTokens(message),
   }))
-  const tools = invoke.manifest.kind === 'agent' ? projectTools(events) : []
+  const tools = invoke.manifest.kind === 'agent' ? projectTools(events, invoke) : []
   const generated = events.find(event => event.type === LLM_GENERATED
     && typeof event.data === 'object'
     && event.data !== null

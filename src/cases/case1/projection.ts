@@ -136,6 +136,7 @@ function semanticMessages(
 // invocation against a longer journal later yields the same messages.
 export function projectMessages(events: readonly Event[], invoke: LlmInvoke): ChatMessage[] {
   const { manifest } = invoke
+  const through = invokeIndex(events, invoke.requestId) - 1
   const start = manifest.tailAfterRequestId === undefined
     ? 0
     : generationIndex(events, manifest.tailAfterRequestId) + 1
@@ -158,7 +159,7 @@ export function projectMessages(events: readonly Event[], invoke: LlmInvoke): Ch
   }
 
   const messages: ChatMessage[] = []
-  const prompts = events
+  const prompts = events.slice(0, through + 1)
     .filter(event => event.type === SYSTEM_PROMPT)
     .map(event => (event.data as SystemPrompt).content)
   if (prompts.length > 0) messages.push({ role: 'system', content: prompts.join('\n\n') })
@@ -173,7 +174,6 @@ export function projectMessages(events: readonly Event[], invoke: LlmInvoke): Ch
     messages.push({ role: 'system', content: invoke.request.instruction })
   }
 
-  const through = invokeIndex(events, invoke.requestId) - 1
   const dynamic = dynamicContext(events, manifest.dynamicTurnId)
   const turnIsInTail = events.slice(start, through + 1).some(event =>
     event.type === USER_MESSAGE
@@ -186,8 +186,12 @@ export function projectMessages(events: readonly Event[], invoke: LlmInvoke): Ch
   return messages
 }
 
-export function projectTools(events: readonly Event[]): readonly Record<string, unknown>[] {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
+export function projectTools(
+  events: readonly Event[],
+  invoke: LlmInvoke,
+): readonly Record<string, unknown>[] {
+  const through = invokeIndex(events, invoke.requestId) - 1
+  for (let index = through; index >= 0; index -= 1) {
     const event = events[index]
     if (event?.type === TOOL_REGISTRY) return (event.data as ToolRegistry).schemas
   }

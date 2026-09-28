@@ -698,3 +698,29 @@ test('CASE2 restores one completed JSONL session and starts a distinct next turn
   assert.equal(new Set(turnIds).size, 2)
   assert.deepEqual(replies, ['First final response.', 'Second final response.'])
 })
+
+test('CASE2 repairs a loaded history that has no session.start before accepting input', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-case2-missing-start-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const journalPath = join(directory, 'session.jsonl')
+  await writeFile(journalPath, `${JSON.stringify({
+    type: USER_MESSAGE,
+    data: { turnId: 'orphan-turn', content: 'orphan history' },
+  })}\n`, 'utf8')
+
+  const agent = await createPersistentCase2Agent({
+    cwd: directory,
+    journalPath,
+    llm: {
+      async generate() {
+        return {
+          generated: { content: 'Recovered.', toolCalls: [] },
+          usage,
+        }
+      },
+    },
+  })
+  await agent.submit('Continue safely.')
+
+  assert.equal(agent.journal.read().filter(event => event.type === SESSION_START).length, 1)
+})

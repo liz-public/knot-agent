@@ -35,7 +35,9 @@ import {
   LLM_GENERATED,
   LLM_INVOKE,
   LLM_REQUEST,
+  SYSTEM_PROMPT,
   TOOL_CALL,
+  TOOL_REGISTRY,
   TOOL_RESULT,
   type ChatMessage,
   type ContentRequest,
@@ -120,7 +122,7 @@ test('CASE1 keeps one dynamic context through shortcut, tools, compression, and 
   assert.equal(runtimeContextMessages[0]?.length, 1)
   assert.equal(runtimeContextMessages[1]?.length, 1)
   assert.equal(runtimeContextMessages[0]?.[0]?.content, runtimeContextMessages[1]?.[0]?.content)
-  assert.equal(projectTools(agent.journal.read()).length, 1)
+  assert.equal(projectTools(agent.journal.read(), agentInvocations[0]!).length, 1)
   assert.equal(invocations[1]?.manifest.kind, 'compress')
 
   const checkpointIndex = seen.findIndex(event => event.type === HISTORY_CHECKPOINT)
@@ -711,6 +713,26 @@ test('every model input can be rebuilt from the journal and its manifest', async
   assert.deepEqual(rebuilt, sent)
 })
 
+test('a historical invocation ignores prompts and tools registered after it', async () => {
+  const agent = createCase1Agent({ llm: mockLlmPlugin() })
+  await agent.submit('你好')
+
+  const invoke = agent.journal.read()
+    .filter(event => event.type === LLM_INVOKE)
+    .map(event => event.data as LlmInvoke)
+    .at(-1)!
+  const messages = projectMessages(agent.journal.read(), invoke)
+  const tools = projectTools(agent.journal.read(), invoke)
+
+  agent.journal.append(SYSTEM_PROMPT, { content: 'A later prompt must stay invisible.' })
+  agent.journal.append(TOOL_REGISTRY, {
+    schemas: [{ type: 'function', function: { name: 'later_tool' } }],
+  })
+
+  assert.deepEqual(projectMessages(agent.journal.read(), invoke), messages)
+  assert.deepEqual(projectTools(agent.journal.read(), invoke), tools)
+})
+
 // Stands in for a second content source: a small classifier that costs a network
 // round trip, so being called at all is observable. The content plugin owns the
 // ordered first-match loop; a source only answers or declines.
@@ -989,7 +1011,11 @@ test('CASE1 runs five user turns against the Android-shaped tool catalog', async
   assert.match(contexts[1]?.content ?? '', /usage: sys\.volume/)
   assert.doesNotMatch(contexts[1]?.content ?? '', /usage: sys\.brightness/)
 
-  const schemas = projectTools(agent.journal.read())
+  const invoke = seen
+    .filter(event => event.type === LLM_INVOKE)
+    .map(event => event.data as LlmInvoke)
+    .at(-1)!
+  const schemas = projectTools(agent.journal.read(), invoke)
   assert.equal(schemas.length, 1)
   assert.equal((schemas[0]?.['function'] as { name?: string })?.name, 'bash')
 })
