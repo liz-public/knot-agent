@@ -16,19 +16,6 @@ export function eventTone(type: string): 'neutral' | 'model' | 'tool' | 'success
   return 'neutral'
 }
 
-export function ownerFor(type: string): string {
-  if (type === 'user.message') return 'Input'
-  if (type === 'context.dynamic') return 'WorkspaceContext'
-  if (type === 'content.request') return 'CodingFlow'
-  if (type === 'llm.request') return 'ContentSources'
-  if (type === 'llm.invoke') return 'ContextAssembler'
-  if (type.startsWith('llm.') || type === 'assistant.reasoning') return 'LLMProvider'
-  if (type.startsWith('tool.')) return 'Tools'
-  if (type === 'assistant.message') return 'Output'
-  if (type === 'system.prompt') return 'SystemPrompt'
-  return 'Runtime'
-}
-
 export function eventPreview(event: ReadEvent): string {
   const data = typeof event.data === 'object' && event.data !== null ? event.data as Record<string, unknown> : {}
   if (typeof data['content'] === 'string') return data['content']

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import type { Event } from '../src/journal.js'
 import { createCase2Agent, createPersistentCase2Agent } from '../src/cases/case2/case2.js'
+import { case2PluginMetadata } from '../src/cases/case2/plugin-definitions.js'
 import { codingTools } from '../src/cases/case2/coding-tools.js'
 import type { LlmProvider } from '../src/agent/plugins/llm.js'
 import type { ToolDefinition } from '../src/agent/plugins/tools.js'
@@ -607,7 +608,7 @@ test('CASE2 compacts before a guarded continuation and then resumes it', async t
         purposes.push(call.request.purpose)
         if (call.request.purpose === 'history.compress') {
           return {
-            generated: { content: 'An explicit goal remains active.', toolCalls: [] },
+            generated: { content: 'An explicit goal remains active.', reasoning: 'Compress the active goal.', toolCalls: [] },
             usage,
           }
         }
@@ -615,6 +616,7 @@ test('CASE2 compacts before a guarded continuation and then resumes it', async t
         if (agentGeneration === 1 || agentGeneration === 3) {
           return {
             generated: {
+              reasoning: 'Update the goal state.',
               toolCalls: [{
                 id: `goal-${agentGeneration}`,
                 name: 'goal.write',
@@ -651,6 +653,12 @@ test('CASE2 compacts before a guarded continuation and then resumes it', async t
   assert.deepEqual(purposes, ['agent', 'agent', 'history.compress', 'agent', 'agent'])
   assert.equal(events.filter(event => event.type === HISTORY_CHECKPOINT).length, 1)
   assert.deepEqual(replies, ['Final response after compaction.'])
+
+  const declared = new Set(case2PluginMetadata().flatMap(plugin => plugin.emits))
+  const observed = new Set(events
+    .map(event => event.type)
+    .filter(type => type !== 'session.start' && type !== 'user.message'))
+  assert.deepEqual([...observed].sort(), [...declared].sort())
 })
 
 test('CASE2 restores one completed JSONL session and starts a distinct next turn', async t => {

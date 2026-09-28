@@ -4,43 +4,64 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import type { PluginMetadata, PluginNode } from '../src/assembly-definition.js'
+import type { Journal, Plugin } from '../src/journal.js'
 import { ANDROID_TOOL_CATALOG } from '../src/cases/case1/android-tool-catalog.js'
 import { createCliCatalog } from '../src/cases/case1/cli.js'
 import { buildCase1PluginNodes, case1PluginMetadata } from '../src/cases/case1/plugin-definitions.js'
 import { buildCase2PluginNodes, case2PluginMetadata } from '../src/cases/case2/plugin-definitions.js'
+import { llmPlugin } from '../src/agent/plugins/llm.js'
+import { controlledEventBoundary } from '../src/plugins/controlled-boundary.js'
+import { JSONL_STORE_METADATA, jsonlStorePlugin } from '../src/plugins/jsonl.js'
+import { JOURNAL_CHANGE_METADATA, journalChangePlugin } from '../src/workbench/journal-bridge.js'
 import { defineAssembly } from '../src/workbench/assembly.js'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import type { WorkbenchSession } from '../src/workbench/session.js'
 import { createStudioController, type StudioRunInput } from '../src/workbench/studio.js'
 
+function subscriptionsOf(plugin: Plugin): readonly string[] {
+  const subscriptions: string[] = []
+  const journal: Journal = {
+    append: () => { throw new Error('plugin appended during installation') },
+    read: () => [],
+    subscribe: type => { subscriptions.push(type) },
+  }
+  plugin(journal)
+  return subscriptions
+}
+
+test('platform plugin declarations match their executable subscriptions', () => {
+  assert.deepEqual(subscriptionsOf(jsonlStorePlugin('/tmp/knot-subscription-probe.jsonl')), JSONL_STORE_METADATA.listens)
+  assert.deepEqual(subscriptionsOf(journalChangePlugin(() => undefined)), JOURNAL_CHANGE_METADATA.listens)
+})
+
 test('CASE2 executable nodes and Studio metadata share one registration source', () => {
   const platformMetadata: PluginMetadata = { id: 'platform-test', name: 'PlatformTest', category: 'platform', responsibility: 'test', listens: ['*'], emits: [], source: 'test' }
-  const platform: PluginNode = { metadata: platformMetadata, plugin: () => undefined }
+  const platform: PluginNode = { metadata: platformMetadata, plugin: journal => journal.subscribe('*', () => undefined) }
   const nodes = buildCase2PluginNodes({
-    boundary: () => undefined,
+    boundary: controlledEventBoundary().plugin,
     cwd: '.',
     llm: { generate: async () => ({ generated: { content: 'done', toolCalls: [] }, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, contextWindow: 10 } }) },
     tools: [],
   }, [platform])
   assert.deepEqual(
-    nodes.map(node => node.metadata.id),
-    case2PluginMetadata([platformMetadata]).map(metadata => metadata.id),
+    nodes.map(node => ({ id: node.metadata.id, listens: subscriptionsOf(node.plugin) })),
+    case2PluginMetadata([platformMetadata]).map(metadata => ({ id: metadata.id, listens: metadata.listens })),
   )
 })
 
 test('CASE1 executable nodes and Studio metadata share one registration source', () => {
   const platformMetadata: PluginMetadata = { id: 'platform-test', name: 'PlatformTest', category: 'platform', responsibility: 'test', listens: ['*'], emits: [], source: 'test' }
-  const platform: PluginNode = { metadata: platformMetadata, plugin: () => undefined }
+  const platform: PluginNode = { metadata: platformMetadata, plugin: journal => journal.subscribe('*', () => undefined) }
   const nodes = buildCase1PluginNodes({
-    boundary: () => undefined,
+    boundary: controlledEventBoundary().plugin,
     catalog: createCliCatalog(ANDROID_TOOL_CATALOG),
-    llm: () => undefined,
+    llm: llmPlugin({ generate: async () => ({ generated: { content: 'done', toolCalls: [] }, usage: { contextWindow: 10 } }) }),
     now: () => new Date(0),
     tools: [],
   }, [platform])
   assert.deepEqual(
-    nodes.map(node => node.metadata.id),
-    case1PluginMetadata([platformMetadata]).map(metadata => metadata.id),
+    nodes.map(node => ({ id: node.metadata.id, listens: subscriptionsOf(node.plugin) })),
+    case1PluginMetadata([platformMetadata]).map(metadata => ({ id: metadata.id, listens: metadata.listens })),
   )
 })
 

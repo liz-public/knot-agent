@@ -47,6 +47,7 @@ import {
   type ToolResult,
 } from '../src/cases/case1/protocol.js'
 import { createAndroidDeviceSession } from '../src/cases/case1/tools.js'
+import { case1PluginMetadata } from '../src/cases/case1/plugin-definitions.js'
 
 type TestCase1Options = Omit<Case1Options, 'dispatcher'> & {
   readonly dispatcher?: Case1Options['dispatcher']
@@ -125,6 +126,12 @@ test('CASE1 keeps one dynamic context through shortcut, tools, compression, and 
   const checkpointIndex = seen.findIndex(event => event.type === HISTORY_CHECKPOINT)
   const finalIndex = seen.findIndex(event => event.type === ASSISTANT_MESSAGE)
   assert.ok(checkpointIndex > 0 && checkpointIndex < finalIndex)
+
+  const declared = new Set(case1PluginMetadata().flatMap(plugin => plugin.emits))
+  const observed = new Set(seen
+    .map(event => event.type)
+    .filter(type => type !== 'session.start' && type !== 'user.message'))
+  assert.deepEqual([...observed].sort(), [...declared].sort())
 })
 
 test('CASE1 creates a fresh dynamic context for the next user query', async () => {
