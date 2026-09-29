@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { deepSeekLlmProvider } from '../agent/providers/deepseek.js'
 import { openAiLlmProvider } from '../agent/providers/openai.js'
+import { deepSeekSearchProvider } from '../agent/providers/deepseek-search.js'
 import type {
   ProviderAdapter,
   ProviderProfile,
@@ -96,6 +97,7 @@ function runtimeProfile(definition: StoredProviderProfile): ProviderProfile {
       ...publicConfiguration,
       reasoningEfforts: ['none', 'low', 'high', 'max'],
       defaultReasoningEffort: effort,
+      createWebSearch: () => deepSeekSearchProvider({ apiKey: definition.apiKey! }),
       create: options => {
         const selected = options?.reasoningEffort ?? effort
         return deepSeekLlmProvider({
@@ -203,7 +205,7 @@ export async function createProviderProfileStore(
       }
       const next = [...stored, definition]
       await persist(next)
-      const { create: _create, ...summary } = runtimeProfile(definition)
+      const { create: _create, createWebSearch: _createWebSearch, ...summary } = runtimeProfile(definition)
       return summary
     },
     async update(id, draft) {
@@ -221,7 +223,7 @@ export async function createProviderProfileStore(
       const next = [...stored]
       next[index] = definition
       await persist(next)
-      const { create: _create, ...summary } = runtimeProfile(definition)
+      const { create: _create, createWebSearch: _createWebSearch, ...summary } = runtimeProfile(definition)
       return { ...summary, isDefault: id === defaultProfileId }
     },
     async remove(id) {
@@ -233,7 +235,7 @@ export async function createProviderProfileStore(
       const profile = profiles().find(candidate => candidate.id === id)
       if (profile === undefined || !profile.configured) throw new Error(`Unknown configured Provider profile ${id}`)
       await persist(stored, id)
-      const { create: _create, ...summary } = profile
+      const { create: _create, createWebSearch: _createWebSearch, ...summary } = profile
       return { ...summary, isDefault: true }
     },
   }

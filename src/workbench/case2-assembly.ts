@@ -39,6 +39,7 @@ export const case2Assembly = defineAssembly({
     approvalPort: input.approvalPort,
     askPort: input.askPort,
     subagentFactory: input.subagentFactory,
+    extraTools: input.extraTools,
     platformPlugins: input.platformPlugins,
   }),
 })

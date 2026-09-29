@@ -14,6 +14,7 @@ import {
   type ProviderProfile,
 } from './provider-profile.js'
 import { createProviderProfileStore } from './provider-profile-store.js'
+import { webSearchTool } from '../agent/tools/web-search.js'
 import type { ApprovalMode, ReasoningEffort, WorkbenchSession } from './session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from './session-catalog.js'
 import { createSessionRegistry } from './session-registry.js'
@@ -61,6 +62,13 @@ const providerStore = await createProviderProfileStore(
   providerFile,
   providerProfilesFromEnvironment(process.env),
 )
+const searchProfileId = process.env['KNOT_WEB_SEARCH_PROVIDER_PROFILE_ID']
+const searchProfile = searchProfileId === undefined
+  ? providerStore.list().find(profile => profile.configured && profile.createWebSearch !== undefined)
+  : providerStore.get(searchProfileId)
+const workbenchExtraTools = searchProfile?.createWebSearch === undefined
+  ? []
+  : [webSearchTool(searchProfile.createWebSearch())]
 const runtimeProviderResolver: LlmProviderResolver = {
   resolve(events) {
     const configured = projectSessionConfiguration(events).inference
@@ -167,6 +175,7 @@ async function newLiveSession(input: {
     assembly,
     llm: input.llmOverride ?? runtimeProviderResolver,
     defaultConfiguration: defaultConfiguration(profile, reasoningEffort, approvalMode),
+    extraTools: workbenchExtraTools,
     ...(subagentFactory === undefined ? {} : { subagentFactory }),
   })
   await saveSessionDescriptor(sessionDirectory, descriptor)
@@ -306,6 +315,7 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
     llm: runtimeProviderResolver,
     defaultConfiguration: defaultConfiguration(profile, profile?.defaultReasoningEffort, 'ask'),
     assembly: definition,
+    extraTools: workbenchExtraTools,
     ...(subagentFactory === undefined ? {} : { subagentFactory }),
   }))
 }
@@ -341,6 +351,7 @@ if (configuredJournal !== undefined) {
       defaultConfiguration: defaultConfiguration(profile, profile?.defaultReasoningEffort, 'ask'),
       delegationDepth: 0,
       assembly: assemblies.get('case2')!,
+      extraTools: workbenchExtraTools,
       ...(subagentFactory === undefined ? {} : { subagentFactory }),
     }))
   }

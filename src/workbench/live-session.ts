@@ -9,6 +9,7 @@ import { JournalReadError, readJournalSnapshot } from './read-journal.js'
 import { projectSessionConfiguration, type SessionConfiguration } from '../agent/session-configuration.js'
 import type { LiveSessionEvent, SessionRunState, WorkbenchSession } from './session.js'
 import { workbenchToolOutput } from './tool-output.js'
+import type { ToolDefinition } from '../agent/plugins/tools.js'
 
 export interface LiveSessionOptions {
   readonly id: string
@@ -22,6 +23,7 @@ export interface LiveSessionOptions {
   readonly subagentFactory?: SubagentFactory
   readonly parentSessionId?: string
   readonly delegationDepth?: number
+  readonly extraTools?: readonly ToolDefinition[]
 }
 
 export async function createLiveSession(
@@ -41,6 +43,7 @@ export async function createLiveSession(
       plugin: journalChangePlugin(() => hub.emit({ kind: 'journal.changed' })),
       metadata: JOURNAL_CHANGE_METADATA,
     }],
+    ...(options.extraTools === undefined ? {} : { extraTools: options.extraTools }),
     ...(options.subagentFactory === undefined ? {} : { subagentFactory: options.subagentFactory }),
   })
 

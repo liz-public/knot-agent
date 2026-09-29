@@ -1,6 +1,7 @@
 import type { LlmProvider } from '../agent/plugins/llm.js'
 import { deepSeekLlmProvider } from '../agent/providers/deepseek.js'
 import { openAiLlmProvider } from '../agent/providers/openai.js'
+import { deepSeekSearchProvider, type WebSearchProvider } from '../agent/providers/deepseek-search.js'
 import type { ReasoningEffort } from './session.js'
 
 export type ProviderAdapter = 'openai-compatible' | 'deepseek'
@@ -25,6 +26,7 @@ export interface ProviderProfile extends ProviderProfileSummary {
     readonly reasoningEffort?: ReasoningEffort
     readonly model?: string
   }): LlmProvider
+  createWebSearch?(): WebSearchProvider
 }
 
 function optionalNumber(value: string | undefined, name: string): number | undefined {
@@ -111,6 +113,12 @@ export function providerProfilesFromEnvironment(
     profiles.push({
       ...deepSeekSummary,
       configured: true,
+      createWebSearch: () => deepSeekSearchProvider({
+        apiKey: deepSeekKey,
+        ...(environment['DEEPSEEK_SEARCH_BASE_URL'] === undefined
+          ? {}
+          : { baseUrl: environment['DEEPSEEK_SEARCH_BASE_URL'] }),
+      }),
       create: options => {
         const selectedEffort = options?.reasoningEffort ?? deepSeekSummary.defaultReasoningEffort
         return deepSeekLlmProvider({
@@ -130,6 +138,6 @@ export function providerProfilesFromEnvironment(
 }
 
 export function publicProviderProfile(profile: ProviderProfile): ProviderProfileSummary {
-  const { create: _create, ...summary } = profile
+  const { create: _create, createWebSearch: _createWebSearch, ...summary } = profile
   return summary
 }

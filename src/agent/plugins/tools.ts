@@ -4,6 +4,7 @@ import {
   TOOL_CALL,
   TOOL_REGISTRY,
   TOOL_RESULT,
+  USER_MESSAGE,
   type ToolCall,
 } from '../protocol.js'
 
@@ -37,10 +38,21 @@ export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
   if (byName.size !== tools.length) throw new Error('duplicate tool name')
 
   return journal => {
+    const schemas = tools.map(tool => tool.schema)
+    const register = () => journal.append(TOOL_REGISTRY, { schemas })
+
     // Announcing the schemas on the journal keeps the tool list out of every
     // model input and lets any plugin discover what this agent can do.
     journal.subscribe(SESSION_START, () => {
-      journal.append(TOOL_REGISTRY, { schemas: tools.map(tool => tool.schema) })
+      register()
+    })
+
+    journal.subscribe(USER_MESSAGE, () => {
+      const previous = [...journal.read()].reverse().find(event => event.type === TOOL_REGISTRY)
+      const registered = previous === undefined
+        ? undefined
+        : (previous.data as { schemas?: unknown }).schemas
+      if (JSON.stringify(registered) !== JSON.stringify(schemas)) register()
     })
 
     // The batch arrives as one event, so this plugin owns the concurrency
