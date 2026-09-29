@@ -20,6 +20,8 @@ export const en = {
   'run.lastOutput': 'Last output',
   'run.outputRate': 'Output rate',
   'run.outputRateHint': 'Output tokens divided by llm.invoke → llm.generated elapsed time',
+  'run.cacheHit': 'Cache hit',
+  'run.cacheHitHint': 'Cached input tokens divided by total input tokens',
   'run.liveSession': 'LIVE SESSION',
   'run.completedSession': 'COMPLETED SESSION',
   'run.selectSession': 'Select a session',

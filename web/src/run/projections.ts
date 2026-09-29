@@ -1,6 +1,6 @@
 import type { ReadEvent } from '../api/workbench-api'
 
-export interface UsageSummary { readonly input: number; readonly output: number; readonly total: number; readonly window: number; readonly outputRate?: number }
+export interface UsageSummary { readonly input: number; readonly output: number; readonly total: number; readonly window: number; readonly outputRate?: number; readonly cacheHitRate?: number }
 export interface TodoItem { readonly id: string; readonly content: string; readonly status: string }
 export interface GoalState { readonly objective: string; readonly status: string; readonly successCriteria: readonly string[] }
 
@@ -41,7 +41,9 @@ export function usageFrom(events: readonly ReadEvent[]): UsageSummary | undefine
   const completedAt = generated.observedAt === undefined ? Number.NaN : Date.parse(generated.observedAt)
   const durationSeconds = (completedAt - startedAt) / 1_000
   const outputRate = Number.isFinite(durationSeconds) && durationSeconds > 0 ? output / durationSeconds : undefined
-  return { input, output, total, window, ...(outputRate === undefined ? {} : { outputRate }) }
+  const cachedInput = Number(value['cachedInputTokens'])
+  const cacheHitRate = Number.isFinite(cachedInput) && input > 0 ? cachedInput / input : undefined
+  return { input, output, total, window, ...(outputRate === undefined ? {} : { outputRate }), ...(cacheHitRate === undefined ? {} : { cacheHitRate }) }
 }
 
 export function todosFrom(events: readonly ReadEvent[]): readonly TodoItem[] {
@@ -90,7 +92,7 @@ export function goalFrom(events: readonly ReadEvent[]): GoalState | undefined {
 }
 
 export function workspaceFrom(events: readonly ReadEvent[], fallback: string): string {
-  const context = [...events].reverse().find(event => event.type === 'context.dynamic')
+  const context = [...events].reverse().find(event => event.type === 'context.fixed' || event.type === 'context.dynamic')
   if (context === undefined || typeof context.data !== 'object' || context.data === null) return fallback
   const content = (context.data as Record<string, unknown>)['content']
   return typeof content === 'string' ? content.match(/Current workspace:\s*(.+)/)?.[1] ?? fallback : fallback

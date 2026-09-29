@@ -80,6 +80,8 @@ export interface ContextProjection {
   readonly estimatedToolTokens: number
   readonly usage?: {
     readonly inputTokens?: number
+    readonly cachedInputTokens?: number
+    readonly uncachedInputTokens?: number
     readonly outputTokens?: number
     readonly totalTokens?: number
     readonly contextWindow: number

@@ -236,7 +236,13 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
       : { content: '已为您拨通李行素的电话。' }
     return new Response(JSON.stringify({
       choices: [{ message }],
-      usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+      usage: {
+        prompt_tokens: 100,
+        prompt_cache_hit_tokens: 72,
+        prompt_cache_miss_tokens: 28,
+        completion_tokens: 20,
+        total_tokens: 120,
+      },
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
 
@@ -270,6 +276,15 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
     }>
     assert.deepEqual(secondMessages.slice(-2).map(message => message.role), ['assistant', 'tool'])
     assert.equal(secondMessages.at(-2)?.reasoning_content, '选择唯一候选。')
+    const generated = [...agent.journal.read()].reverse().find(event => event.type === LLM_GENERATED)
+    assert.deepEqual((generated?.data as LlmGenerated).usage, {
+      inputTokens: 100,
+      cachedInputTokens: 72,
+      uncachedInputTokens: 28,
+      outputTokens: 20,
+      totalTokens: 120,
+      contextWindow: 32768,
+    })
   } finally {
     globalThis.fetch = originalFetch
   }

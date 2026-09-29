@@ -184,9 +184,17 @@ function responseResult(body: OpenAiResponse, contextWindow: number) {
 }
 
 function responseUsage(usage: OpenAiResponse['usage'], contextWindow: number) {
+  const cachedInputTokens = usage?.prompt_cache_hit_tokens
+    ?? usage?.prompt_tokens_details?.cached_tokens
+  const uncachedInputTokens = usage?.prompt_cache_miss_tokens
+    ?? (usage?.prompt_tokens === undefined || cachedInputTokens === undefined
+      ? undefined
+      : Math.max(0, usage.prompt_tokens - cachedInputTokens))
   return {
     contextWindow,
     ...(usage?.prompt_tokens === undefined ? {} : { inputTokens: usage.prompt_tokens }),
+    ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+    ...(uncachedInputTokens === undefined ? {} : { uncachedInputTokens }),
     ...(usage?.completion_tokens === undefined ? {} : { outputTokens: usage.completion_tokens }),
     ...(usage?.total_tokens === undefined ? {} : { totalTokens: usage.total_tokens }),
   }
@@ -206,6 +214,9 @@ interface OpenAiResponse {
   }>
   usage?: {
     prompt_tokens?: number
+    prompt_cache_hit_tokens?: number
+    prompt_cache_miss_tokens?: number
+    prompt_tokens_details?: { cached_tokens?: number }
     completion_tokens?: number
     total_tokens?: number
   }

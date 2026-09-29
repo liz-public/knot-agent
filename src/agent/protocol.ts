@@ -1,6 +1,7 @@
 export const SESSION_START = 'session.start'
 export const SYSTEM_PROMPT = 'system.prompt'
 export const USER_MESSAGE = 'user.message'
+export const CONTEXT_FIXED = 'context.fixed'
 export const CONTEXT_DYNAMIC = 'context.dynamic'
 export const LLM_REQUEST = 'llm.request'
 export const LLM_INVOKE = 'llm.invoke'
@@ -41,6 +42,10 @@ export interface UserMessage {
 
 export interface DynamicContext {
   turnId: string
+  content: string
+}
+
+export interface FixedContext {
   content: string
 }
 
@@ -159,6 +164,8 @@ export interface GeneratedContent {
 
 export interface LlmUsage {
   inputTokens?: number
+  cachedInputTokens?: number
+  uncachedInputTokens?: number
   outputTokens?: number
   totalTokens?: number
   contextWindow: number
