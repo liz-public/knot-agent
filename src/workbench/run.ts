@@ -286,24 +286,25 @@ async function runSubagent(input: {
 for (const session of configuredStoredSessions()) registry.add(storedSession(session))
 for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
   if (registry.get(descriptor.id) !== undefined) continue
-  const profile = providerStore.default()
   const definition = assemblies.get(descriptor.assembly)
-  if (profile === undefined || !profile.configured || definition === undefined) {
+  if (definition === undefined) {
     registry.add(storedSession(descriptor))
     continue
   }
+  const candidate = providerStore.default()
+  const profile = candidate?.configured === true ? candidate : undefined
   const subagentFactory = subagentFactoryFor({
     assemblyId: descriptor.assembly,
     parentSessionId: descriptor.id,
     projectId: descriptor.projectId ?? descriptor.assembly,
     delegationDepth: descriptor.delegationDepth ?? 0,
     profile,
-    reasoningEffort: profile.defaultReasoningEffort,
+    reasoningEffort: profile?.defaultReasoningEffort,
   })
   registry.add(await createLiveSession({
     ...descriptor,
     llm: runtimeProviderResolver,
-    defaultConfiguration: defaultConfiguration(profile, profile.defaultReasoningEffort, 'ask'),
+    defaultConfiguration: defaultConfiguration(profile, profile?.defaultReasoningEffort, 'ask'),
     assembly: definition,
     ...(subagentFactory === undefined ? {} : { subagentFactory }),
   }))
@@ -320,35 +321,28 @@ studio = await createStudioController({
 })
 if (configuredJournal !== undefined) {
   if (registry.get('case2-main') === undefined) {
-    const profile = providerStore.default()
-    registry.add(profile === undefined
-      ? storedSession({
-        id: 'case2-main',
-        title: 'CASE2 coding session',
-        projectId: 'case2',
-        assembly: 'case2',
-        journalPath: configuredJournal,
-        workspace: defaultCwd,
-      })
-      : await createLiveSession({
-        id: 'case2-main',
-        title: 'CASE2 coding session',
-        projectId: 'case2',
-        cwd: defaultCwd,
-        journalPath: configuredJournal,
-        llm: runtimeProviderResolver,
-        defaultConfiguration: defaultConfiguration(profile, profile.defaultReasoningEffort, 'ask'),
-        delegationDepth: 0,
-        assembly: assemblies.get('case2')!,
-        subagentFactory: subagentFactoryFor({
-          assemblyId: 'case2',
-          parentSessionId: 'case2-main',
-          projectId: 'case2',
-          delegationDepth: 0,
-          profile,
-          reasoningEffort: profile.defaultReasoningEffort,
-        }),
-      }))
+    const candidate = providerStore.default()
+    const profile = candidate?.configured === true ? candidate : undefined
+    const subagentFactory = subagentFactoryFor({
+      assemblyId: 'case2',
+      parentSessionId: 'case2-main',
+      projectId: 'case2',
+      delegationDepth: 0,
+      profile,
+      reasoningEffort: profile?.defaultReasoningEffort,
+    })
+    registry.add(await createLiveSession({
+      id: 'case2-main',
+      title: 'CASE2 coding session',
+      projectId: 'case2',
+      cwd: defaultCwd,
+      journalPath: configuredJournal,
+      llm: runtimeProviderResolver,
+      defaultConfiguration: defaultConfiguration(profile, profile?.defaultReasoningEffort, 'ask'),
+      delegationDepth: 0,
+      assembly: assemblies.get('case2')!,
+      ...(subagentFactory === undefined ? {} : { subagentFactory }),
+    }))
   }
 }
 if (registry.list().length === 0 && providerStore.default() !== undefined) registry.add(await newLiveSession({

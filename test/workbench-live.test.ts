@@ -340,6 +340,50 @@ test('inference configuration selects the provider at invoke time and restores f
   assert.equal(selected.at(-1), 'second:model-b:high')
 })
 
+test('an old Journal adopts defaults at the next submit without being mutated on load', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-old-journal-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const journalPath = join(directory, 'session.jsonl')
+  const original = '{"type":"session.start","data":{}}\n'
+  await writeFile(journalPath, original, 'utf8')
+
+  const selected: string[] = []
+  const session = await createLiveSession({
+    id: 'old', title: 'Old session', cwd: directory, journalPath,
+    defaultConfiguration: {
+      inference: { providerProfileId: 'default', provider: 'deepseek', model: 'default-model', reasoningEffort: 'low' },
+      approvalMode: 'ask',
+    },
+    assembly: case2Assembly,
+    llm: {
+      resolve(events) {
+        const configuration = projectSessionConfiguration(events)
+        selected.push(configuration.inference?.model ?? 'missing')
+        return {
+          async generate() {
+            return { generated: { content: 'Restored.', toolCalls: [] }, usage }
+          },
+        }
+      },
+    },
+  })
+
+  assert.equal(await readFile(journalPath, 'utf8'), original)
+  await session.configure!({ approvalMode: 'auto' })
+  assert.equal((await session.summary()).model, 'default-model')
+  assert.equal((await session.summary()).approvalMode, 'auto')
+
+  const idle = nextEvent([], session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  session.submit!('Continue this session.')
+  await idle
+
+  assert.deepEqual(selected, ['default-model'])
+  const snapshot = await session.snapshot()
+  const userIndex = snapshot.events.findIndex(event => event.type === 'user.message')
+  assert.equal(snapshot.events[userIndex - 2]?.type, 'inference.configured')
+  assert.equal(snapshot.events[userIndex - 1]?.type, 'approval.policy.configured')
+})
+
 test('workbench HTTP commands drive one injected live session', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-live-http-'))
   t.after(() => rm(directory, { recursive: true, force: true }))

@@ -140,7 +140,10 @@ export async function createLiveSession(
     respond: (interactionId, value) => interactions.respond(interactionId, value),
     configure: async configuration => {
       if (runState !== 'idle') throw new Error('session configuration can only change while idle')
-      pendingConfiguration = configuration
+      pendingConfiguration = {
+        inference: configuration.inference ?? pendingConfiguration.inference,
+        approvalMode: configuration.approvalMode ?? pendingConfiguration.approvalMode,
+      }
     },
   }
 }
