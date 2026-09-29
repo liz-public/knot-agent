@@ -21,7 +21,10 @@ export interface ProviderProfileSummary {
 }
 
 export interface ProviderProfile extends ProviderProfileSummary {
-  create(options?: { readonly reasoningEffort?: ReasoningEffort }): LlmProvider
+  create(options?: {
+    readonly reasoningEffort?: ReasoningEffort
+    readonly model?: string
+  }): LlmProvider
 }
 
 function optionalNumber(value: string | undefined, name: string): number | undefined {
@@ -66,9 +69,9 @@ export function providerProfilesFromEnvironment(
       adapter: 'openai-compatible',
       model,
       configured: true,
-      create: () => openAiLlmProvider({
+      create: options => openAiLlmProvider({
         baseUrl,
-        model,
+        model: options?.model ?? model,
         ...(environment['KNOT_API_KEY'] === undefined
           ? {}
           : { apiKey: environment['KNOT_API_KEY'] }),
@@ -112,7 +115,7 @@ export function providerProfilesFromEnvironment(
         const selectedEffort = options?.reasoningEffort ?? deepSeekSummary.defaultReasoningEffort
         return deepSeekLlmProvider({
           apiKey: deepSeekKey,
-          model: deepSeekModel,
+          model: options?.model ?? deepSeekModel,
           contextWindow,
           ...(environment['KNOT_DEEPSEEK_BASE_URL'] === undefined
             ? {}

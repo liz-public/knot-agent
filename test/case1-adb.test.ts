@@ -13,7 +13,7 @@ import { queryCallLog } from '../src/cases/case1/adb/call-log.js'
 import { parseDeviceStatusFields } from '../src/cases/case1/adb/device-status.js'
 import { parseCachedLocations } from '../src/cases/case1/adb/location.js'
 import { POI_TYPE_TO_CODE } from '../src/cases/case1/adb/map-geo.js'
-import { applyCase1ApprovalPolicy } from '../src/cases/case1/tool-runtimes.js'
+import { applyCase1ApprovalPolicy } from '../src/cases/case1/approval-policy.js'
 
 type AdbTestOptions = AdbDispatcherOptions & { readonly approvalPort?: ApprovalPort }
 

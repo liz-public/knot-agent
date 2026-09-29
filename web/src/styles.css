@@ -184,6 +184,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .composer textarea { width: 100%; padding: 3px 4px; resize: none; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 13px; line-height: 1.5; }
 .composer textarea:disabled { color: #9a9ba2; }.composer textarea::placeholder { color: #a9aab0; }
 .composer-actions { display: flex; align-items: center; justify-content: space-between; }.composer-actions > div { display: flex; gap: 5px; }
+.composer-left-actions { min-width: 0; align-items: center; }
+.session-config-select { height: 26px; max-width: 145px; padding: 0 22px 0 7px; border: .5px solid var(--line); border-radius: 7px; color: var(--muted); background: #fafafa; font-size: 10px; }
+.session-config-select:disabled { opacity: .55; }
 .small-action, .pause-button { height: 26px; padding: 0 8px; display: flex; align-items: center; gap: 5px; border: .5px solid var(--line); border-radius: 7px; color: var(--muted); background: #fafafa; font-size: 10px; cursor: pointer; }
 .send-button { width: 27px; height: 27px; display: grid; place-items: center; border: 0; border-radius: 7px; color: white; background: var(--violet); }.send-button:disabled { color: #a7a8ae; background: #ececef; }
 .fixture-note { padding-top: 6px; color: var(--faint); font-size: 10px; text-align: center; }

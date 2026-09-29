@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { LlmProvider } from '../agent/plugins/llm.js'
+import type { LlmProvider, LlmProviderResolver } from '../agent/plugins/llm.js'
+import { projectSessionConfiguration, type SessionConfiguration } from '../agent/session-configuration.js'
 import type { AgentAssemblyFactory } from './assembly.js'
 import { createAssemblyCatalog } from './assembly-catalog.js'
 import { createWorkbenchServer } from './http-server.js'
@@ -35,15 +36,13 @@ function assemblyFor(
   assemblyId: string,
   profile: ProviderProfile,
   reasoningEffort?: ReasoningEffort,
-  approvalMode: ApprovalMode = 'ask',
   parent?: { readonly id: string; readonly projectId: string; readonly delegationDepth: number },
 ) {
   const definition = assemblies.get(assemblyId)
   if (definition === undefined) throw new Error(`Unknown assembly ${assemblyId}`)
   return definition.create({
-    llm: profile.create({ reasoningEffort }),
+    llm: providerResolver(profile, reasoningEffort),
     model: profile.model,
-    approvalMode,
     ...(assemblyId !== 'case2' || parent === undefined || parent.delegationDepth >= 1 ? {} : {
       subagentFactory: {
         run: input => runSubagent({
@@ -52,7 +51,6 @@ function assemblyFor(
           assemblyId,
           parentProfile: profile,
           parentReasoningEffort: reasoningEffort,
-          approvalMode,
           ...input,
         }),
       },
@@ -60,10 +58,49 @@ function assemblyFor(
   })
 }
 
-function profileForDescriptor(input: { model?: string; providerProfileId?: string }) {
-  if (input.providerProfileId !== undefined) return providerStore.get(input.providerProfileId)
-  return providerStore.list().find(profile => profile.configured && profile.model === input.model)
-    ?? providerStore.default()
+function providerResolver(
+  fallback: ProviderProfile,
+  fallbackReasoningEffort?: ReasoningEffort,
+): LlmProviderResolver {
+  return {
+    resolve(events) {
+      const configured = projectSessionConfiguration(events).inference
+      if (configured === undefined) {
+        return fallback.create({ reasoningEffort: fallbackReasoningEffort })
+      }
+      const profile = providerStore.get(configured.providerProfileId)
+      if (profile?.configured !== true) {
+        throw new Error(`Provider profile ${configured.providerProfileId} is not configured`)
+      }
+      if (profile.adapter !== configured.provider) {
+        throw new Error(`Provider profile ${profile.id} no longer uses ${configured.provider}`)
+      }
+      return profile.create({
+        model: configured.model,
+        ...(configured.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: configured.reasoningEffort }),
+      })
+    },
+  }
+}
+
+function defaultConfiguration(
+  profile: ProviderProfile | undefined,
+  reasoningEffort: ReasoningEffort | undefined,
+  approvalMode: ApprovalMode,
+): SessionConfiguration {
+  return {
+    ...(profile === undefined ? {} : {
+      inference: {
+        providerProfileId: profile.id,
+        provider: profile.adapter,
+        model: profile.model,
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+      },
+    }),
+    approvalMode,
+  }
 }
 
 const defaultCwd = process.env['KNOT_CWD'] ?? process.cwd()
@@ -116,7 +153,7 @@ async function newLiveSession(input: {
   const id = input.id ?? `${assemblyId}-${randomUUID().slice(0, 8)}`
   const delegationDepth = input.delegationDepth ?? 0
   const assembly = input.assemblyOverride
-    ?? assemblyFor(assemblyId, profile!, reasoningEffort, approvalMode, { id, projectId, delegationDepth })
+    ?? assemblyFor(assemblyId, profile!, reasoningEffort, { id, projectId, delegationDepth })
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
     id,
@@ -125,14 +162,14 @@ async function newLiveSession(input: {
     cwd: input.cwd?.trim() || defaultCwd,
     journalPath: join(sessionDirectory, `${id}.jsonl`),
     assembly: assembly.id,
-    model: assembly.model,
-    ...(profile === undefined ? {} : { providerProfileId: profile.id }),
-    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-    approvalMode,
     ...(input.parentSessionId === undefined ? {} : { parentSessionId: input.parentSessionId }),
     delegationDepth,
   }
-  const session = await createLiveSession({ ...descriptor, assembly })
+  const session = await createLiveSession({
+    ...descriptor,
+    assembly,
+    defaultConfiguration: defaultConfiguration(profile, reasoningEffort, approvalMode),
+  })
   await saveSessionDescriptor(sessionDirectory, descriptor)
   return session
 }
@@ -191,7 +228,7 @@ async function createStudioRunSession(input: StudioRunInput): Promise<WorkbenchS
       approvalMode: 'auto',
       delegationDepth: 0,
       assemblyOverride: assemblies.get(input.assemblyId)!.create({
-        llm: mockProviderFor(input.assemblyId), model: 'deterministic-mock', approvalMode: 'auto',
+        llm: mockProviderFor(input.assemblyId), model: 'deterministic-mock',
       }),
     })
     : await newLiveSession({
@@ -222,7 +259,6 @@ async function runSubagent(input: {
   readonly assemblyId: string
   readonly parentProfile: ProviderProfile
   readonly parentReasoningEffort?: ReasoningEffort
-  readonly approvalMode: ApprovalMode
 }): Promise<{ summary: string; sessionId: string }> {
   const profile = input.model === undefined
     ? input.parentProfile
@@ -242,7 +278,7 @@ async function runSubagent(input: {
     assemblyId: input.assemblyId,
     providerProfileId: profile.id,
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-    approvalMode: input.approvalMode,
+    approvalMode: 'ask',
     parentSessionId: input.parentSessionId,
     delegationDepth: 1,
   })
@@ -252,14 +288,14 @@ async function runSubagent(input: {
 for (const session of configuredStoredSessions()) registry.add(storedSession(session))
 for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
   if (registry.get(descriptor.id) !== undefined) continue
-  const profile = profileForDescriptor(descriptor)
+  const profile = providerStore.default()
   const definition = assemblies.get(descriptor.assembly)
   registry.add(profile === undefined || !profile.configured || definition === undefined
     ? storedSession(descriptor)
     : await createLiveSession({
       ...descriptor,
-      providerProfileId: profile.id,
-      assembly: assemblyFor(descriptor.assembly, profile, descriptor.reasoningEffort, descriptor.approvalMode, {
+      defaultConfiguration: defaultConfiguration(profile, profile.defaultReasoningEffort, 'ask'),
+      assembly: assemblyFor(descriptor.assembly, profile, profile.defaultReasoningEffort, {
         id: descriptor.id,
         projectId: descriptor.projectId ?? descriptor.assembly,
         delegationDepth: descriptor.delegationDepth ?? 0,
@@ -294,11 +330,9 @@ if (configuredJournal !== undefined) {
         projectId: 'case2',
         cwd: defaultCwd,
         journalPath: configuredJournal,
-        providerProfileId: profile.id,
-        reasoningEffort: profile.defaultReasoningEffort,
-        approvalMode: 'ask',
+        defaultConfiguration: defaultConfiguration(profile, profile.defaultReasoningEffort, 'ask'),
         delegationDepth: 0,
-        assembly: assemblyFor('case2', profile, profile.defaultReasoningEffort, 'ask', {
+        assembly: assemblyFor('case2', profile, profile.defaultReasoningEffort, {
           id: 'case2-main',
           projectId: 'case2',
           delegationDepth: 0,

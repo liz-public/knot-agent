@@ -38,6 +38,7 @@ export function permissionTools(
   tools: readonly ToolDefinition[],
   policy?: PermissionPolicy,
   approval?: ApprovalPort,
+  approvalMode: () => 'ask' | 'auto' = () => 'ask',
 ): readonly ToolDefinition[] {
   if (policy === undefined) return tools
   return tools.map(tool => ({
@@ -45,7 +46,7 @@ export function permissionTools(
     async execute(arguments_, context) {
       const decision = policy.evaluate({ toolName: tool.name, arguments: arguments_ })
       if (decision === 'deny') return denied(tool.name)
-      if (decision === 'ask') {
+      if (decision === 'ask' && approvalMode() !== 'auto') {
         if (approval === undefined) throw new Error('permission policy requested approval without an ApprovalPort')
         if (await approval.request({ toolName: tool.name, arguments: arguments_ }) === 'deny') {
           return denied(tool.name)

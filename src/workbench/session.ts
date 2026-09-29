@@ -1,8 +1,12 @@
 import type { ReadEvent } from './read-journal.js'
+import type {
+  ApprovalMode,
+  ReasoningEffort,
+} from '../agent/protocol.js'
+import type { SessionConfiguration } from '../agent/session-configuration.js'
 
 export type SessionRunState = 'completed' | 'idle' | 'running' | 'paused' | 'failed'
-export type ReasoningEffort = 'none' | 'low' | 'high' | 'max'
-export type ApprovalMode = 'ask' | 'auto'
+export type { ApprovalMode, ReasoningEffort }
 
 export interface SessionSummaryDto {
   readonly id: string
@@ -84,4 +88,5 @@ export interface WorkbenchSession {
   pause?(): void
   resume?(): void
   respond?(interactionId: string, value: string): boolean
+  configure?(configuration: SessionConfiguration): Promise<void>
 }

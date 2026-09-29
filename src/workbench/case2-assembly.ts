@@ -22,10 +22,7 @@ const defaultPermissionPolicy: PermissionPolicy = {
 }
 
 export function case2AssemblyFactory(options: Case2AssemblyOptions): AgentAssemblyFactory {
-  const permissionPolicy = options.permissionPolicy
-    ?? (options.approvalMode === 'auto'
-      ? { evaluate: () => 'allow' as const }
-      : defaultPermissionPolicy)
+  const permissionPolicy = options.permissionPolicy ?? defaultPermissionPolicy
   return {
     id: 'case2',
     model: options.model,

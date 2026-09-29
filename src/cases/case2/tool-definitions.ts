@@ -16,6 +16,7 @@ export interface Case2ToolOptions {
   readonly toolOutput?: ToolOutput
   readonly permissionPolicy?: PermissionPolicy
   readonly approvalPort?: ApprovalPort
+  readonly approvalMode?: () => 'ask' | 'auto'
   readonly askPort?: AskPort
   readonly extraTools?: readonly ToolDefinition[]
   readonly subagentFactory?: SubagentFactory
@@ -35,5 +36,6 @@ export function case2ToolDefinitions(options: Case2ToolOptions): readonly ToolDe
     [...base, ...(options.askPort === undefined ? [] : [askTool(options.askPort)])],
     options.permissionPolicy,
     options.approvalPort,
+    options.approvalMode,
   )
 }

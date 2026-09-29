@@ -103,7 +103,6 @@ await mkdir(dirname(journalPath), { recursive: true })
 
 const runtime = createAdbCase1ToolRuntime({
   serial,
-  approvalPort: { async request() { return 'allow' } },
 })
 const report = []
 let currentReply = ''
@@ -117,6 +116,7 @@ const agent = await createPersistentCase1Agent({
     extraBody: optionalJson(process.env.KNOT_REQUEST_EXTRA_JSON, 'KNOT_REQUEST_EXTRA_JSON'),
   }),
   dispatcher: runtime.dispatcher,
+  approvalPort: { async request() { return 'allow' } },
   appMatcher: runtime.appMatcher,
   output: {
     content(content) {

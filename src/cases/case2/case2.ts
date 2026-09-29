@@ -3,7 +3,12 @@ import { createJournal, type Event } from '../../journal.js'
 import { JSONL_LOAD, JSONL_STORE_METADATA, jsonlLoadPlugin, jsonlStorePlugin } from '../../plugins/jsonl.js'
 import { tracePlugin } from '../../plugins/trace.js'
 import type { CompressHistoryOptions } from '../../agent/plugins/compress-history.js'
-import type { LiveOutput, LlmProvider } from '../../agent/plugins/llm.js'
+import type { LiveOutput, LlmProviderSource } from '../../agent/plugins/llm.js'
+import {
+  appendSessionConfiguration,
+  projectSessionConfiguration,
+  type SessionConfiguration,
+} from '../../agent/session-configuration.js'
 import type { OutputSinks } from '../../agent/plugins/output.js'
 import { SESSION_START, USER_MESSAGE } from '../../agent/protocol.js'
 import type { ToolDefinition } from '../../agent/plugins/tools.js'
@@ -16,7 +21,7 @@ import type { ApprovalPort, AskPort, PermissionPolicy } from './tool-interaction
 
 export interface Case2Options {
   readonly cwd: string
-  readonly llm: LlmProvider
+  readonly llm: LlmProviderSource
   readonly liveOutput?: LiveOutput
   readonly toolOutput?: ToolOutput
   readonly output?: OutputSinks
@@ -45,7 +50,10 @@ function assembleCase2Agent(
 ) {
   const { journal, runUntilIdle } = runtime
   const boundary = controlledEventBoundary()
-  const tools = case2ToolDefinitions(options)
+  const tools = case2ToolDefinitions({
+    ...options,
+    approvalMode: () => projectSessionConfiguration(journal.read()).approvalMode ?? 'ask',
+  })
   const traceNodes: readonly PluginNode[] = options.trace === undefined ? [] : [{
     plugin: tracePlugin(options.trace),
     metadata: { id: 'trace', name: 'Trace', category: 'platform', responsibility: 'Project every delivered event to the configured trace sink.', listens: ['*'], emits: [], source: 'src/plugins/trace.ts' },
@@ -85,10 +93,11 @@ function assembleCase2Agent(
     await runUntilIdle()
   }
 
-  async function submit(content: string): Promise<void> {
+  async function submit(content: string, configuration?: SessionConfiguration): Promise<void> {
     if (running) throw new Error('CASE2 agent is already running')
     await start()
     running = true
+    if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
     journal.append(USER_MESSAGE, { turnId: nextMessageId('turn'), content })
     try {
       await runUntilIdle()

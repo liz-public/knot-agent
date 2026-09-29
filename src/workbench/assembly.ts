@@ -4,9 +4,9 @@ import type {
   PluginNode,
   PluginToolDescription,
 } from '../assembly-definition.js'
-import type { LlmProvider } from '../agent/plugins/llm.js'
+import type { LlmProviderSource } from '../agent/plugins/llm.js'
+import type { SessionConfiguration } from '../agent/session-configuration.js'
 import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
-import type { ApprovalMode } from './session.js'
 
 export interface GenerationOutput {
   open(meta: { readonly requestId: string; readonly turnId: string; readonly purpose: string }): {
@@ -42,7 +42,7 @@ export interface ToolOutput {
 }
 
 export interface SessionRuntime {
-  submit(content: string): Promise<void>
+  submit(content: string, configuration?: SessionConfiguration): Promise<void>
   steer(content: string): void
   pause(): void
   resume(): void
@@ -81,9 +81,8 @@ export interface AssemblyDescription {
 }
 
 export interface AssemblyBuildOptions {
-  readonly llm: LlmProvider
+  readonly llm: LlmProviderSource
   readonly model: string
-  readonly approvalMode?: ApprovalMode
   readonly subagentFactory?: SubagentFactory
 }
 

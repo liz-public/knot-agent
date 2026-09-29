@@ -8,7 +8,7 @@ import {
 } from '../../assembly-definition.js'
 import { compressHistoryPlugin, type CompressHistoryOptions } from '../../agent/plugins/compress-history.js'
 import { contextAssemblerPlugin } from '../../agent/plugins/context-assembler.js'
-import { llmPlugin, type LiveOutput, type LlmProvider } from '../../agent/plugins/llm.js'
+import { llmPlugin, type LiveOutput, type LlmProviderSource } from '../../agent/plugins/llm.js'
 import { outputPlugin, type OutputSinks } from '../../agent/plugins/output.js'
 import { toolsPlugin, type ToolDefinition } from '../../agent/plugins/tools.js'
 import { codingFlowPlugin } from './coding-flow.js'
@@ -20,7 +20,7 @@ interface BuildContext {
   readonly boundary: Plugin
   readonly cwd: string
   readonly compression?: CompressHistoryOptions
-  readonly llm: LlmProvider
+  readonly llm: LlmProviderSource
   readonly liveOutput?: LiveOutput
   readonly tools: readonly ToolDefinition[]
   readonly output?: OutputSinks

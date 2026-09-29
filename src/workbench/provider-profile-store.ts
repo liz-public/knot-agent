@@ -100,7 +100,7 @@ function runtimeProfile(definition: StoredProviderProfile): ProviderProfile {
         const selected = options?.reasoningEffort ?? effort
         return deepSeekLlmProvider({
           apiKey: definition.apiKey!,
-          model: definition.model,
+          model: options?.model ?? definition.model,
           ...(definition.baseUrl === undefined ? {} : { baseUrl: definition.baseUrl }),
           ...(definition.contextWindow === undefined ? {} : { contextWindow: definition.contextWindow }),
           thinking: selected === 'none' ? 'disabled' : 'enabled',
@@ -117,9 +117,9 @@ function runtimeProfile(definition: StoredProviderProfile): ProviderProfile {
     configured: true,
     editable: true,
     ...publicConfiguration,
-    create: () => openAiLlmProvider({
+    create: options => openAiLlmProvider({
       baseUrl: definition.baseUrl!,
-      model: definition.model,
+      model: options?.model ?? definition.model,
       ...(definition.apiKey === undefined ? {} : { apiKey: definition.apiKey }),
       ...(definition.contextWindow === undefined ? {} : { contextWindow: definition.contextWindow }),
     }),

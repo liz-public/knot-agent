@@ -1,6 +1,5 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ApprovalMode, ReasoningEffort } from './session.js'
 
 export interface LiveSessionDescriptor {
   readonly id: string
@@ -9,10 +8,6 @@ export interface LiveSessionDescriptor {
   readonly cwd: string
   readonly journalPath: string
   readonly assembly: string
-  readonly model?: string
-  readonly providerProfileId?: string
-  readonly reasoningEffort?: ReasoningEffort
-  readonly approvalMode?: ApprovalMode
   readonly parentSessionId?: string
   readonly delegationDepth?: number
 }
@@ -35,16 +30,6 @@ function descriptor(value: unknown, file: string): LiveSessionDescriptor {
     cwd: item['cwd'],
     journalPath: item['journalPath'],
     assembly: typeof item['assembly'] === 'string' ? item['assembly'] : 'case2',
-    ...(typeof item['model'] === 'string' ? { model: item['model'] } : {}),
-    ...(typeof item['providerProfileId'] === 'string'
-      ? { providerProfileId: item['providerProfileId'] }
-      : {}),
-    ...(['none', 'low', 'high', 'max'].includes(String(item['reasoningEffort']))
-      ? { reasoningEffort: item['reasoningEffort'] as ReasoningEffort }
-      : {}),
-    ...(['ask', 'auto'].includes(String(item['approvalMode']))
-      ? { approvalMode: item['approvalMode'] as ApprovalMode }
-      : {}),
     ...(typeof item['parentSessionId'] === 'string'
       ? { parentSessionId: item['parentSessionId'] }
       : {}),
@@ -73,7 +58,17 @@ export async function saveSessionDescriptor(
   value: LiveSessionDescriptor,
 ): Promise<void> {
   await mkdir(directory, { recursive: true })
-  await writeFile(join(directory, `${value.id}.session.json`), `${JSON.stringify(value, null, 2)}\n`, {
+  const stored: LiveSessionDescriptor = {
+    id: value.id,
+    title: value.title,
+    ...(value.projectId === undefined ? {} : { projectId: value.projectId }),
+    cwd: value.cwd,
+    journalPath: value.journalPath,
+    assembly: value.assembly,
+    ...(value.parentSessionId === undefined ? {} : { parentSessionId: value.parentSessionId }),
+    ...(value.delegationDepth === undefined ? {} : { delegationDepth: value.delegationDepth }),
+  }
+  await writeFile(join(directory, `${value.id}.session.json`), `${JSON.stringify(stored, null, 2)}\n`, {
     encoding: 'utf8',
     flag: 'wx',
   })

@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import type { LlmProvider } from '../src/agent/plugins/llm.js'
+import type { LlmProvider, LlmProviderResolver } from '../src/agent/plugins/llm.js'
+import { projectSessionConfiguration } from '../src/agent/session-configuration.js'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import { createInteractionBroker } from '../src/workbench/interactions.js'
 import { case2AssemblyFactory } from '../src/workbench/case2-assembly.js'
@@ -58,7 +59,18 @@ test('workbench session descriptors preserve new sessions for host restart', asy
     delegationDepth: 1,
   }
   await saveSessionDescriptor(directory, descriptor)
-  assert.deepEqual(await loadSessionDescriptors(directory), [{ ...descriptor, projectId: 'case2' }])
+  const stored = await readFile(join(directory, 'case2-one.session.json'), 'utf8')
+  assert.doesNotMatch(stored, /providerProfileId|reasoningEffort|approvalMode|"model"/)
+  assert.deepEqual(await loadSessionDescriptors(directory), [{
+    id: descriptor.id,
+    title: descriptor.title,
+    projectId: 'case2',
+    cwd: descriptor.cwd,
+    journalPath: descriptor.journalPath,
+    assembly: descriptor.assembly,
+    parentSessionId: descriptor.parentSessionId,
+    delegationDepth: descriptor.delegationDepth,
+  }])
 })
 
 function nextEvent(
@@ -146,9 +158,12 @@ test('persistent subagent session registers independently and returns its commit
   const child = await createLiveSession({
     id: 'child-1', title: 'Subagent · inspect', cwd: directory,
     journalPath: join(directory, 'child.jsonl'), parentSessionId: 'parent-1', delegationDepth: 1,
-    providerProfileId: 'deepseek', reasoningEffort: 'low', approvalMode: 'auto',
+    defaultConfiguration: {
+      inference: { providerProfileId: 'deepseek', provider: 'deepseek', model: 'mock-child', reasoningEffort: 'low' },
+      approvalMode: 'auto',
+    },
     assembly: case2AssemblyFactory({
-      model: 'mock-child', approvalMode: 'auto',
+      model: 'mock-child',
       llm: { async generate() {
         return { generated: { content: 'Child inspected the workspace.', toolCalls: [] }, usage }
       } },
@@ -223,15 +238,16 @@ test('two live sessions run concurrently without crossing workspace, journal, or
   assert.doesNotMatch(await readFile(join(root, 'right.jsonl'), 'utf8'), /left-write/)
 })
 
-test('auto approval is assembly policy and does not create browser interactions', async t => {
+test('approval policy changes are Journal facts used by the next tool call', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-auto-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   let generation = 0
   const session = await createLiveSession({
     id: 'auto', title: 'Auto approval', cwd: directory,
-    journalPath: join(directory, 'session.jsonl'), approvalMode: 'auto',
+    journalPath: join(directory, 'session.jsonl'),
+    defaultConfiguration: { approvalMode: 'ask' },
     assembly: case2AssemblyFactory({
-      model: 'mock', approvalMode: 'auto',
+      model: 'mock',
       llm: { async generate() {
         generation += 1
         return generation === 1
@@ -242,12 +258,85 @@ test('auto approval is assembly policy and does not create browser interactions'
   })
   const events: LiveSessionEvent[] = []
   session.subscribe!(event => events.push(event))
+  await session.configure!({ approvalMode: 'auto' })
+  assert.equal((await session.snapshot()).events.length, 0)
   const idle = nextEvent(events, session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
   session.submit!('Write auto.txt.')
   await idle
   assert.equal(await readFile(join(directory, 'auto.txt'), 'utf8'), 'ok\n')
   assert.equal(events.some(event => event.kind === 'interaction.request'), false)
   assert.equal((await session.summary()).approvalMode, 'auto')
+  const configured = (await session.snapshot()).events.filter(event => event.type === 'approval.policy.configured')
+  assert.deepEqual(configured.map(event => event.data), [{ mode: 'auto' }])
+})
+
+test('inference configuration selects the provider at invoke time and restores from the Journal', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-inference-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const selected: string[] = []
+  const resolver: LlmProviderResolver = {
+    resolve(events) {
+      const inference = projectSessionConfiguration(events).inference
+      const model = inference?.model ?? 'fallback'
+      selected.push(`${inference?.providerProfileId ?? 'fallback'}:${model}:${inference?.reasoningEffort ?? 'default'}`)
+      return {
+        async generate() {
+          return { generated: { content: `from ${model}`, toolCalls: [] }, usage }
+        },
+      }
+    },
+  }
+  const journalPath = join(directory, 'session.jsonl')
+  const session = await createLiveSession({
+    id: 'switch', title: 'Switch model', cwd: directory, journalPath,
+    defaultConfiguration: {
+      inference: { providerProfileId: 'first', provider: 'openai-compatible', model: 'model-a', reasoningEffort: 'low' },
+      approvalMode: 'ask',
+    },
+    assembly: case2AssemblyFactory({ llm: resolver, model: 'model-a' }),
+  })
+  assert.equal((await session.snapshot()).events.length, 0)
+  const waitForIdle = () => nextEvent([], session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  let idle = waitForIdle()
+  session.submit!('First call.')
+  await idle
+  await session.configure!({
+    inference: {
+      providerProfileId: 'second', provider: 'deepseek', model: 'model-b', reasoningEffort: 'high',
+    },
+    approvalMode: 'auto',
+  })
+  idle = waitForIdle()
+  session.submit!('Second call.')
+  await idle
+
+  assert.deepEqual(selected, ['first:model-a:low', 'second:model-b:high'])
+  const snapshot = await session.snapshot()
+  assert.equal(snapshot.session.providerProfileId, 'second')
+  assert.equal(snapshot.session.model, 'model-b')
+  assert.equal(snapshot.session.reasoningEffort, 'high')
+  assert.equal(snapshot.session.approvalMode, 'auto')
+  assert.equal(snapshot.events.filter(event => event.type === 'inference.configured').length, 2)
+  const secondTurn = snapshot.events.findIndex(event => event.type === 'user.message'
+    && (event.data as { content?: string }).content === 'Second call.')
+  assert.ok(secondTurn > 1)
+  assert.equal(snapshot.events[secondTurn - 2]?.type, 'inference.configured')
+  assert.equal(snapshot.events[secondTurn - 1]?.type, 'approval.policy.configured')
+  assert.match(await readFile(journalPath, 'utf8'), /"type":"inference\.configured"/)
+
+  const restored = await createLiveSession({
+    id: 'switch', title: 'Switch model', cwd: directory, journalPath,
+    defaultConfiguration: {
+      inference: { providerProfileId: 'first', provider: 'openai-compatible', model: 'model-a' },
+      approvalMode: 'ask',
+    },
+    assembly: case2AssemblyFactory({ llm: resolver, model: 'model-a' }),
+  })
+  assert.equal((await restored.summary()).providerProfileId, 'second')
+  const restoredIdle = nextEvent([], restored.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  restored.submit!('Restored call.')
+  await restoredIdle
+  assert.equal(selected.at(-1), 'second:model-b:high')
 })
 
 test('workbench HTTP commands drive one injected live session', async t => {
@@ -312,6 +401,15 @@ test('workbench HTTP commands drive one injected live session', async t => {
     model: 'mock',
     configured: true,
   }])
+  const configured = await fetch(`${base}/configuration`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ providerProfileId: 'default', approvalMode: 'auto' }),
+  })
+  assert.equal(configured.status, 200)
+  const configuredBody = await configured.json() as { session: { providerProfileId?: string; approvalMode?: string } }
+  assert.equal(configuredBody.session.providerProfileId, 'default')
+  assert.equal(configuredBody.session.approvalMode, 'auto')
   const created = await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

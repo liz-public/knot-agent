@@ -8,14 +8,22 @@ import { createBashTool, createCliCatalog } from './cli.js'
 import type { ContentSource } from './content.js'
 import type { AppMatcher } from './context-contributions.js'
 import type { ToolDispatcher } from './dispatcher.js'
+import { applyCase1ApprovalPolicy } from './approval-policy.js'
+import type { ApprovalPort } from './approval-port.js'
 import type { OutputSinks } from '../../agent/plugins/output.js'
 import { buildCase1PluginNodes } from './plugin-definitions.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
 import { androidCallRule, androidFlashlightRule, shortcutSource } from './shortcuts.js'
+import {
+  appendSessionConfiguration,
+  projectSessionConfiguration,
+  type SessionConfiguration,
+} from '../../agent/session-configuration.js'
 
 export interface Case1Options {
   readonly llm: Plugin
   readonly dispatcher: ToolDispatcher
+  readonly approvalPort?: ApprovalPort
   readonly appMatcher?: AppMatcher
   /** Extra content sources, tried after the built-in shortcut rules. */
   readonly contentSources?: readonly ContentSource[]
@@ -41,7 +49,12 @@ function assembleCase1Agent(
 ) {
   const { journal, runUntilIdle } = runtime
   const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
-  const tools = [createBashTool(catalog, options.dispatcher)]
+  const dispatcher = applyCase1ApprovalPolicy(
+    options.dispatcher,
+    options.approvalPort,
+    () => projectSessionConfiguration(journal.read()).approvalMode ?? 'ask',
+  )
+  const tools = [createBashTool(catalog, dispatcher)]
   const boundary = controlledEventBoundary()
   let started = restored
   let turnNumber = 0
@@ -81,10 +94,11 @@ function assembleCase1Agent(
     return turnId
   }
 
-  async function submit(content: string): Promise<void> {
+  async function submit(content: string, configuration?: SessionConfiguration): Promise<void> {
     if (running) throw new Error('CASE1 agent is already running')
     await start()
     running = true
+    if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
     journal.append(USER_MESSAGE, { turnId: nextTurnId('turn'), content })
     try {
       await runUntilIdle()

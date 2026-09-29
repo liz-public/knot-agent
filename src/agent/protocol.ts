@@ -13,6 +13,22 @@ export const ASSISTANT_MESSAGE = 'assistant.message'
 export const HISTORY_COMPACTION_REQUIRED = 'history.compaction.required'
 export const HISTORY_COMPRESS_REQUEST = 'history.compress.request'
 export const HISTORY_CHECKPOINT = 'history.checkpoint'
+export const INFERENCE_CONFIGURED = 'inference.configured'
+export const APPROVAL_POLICY_CONFIGURED = 'approval.policy.configured'
+
+export type ReasoningEffort = 'none' | 'low' | 'high' | 'max'
+export type ApprovalMode = 'ask' | 'auto'
+
+export interface InferenceConfigured {
+  providerProfileId: string
+  provider: string
+  model: string
+  reasoningEffort?: ReasoningEffort
+}
+
+export interface ApprovalPolicyConfigured {
+  mode: ApprovalMode
+}
 
 export interface SystemPrompt {
   content: string

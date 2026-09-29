@@ -4,7 +4,8 @@ import { createInteractionBroker } from './interactions.js'
 import { JOURNAL_CHANGE_METADATA, journalChangePlugin } from './journal-bridge.js'
 import { workbenchLiveOutput } from './live-output.js'
 import { JournalReadError, readJournalSnapshot } from './read-journal.js'
-import type { ApprovalMode, LiveSessionEvent, ReasoningEffort, SessionRunState, WorkbenchSession } from './session.js'
+import { projectSessionConfiguration, type SessionConfiguration } from '../agent/session-configuration.js'
+import type { LiveSessionEvent, SessionRunState, WorkbenchSession } from './session.js'
 import { workbenchToolOutput } from './tool-output.js'
 
 export interface LiveSessionOptions {
@@ -14,9 +15,7 @@ export interface LiveSessionOptions {
   readonly cwd: string
   readonly journalPath: string
   readonly assembly: AgentAssemblyFactory
-  readonly providerProfileId?: string
-  readonly reasoningEffort?: ReasoningEffort
-  readonly approvalMode?: ApprovalMode
+  readonly defaultConfiguration?: SessionConfiguration
   readonly parentSessionId?: string
   readonly delegationDepth?: number
 }
@@ -39,6 +38,20 @@ export async function createLiveSession(
     }],
   })
 
+  let recorded: SessionConfiguration = {}
+  try {
+    recorded = projectSessionConfiguration((await readJournalSnapshot(options.journalPath, {
+      maxBytes: Number.POSITIVE_INFINITY,
+      maxEvents: Number.POSITIVE_INFINITY,
+    })).events)
+  } catch (error) {
+    if (!(error instanceof JournalReadError) || error.code !== 'source_not_found') throw error
+  }
+  let pendingConfiguration: SessionConfiguration = {
+    inference: recorded.inference ?? options.defaultConfiguration?.inference,
+    approvalMode: recorded.approvalMode ?? options.defaultConfiguration?.approvalMode,
+  }
+
   let runState: SessionRunState = 'idle'
 
   async function snapshot() {
@@ -50,6 +63,7 @@ export async function createLiveSession(
       journal = { source: { name: options.journalPath, readOnly: true as const }, eventCount: 0, events: [] }
     }
     const updatedAt = journal.events.at(-1)?.observedAt
+    const inference = pendingConfiguration.inference
     return {
       session: {
         id: options.id,
@@ -57,12 +71,14 @@ export async function createLiveSession(
         ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
         assembly: options.assembly.id,
         workspace: options.cwd,
-        model: options.assembly.model,
-        ...(options.providerProfileId === undefined
+        model: inference?.model ?? options.assembly.model,
+        ...(inference === undefined ? {} : {
+          providerProfileId: inference.providerProfileId,
+          ...(inference.reasoningEffort === undefined ? {} : { reasoningEffort: inference.reasoningEffort }),
+        }),
+        ...(pendingConfiguration.approvalMode === undefined
           ? {}
-          : { providerProfileId: options.providerProfileId }),
-        ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
-        ...(options.approvalMode === undefined ? {} : { approvalMode: options.approvalMode }),
+          : { approvalMode: pendingConfiguration.approvalMode }),
         ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
         ...(options.delegationDepth === undefined ? {} : { delegationDepth: options.delegationDepth }),
         runState,
@@ -97,7 +113,7 @@ export async function createLiveSession(
       }
       if (runState !== 'idle') throw new Error(`session is ${runState}`)
       setState('running')
-      void agent.submit(content).then(
+      void agent.submit(content, pendingConfiguration).then(
         () => setState('idle'),
         error => {
           hub.emit({ kind: 'run.error', message: error instanceof Error ? error.message : String(error) })
@@ -116,5 +132,9 @@ export async function createLiveSession(
       setState('running')
     },
     respond: (interactionId, value) => interactions.respond(interactionId, value),
+    configure: async configuration => {
+      if (runState !== 'idle') throw new Error('session configuration can only change while idle')
+      pendingConfiguration = configuration
+    },
   }
 }

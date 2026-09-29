@@ -46,11 +46,13 @@ export function withApprovalPolicy(
   dispatcher: ToolDispatcher,
   approvalPort: ApprovalPort | undefined,
   policy: ApprovalPolicy,
+  approvalMode: () => 'ask' | 'auto' = () => 'ask',
 ): ToolDispatcher {
   return {
     async dispatch(request) {
       const approvalRequest = policy(request)
       if (approvalRequest === undefined) return dispatcher.dispatch(request)
+      if (approvalMode() === 'auto') return dispatcher.dispatch(request)
       if (approvalPort === undefined) {
         return {
           content: JSON.stringify({

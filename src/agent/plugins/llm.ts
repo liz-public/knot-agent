@@ -1,4 +1,4 @@
-import type { Plugin } from '../../journal.js'
+import type { Event, Plugin } from '../../journal.js'
 import { projectMessages, projectTools } from '../projection.js'
 import {
   ASSISTANT_MESSAGE,
@@ -52,13 +52,23 @@ export interface LlmProvider {
   ): Promise<Pick<LlmGenerated, 'generated' | 'usage'>>
 }
 
+export interface LlmProviderResolver {
+  resolve(events: readonly Event[]): LlmProvider
+}
+
+export type LlmProviderSource = LlmProvider | LlmProviderResolver
+
+function providerFor(source: LlmProviderSource, events: readonly Event[]): LlmProvider {
+  return 'resolve' in source ? source.resolve(events) : source
+}
+
 export interface LlmPluginOptions {
   /** A workflow plugin may validate a candidate before committing it. */
   readonly commitAssistantMessage?: boolean
 }
 
 export const llmPlugin = (
-  provider: LlmProvider,
+  provider: LlmProviderSource,
   liveOutput?: LiveOutput,
   options: LlmPluginOptions = {},
 ): Plugin =>
@@ -77,7 +87,7 @@ export const llmPlugin = (
     }
     let result: Pick<LlmGenerated, 'generated' | 'usage'>
     try {
-      result = await provider.generate(
+      result = await providerFor(provider, events).generate(
         {
           request: invoke.request,
           messages: projectMessages(events, invoke),

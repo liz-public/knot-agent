@@ -1,7 +1,6 @@
 import { ANDROID_TOOL_CATALOG } from '../cases/case1/android-tool-catalog.js'
 import { createPersistentCase1Agent } from '../cases/case1/case1.js'
 import type { AskPort } from '../cases/case1/ask-port.js'
-import type { ApprovalPort } from '../cases/case1/approval-port.js'
 import { createBashTool, createCliCatalog } from '../cases/case1/cli.js'
 import { createToolDispatcher } from '../cases/case1/dispatcher.js'
 import { llmPlugin } from '../agent/plugins/llm.js'
@@ -33,18 +32,19 @@ function pluginsFor() {
 
 export function case1AssemblyFactory(
   options: AssemblyBuildOptions,
-  createToolRuntime: (ports: { readonly askPort?: AskPort; readonly approvalPort?: ApprovalPort }) => Case1ToolRuntime,
+  createToolRuntime: (ports: { readonly askPort?: AskPort }) => Case1ToolRuntime,
 ): AgentAssemblyFactory {
   return {
     id: 'case1',
     model: options.model,
     create: input => {
-      const runtime = createToolRuntime({ askPort: input.askPort, approvalPort: input.approvalPort })
+      const runtime = createToolRuntime({ askPort: input.askPort })
       return createPersistentCase1Agent({
         journalPath: input.journalPath,
         llm: llmPlugin(options.llm, { open: meta => input.liveOutput.open(meta) }),
         output: { content: () => undefined },
         dispatcher: runtime.dispatcher,
+        approvalPort: input.approvalPort,
         appMatcher: runtime.appMatcher,
         platformPlugins: input.platformPlugins,
       })
@@ -58,6 +58,6 @@ export const case1Assembly = defineAssembly({
   plugins: pluginsFor(),
   create: options => case1AssemblyFactory(
     options,
-    ports => createMockCase1ToolRuntime({ askPort: ports.askPort, approvalPort: ports.approvalPort }),
+    ports => createMockCase1ToolRuntime({ askPort: ports.askPort }),
   ),
 })

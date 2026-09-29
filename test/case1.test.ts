@@ -55,12 +55,11 @@ type TestCase1Options = Omit<Case1Options, 'dispatcher'> & {
 
 function createCase1Agent(options: TestCase1Options) {
   const { dispatcher, ...rest } = options
-  const defaults = createMockCase1ToolRuntime({
-    approvalPort: { request: async () => 'allow' },
-  })
+  const defaults = createMockCase1ToolRuntime()
   return createCase1AgentCore({
     ...rest,
     dispatcher: dispatcher ?? defaults.dispatcher,
+    approvalPort: { request: async () => 'allow' },
     appMatcher: rest.appMatcher ?? defaults.appMatcher,
   })
 }
@@ -845,7 +844,10 @@ test('the mock device rejects a selection it never offered', async () => {
 
 test('CASE1 approval policy guards the mock backend before execution', async () => {
   let approvals = 0
-  const runtime = createMockCase1ToolRuntime({
+  const runtime = createMockCase1ToolRuntime()
+  const agent = createCase1AgentCore({
+    llm: mockLlmPlugin(),
+    dispatcher: runtime.dispatcher,
     approvalPort: {
       async request(input) {
         approvals += 1
@@ -855,14 +857,11 @@ test('CASE1 approval policy guards the mock backend before execution', async () 
     },
   })
 
-  const result = await runtime.dispatcher.dispatch({
-    toolId: 'contact',
-    arguments: { sub: 'call', query: '李行素' },
-    context: { turnId: 'turn-1', callId: 'call-1' },
-  })
+  await agent.submit('给李行素打电话')
 
   assert.equal(approvals, 1)
-  assert.equal(JSON.parse(result.content).error, 'user_denied')
+  const result = [...agent.journal.read()].reverse().find(event => event.type === TOOL_RESULT)
+  assert.match(JSON.stringify(result?.data), /user_denied/)
 })
 
 test('the common catalog remains visible when a dispatcher lacks the capability', async () => {

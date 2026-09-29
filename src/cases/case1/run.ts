@@ -40,11 +40,11 @@ const startedAt = performance.now()
 let eventNumber = 0
 const ui = createTerminalUi(interactive)
 const toolRuntime = createMockCase1ToolRuntime({
-  approvalPort: { request: async () => 'allow' },
 })
 const options = {
   llm: configuredLlm(ui.live),
   dispatcher: toolRuntime.dispatcher,
+  approvalPort: { request: async () => 'allow' as const },
   appMatcher: toolRuntime.appMatcher,
   trace(event) {
     if (!traceEnabled) return

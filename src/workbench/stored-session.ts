@@ -1,6 +1,6 @@
 import { JournalReadError, readJournalSnapshot, type JournalReadLimits } from './read-journal.js'
+import { projectSessionConfiguration } from '../agent/session-configuration.js'
 import type { SessionSnapshotDto, WorkbenchSession } from './session.js'
-import type { ApprovalMode, ReasoningEffort } from './session.js'
 
 export interface StoredSessionConfig {
   readonly id: string
@@ -9,10 +9,6 @@ export interface StoredSessionConfig {
   readonly assembly: string
   readonly journalPath: string
   readonly workspace?: string
-  readonly model?: string
-  readonly providerProfileId?: string
-  readonly reasoningEffort?: ReasoningEffort
-  readonly approvalMode?: ApprovalMode
   readonly parentSessionId?: string
   readonly delegationDepth?: number
 }
@@ -30,6 +26,8 @@ export function storedSession(
       journal = { eventCount: 0, events: [] }
     }
     const updatedAt = journal.events.at(-1)?.observedAt
+    const configuration = projectSessionConfiguration(journal.events)
+    const inference = configuration.inference
     return {
       session: {
         id: config.id,
@@ -37,12 +35,12 @@ export function storedSession(
         projectId: config.projectId ?? config.assembly,
         assembly: config.assembly,
         ...(config.workspace === undefined ? {} : { workspace: config.workspace }),
-        ...(config.model === undefined ? {} : { model: config.model }),
-        ...(config.providerProfileId === undefined
-          ? {}
-          : { providerProfileId: config.providerProfileId }),
-        ...(config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort }),
-        ...(config.approvalMode === undefined ? {} : { approvalMode: config.approvalMode }),
+        ...(inference === undefined ? {} : {
+          model: inference.model,
+          providerProfileId: inference.providerProfileId,
+          ...(inference.reasoningEffort === undefined ? {} : { reasoningEffort: inference.reasoningEffort }),
+        }),
+        ...(configuration.approvalMode === undefined ? {} : { approvalMode: configuration.approvalMode }),
         ...(config.parentSessionId === undefined ? {} : { parentSessionId: config.parentSessionId }),
         ...(config.delegationDepth === undefined ? {} : { delegationDepth: config.delegationDepth }),
         runState: 'completed',

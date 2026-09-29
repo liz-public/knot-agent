@@ -396,6 +396,45 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         return
       }
 
+      const configurationId = pathMatch(url.pathname, '/configuration')
+      if (request.method === 'PATCH' && configurationId !== undefined) {
+        const session = registry.get(configurationId)
+        if (session?.configure === undefined) {
+          sendJson(response, session === undefined ? 404 : 405, {
+            error: {
+              code: session === undefined ? 'session_not_found' : 'session_not_configurable',
+              message: session === undefined ? 'Session was not found' : 'Session cannot be configured',
+            },
+          })
+          return
+        }
+        const body = await readBody(request)
+        const providerProfileId = body['providerProfileId']
+        const approvalMode = body['approvalMode']
+        const reasoningEffort = body['reasoningEffort']
+        if (typeof providerProfileId !== 'string') throw new Error('providerProfileId must be a string')
+        if (approvalMode !== 'ask' && approvalMode !== 'auto') throw new Error('approvalMode must be ask or auto')
+        if (reasoningEffort !== undefined && !['none', 'low', 'high', 'max'].includes(String(reasoningEffort))) {
+          throw new Error('reasoningEffort must be none, low, high, or max')
+        }
+        const profile = providerProfiles().find(item => item.id === providerProfileId)
+        if (profile?.configured !== true) throw new Error(`Unknown configured Provider profile ${providerProfileId}`)
+        if (reasoningEffort !== undefined && !profile.reasoningEfforts?.includes(reasoningEffort as ReasoningEffort)) {
+          throw new Error(`Provider profile ${providerProfileId} does not support reasoning effort ${String(reasoningEffort)}`)
+        }
+        await session.configure({
+          inference: {
+            providerProfileId,
+            provider: profile.adapter,
+            model: profile.model,
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort: reasoningEffort as ReasoningEffort }),
+          },
+          approvalMode,
+        })
+        sendJson(response, 200, { session: await session.summary() })
+        return
+      }
+
       const pauseId = pathMatch(url.pathname, '/pause')
       if (request.method === 'POST' && pauseId !== undefined) {
         const session = registry.get(pauseId)

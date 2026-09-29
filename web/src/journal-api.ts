@@ -330,6 +330,22 @@ export async function submitMessage(sessionId: string, content: string): Promise
   await post(`/api/workbench/sessions/${encodeURIComponent(sessionId)}/messages`, { content })
 }
 
+export async function configureSession(
+  sessionId: string,
+  input: {
+    providerProfileId: string
+    reasoningEffort?: ReasoningEffort
+    approvalMode: ApprovalMode
+  },
+): Promise<SessionSummary> {
+  const response = await fetch(`/api/workbench/sessions/${encodeURIComponent(sessionId)}/configuration`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  return (await readJson<{ session: SessionSummary }>(response)).session
+}
+
 export async function pauseSession(sessionId: string): Promise<void> {
   await post(`/api/workbench/sessions/${encodeURIComponent(sessionId)}/pause`)
 }

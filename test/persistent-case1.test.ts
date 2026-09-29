@@ -24,12 +24,11 @@ type TestPersistentOptions = Omit<PersistentCase1Options, 'dispatcher'> & {
 
 function createPersistentCase1Agent(options: TestPersistentOptions) {
   const { dispatcher, ...rest } = options
-  const defaults = createMockCase1ToolRuntime({
-    approvalPort: { request: async () => 'allow' },
-  })
+  const defaults = createMockCase1ToolRuntime()
   return createPersistentCase1AgentCore({
     ...rest,
     dispatcher: dispatcher ?? defaults.dispatcher,
+    approvalPort: { request: async () => 'allow' },
     appMatcher: rest.appMatcher ?? defaults.appMatcher,
   })
 }
