@@ -12,6 +12,7 @@ import type { LlmProvider } from '../src/agent/plugins/llm.js'
 import type { ToolDefinition } from '../src/agent/plugins/tools.js'
 import {
   ASSISTANT_MESSAGE,
+  CONTEXT_FIXED,
   CONTEXT_DYNAMIC,
   HISTORY_CHECKPOINT,
   LLM_INVOKE,
@@ -25,7 +26,7 @@ import {
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
 
-test('CASE2 flow waits for the current turn context instead of plugin registration order', async () => {
+test('CASE2 flow waits for fixed session context without relying on registration order', async () => {
   const { journal, runUntilIdle } = createJournal()
   codingFlowPlugin([])(journal)
 
@@ -33,7 +34,7 @@ test('CASE2 flow waits for the current turn context instead of plugin registrati
   await runUntilIdle()
   assert.equal(journal.read().some(event => event.type === LLM_REQUEST), false)
 
-  journal.append(CONTEXT_DYNAMIC, { turnId: 'turn-1', content: 'Current workspace: /tmp/project' })
+  journal.append(CONTEXT_FIXED, { content: 'Current workspace: /tmp/project' })
   await runUntilIdle()
   assert.deepEqual(
     journal.read().filter(event => event.type === LLM_REQUEST).map(event => event.data),
@@ -111,24 +112,28 @@ test('CASE2 injects project instruction files into the active turn context', asy
   t.after(() => rm(cwd, { recursive: true, force: true }))
   await writeFile(join(cwd, 'AGENTS.md'), 'Always run the focused test before replying.\n', 'utf8')
   await writeFile(join(cwd, 'CLAUDE.md'), 'Prefer small, reversible edits.\n', 'utf8')
-  let inspected = false
+  const calls: Parameters<LlmProvider['generate']>[0][] = []
   const agent = createCase2Agent({
     cwd,
     llm: {
       async generate(call) {
-        const context = call.messages.at(-1)?.content ?? ''
+        calls.push(call)
+        const context = call.messages[0]?.content ?? ''
         assert.match(context, /Current workspace:/)
         assert.match(context, /Project instructions from AGENTS\.md:/)
         assert.match(context, /Always run the focused test/)
         assert.match(context, /Project instructions from CLAUDE\.md:/)
         assert.match(context, /Prefer small, reversible edits/)
-        inspected = true
         return { generated: { content: 'Ready.', toolCalls: [] }, usage }
       },
     },
   })
   await agent.submit('Inspect the project instructions.')
-  assert.equal(inspected, true)
+  await agent.submit('Inspect them again.')
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0]?.messages[0]?.content, calls[1]?.messages[0]?.content)
+  assert.equal(agent.journal.read().filter(event => event.type === CONTEXT_FIXED).length, 1)
+  assert.equal(agent.journal.read().filter(event => event.type === CONTEXT_DYNAMIC).length, 0)
 })
 
 test('CASE2.0 edits and verifies a real workspace through the four coding tools', async t => {
@@ -148,7 +153,7 @@ test('CASE2.0 edits and verifies a real workspace through the four coding tools'
     async generate(call) {
       generation += 1
       if (generation === 1) {
-        assert.match(call.messages.at(-1)?.content ?? '', /Current workspace:/)
+        assert.match(call.messages[0]?.content ?? '', /Current workspace:/)
         assert.deepEqual(
           call.tools.map(schema => (schema['function'] as { name: string }).name),
           ['read', 'write', 'edit', 'bash', 'todo.write', 'goal.write'],
@@ -527,7 +532,7 @@ test('CASE2.4 runs a synchronous child journal and returns only its summary to t
             async generate(call) {
               childGeneration += 1
               if (childGeneration === 1) {
-                assert.match(call.messages.at(-2)?.content ?? call.messages.at(-1)?.content ?? '', /Inspect notes/)
+                assert.ok(call.messages.some(message => message.content?.includes('Inspect notes')))
                 return {
                   generated: {
                     toolCalls: [{ id: 'read-child', name: 'read', arguments: { path: 'notes.txt' } }],

@@ -1,6 +1,7 @@
 import type { Event } from '../journal.js'
 import {
   ASSISTANT_MESSAGE,
+  CONTEXT_FIXED,
   CONTEXT_DYNAMIC,
   HISTORY_CHECKPOINT,
   LLM_GENERATED,
@@ -13,6 +14,7 @@ import {
   type AssistantMessage,
   type ChatMessage,
   type DynamicContext,
+  type FixedContext,
   type HistoryCheckpoint,
   type LlmGenerated,
   type LlmInvoke,
@@ -162,7 +164,14 @@ export function projectMessages(events: readonly Event[], invoke: LlmInvoke): Ch
   const prompts = events.slice(0, through + 1)
     .filter(event => event.type === SYSTEM_PROMPT)
     .map(event => (event.data as SystemPrompt).content)
-  if (prompts.length > 0) messages.push({ role: 'system', content: prompts.join('\n\n') })
+  const fixed = events.slice(0, through + 1)
+    .filter(event => event.type === CONTEXT_FIXED)
+    .map(event => (event.data as FixedContext).content)
+  const stable = [
+    ...prompts,
+    ...fixed.map(content => `Fixed session context:\n${content}`),
+  ]
+  if (stable.length > 0) messages.push({ role: 'system', content: stable.join('\n\n') })
 
   const summary = manifest.summaryOfRequirementId === undefined
     ? undefined

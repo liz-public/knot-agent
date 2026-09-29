@@ -1,7 +1,7 @@
 import type { Event, Plugin } from '../../journal.js'
 import {
   ASSISTANT_MESSAGE,
-  CONTEXT_DYNAMIC,
+  CONTEXT_FIXED,
   LLM_GENERATED,
   LLM_INVOKE,
   LLM_REQUEST,
@@ -10,7 +10,7 @@ import {
   type LlmGenerated,
   type LlmInvoke,
   type ToolResult,
-  type DynamicContext,
+  type UserMessage,
 } from '../../agent/protocol.js'
 
 export interface CompletionBlocker {
@@ -88,12 +88,25 @@ export const codingFlowPlugin = (
   guards: readonly CompletionGuard[] = [steeringGuard, todoGuard, goalGuard],
 ): Plugin => journal => {
   let activeTurnId: string | undefined
+  let pendingTurnId: string | undefined
+  let fixedContextReady = journal.read().some(event => event.type === CONTEXT_FIXED)
 
-  journal.subscribe(CONTEXT_DYNAMIC, event => {
-    const context = event.data as DynamicContext
+  const begin = (turnId: string) => {
     if (activeTurnId !== undefined) return
-    activeTurnId = context.turnId
-    journal.append(LLM_REQUEST, { purpose: 'agent', turnId: context.turnId })
+    activeTurnId = turnId
+    pendingTurnId = undefined
+    journal.append(LLM_REQUEST, { purpose: 'agent', turnId })
+  }
+
+  journal.subscribe(USER_MESSAGE, event => {
+    const message = event.data as UserMessage
+    if (fixedContextReady) begin(message.turnId)
+    else pendingTurnId = message.turnId
+  })
+
+  journal.subscribe(CONTEXT_FIXED, () => {
+    fixedContextReady = true
+    if (pendingTurnId !== undefined) begin(pendingTurnId)
   })
 
   journal.subscribe(TOOL_RESULT, event => {

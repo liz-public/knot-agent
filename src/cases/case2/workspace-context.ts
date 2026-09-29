@@ -2,9 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Plugin } from '../../journal.js'
 import {
-  CONTEXT_DYNAMIC,
+  CONTEXT_FIXED,
   USER_MESSAGE,
-  type UserMessage,
 } from '../../agent/protocol.js'
 
 const instructionFiles = ['AGENTS.md', 'CLAUDE.md'] as const
@@ -23,11 +22,10 @@ async function projectInstructions(cwd: string): Promise<readonly { name: string
 }
 
 export const workspaceContextPlugin = (cwd: string): Plugin => journal => {
-  journal.subscribe(USER_MESSAGE, async event => {
-    const message = event.data as UserMessage
+  journal.subscribe(USER_MESSAGE, async () => {
+    if (journal.read().some(item => item.type === CONTEXT_FIXED)) return
     const instructions = await projectInstructions(cwd)
-    journal.append(CONTEXT_DYNAMIC, {
-      turnId: message.turnId,
+    journal.append(CONTEXT_FIXED, {
       content: [
         `Current workspace: ${cwd}`,
         ...instructions.map(item => `Project instructions from ${item.name}:\n${item.content}`),
