@@ -4,14 +4,8 @@ import type { PermissionPolicy } from '../cases/case2/tool-interaction.js'
 import { JSONL_STORE_METADATA } from '../plugins/jsonl.js'
 import {
   defineAssembly,
-  type AgentAssemblyFactory,
-  type AssemblyBuildOptions,
 } from './assembly.js'
 import { JOURNAL_CHANGE_METADATA } from './journal-bridge.js'
-
-export interface Case2AssemblyOptions extends AssemblyBuildOptions {
-  readonly permissionPolicy?: PermissionPolicy
-}
 
 const defaultPermissionPolicy: PermissionPolicy = {
   evaluate({ toolName }) {
@@ -19,29 +13,6 @@ const defaultPermissionPolicy: PermissionPolicy = {
       ? 'ask'
       : 'allow'
   },
-}
-
-export function case2AssemblyFactory(options: Case2AssemblyOptions): AgentAssemblyFactory {
-  const permissionPolicy = options.permissionPolicy ?? defaultPermissionPolicy
-  return {
-    id: 'case2',
-    model: options.model,
-    create: input => createPersistentCase2Agent({
-      cwd: input.cwd,
-      journalPath: input.journalPath,
-      llm: options.llm,
-      liveOutput: {
-        open: meta => input.liveOutput.open(meta),
-      },
-      toolOutput: input.toolOutput,
-      output: { content: () => undefined },
-      permissionPolicy,
-      approvalPort: input.approvalPort,
-      askPort: input.askPort,
-      subagentFactory: options.subagentFactory,
-      platformPlugins: input.platformPlugins,
-    }),
-  }
 }
 
 const plugins = [
@@ -55,5 +26,19 @@ export const case2Assembly = defineAssembly({
   id: 'case2',
   title: 'CASE2 coding agent',
   plugins,
-  create: case2AssemblyFactory,
+  create: input => createPersistentCase2Agent({
+    cwd: input.cwd,
+    journalPath: input.journalPath,
+    llm: input.llm,
+    liveOutput: {
+      open: meta => input.liveOutput.open(meta),
+    },
+    toolOutput: input.toolOutput,
+    output: { content: () => undefined },
+    permissionPolicy: defaultPermissionPolicy,
+    approvalPort: input.approvalPort,
+    askPort: input.askPort,
+    subagentFactory: input.subagentFactory,
+    platformPlugins: input.platformPlugins,
+  }),
 })

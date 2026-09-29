@@ -3,7 +3,6 @@ import { case1Assembly } from './case1-assembly.js'
 import { case2Assembly } from './case2-assembly.js'
 
 export type {
-  AssemblyBuildOptions,
   AssemblyDescription,
   WorkbenchAssemblyDefinition,
 } from './assembly.js'

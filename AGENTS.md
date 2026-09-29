@@ -1,7 +1,7 @@
 # knot-agent 开发约束
 
 > 适用范围：本仓库全部代码。写新 case、改插件、评审实现之前先读这一份。
-> 现状基线：内核 `src/journal.ts` 56 行，自 `7619936` 起零改动；`npm test` 135 项通过。
+> 现状基线：内核 `src/journal.ts` 56 行，自 `7619936` 起零改动。
 > 推导过程在 [docs/reviews/](docs/reviews/)，本文只给结论和可执行的检查项。
 
 ## 0. 这个项目在验证什么
@@ -75,13 +75,13 @@ grep -niE "tool|trace|prompt|llm|session|priority|context|runtime" src/journal.t
 
 ---
 
-## 2. 起手式：不要从默认模板复制业务插件
+## 2. 起手式：从最小内核示例理解机制，从真实 Case 理解 Agent
 
 仓库里有两套东西，用途完全不同：
 
 | 位置 | 是什么 | 该怎么用 |
 |---|---|---|
-| `src/main.ts` + `src/plugins/*` + `src/protocol.ts` | **内核契约的最小演示**，6 个事件类型 | 读它理解内核怎么用 |
+| `examples/minimal.mjs` | **内核契约的单文件最小演示** | 读它理解 append、subscribe 和自然停止 |
 | `src/agent/protocol.ts` | **跨 case 的 agent 协议** | 仅放通用事件常量和 payload 类型 |
 | `src/agent/plugins/*` | **已被多个 case 验证的共享插件** | 由 case 装配，不带 Android 或 coding 领域语义 |
 | `src/agent/providers/*` | **LLM Provider 适配** | 只处理模型 API 差异，不知道具体 case |
@@ -89,15 +89,9 @@ grep -niE "tool|trace|prompt|llm|session|priority|context|runtime" src/journal.t
 | `src/cases/case1/*` | **真实手机助手 case** | 放该领域的装配、协议扩展、策略与工具实现 |
 | `src/cases/case2/*` | **真实编码 agent case** | 放该领域的 flow、workspace context 和 coding tools |
 
-**默认模板在若干处已经落后于 CASE1 的结论，直接复制会把已修掉的问题带回来：**
+单文件示例刻意不包含 LLM、工具、持久化或 Workbench，避免形成第二套会随真实 Case 演进而过期的平行插件栈。
 
-- `src/plugins/llm-openai.ts` 直接订阅 `user.message` 和 `tool.result` 触发生成，中间没有 `content.request` 这一层，工具调用也是**一条事件一个调用**。它靠 `throw new Error('parallel tool calls are not supported yet')` 兜着——一旦有人删掉这句 `throw` 想"支持并行"，立刻踩中 §4.1 的三个坑。要支持并行就照 CASE1 改成批事件。
-- 工具 schema 由装配层同时喂给两个插件（`toolSchemas(tools)`）。CASE1 改成了 `tool.registry` 事件（见 §4.3）。
-- 投影函数 `project()` 长在 LLM 插件内部。模板只有一类 Prompt 时这样最小，但 case 一旦有摘要、动态上下文、压缩窗口就必须拆出去（见 §4.4）。
-
-模板**没有**的问题：它在调用时才投影，从不把 messages 写进 Journal，所以没有 §4.4 那个平方膨胀。这一点是对的，别改坏。
-
-结论：**模板教内核，CASE1 教 case。新 case 的插件形状参照 `src/cases/case1/`。**
+结论：**示例教内核，CASE1/CASE2 教 Agent。新 Case 的插件形状参照真实 Case。**
 
 ---
 
@@ -228,6 +222,10 @@ CASE1 的候选列表属于第一类：`contact call` 让**设备**生成并持�
 ---
 
 ## 7. 已经结清的结论：不要重新发明
+
+### 持久 Session 的两个读模型
+
+持久 Case 在恢复时把 JSONL 载入内存 Journal，用于继续执行；Workbench 另行读取同一 JSONL，用于展示 `observedAt` 等 Journal 外元数据和支持只读 Session。前者是**执行读模型**，后者是**展示读模型**，不是两份业务状态。不要为了消除文件的二次读取而向 `SessionRuntime` 暴露可写 Journal，或把存储加载塞进内核。只有真实长 Session 的启动性能证明这里成为瓶颈后，才重新设计一次加载、多方投影的存储边界。
 
 CASE1 的五个问题，**没有一个的正确解法需要内核提供新能力**：
 

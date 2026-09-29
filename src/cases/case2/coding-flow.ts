@@ -1,6 +1,7 @@
 import type { Event, Plugin } from '../../journal.js'
 import {
   ASSISTANT_MESSAGE,
+  CONTEXT_DYNAMIC,
   LLM_GENERATED,
   LLM_INVOKE,
   LLM_REQUEST,
@@ -9,7 +10,7 @@ import {
   type LlmGenerated,
   type LlmInvoke,
   type ToolResult,
-  type UserMessage,
+  type DynamicContext,
 } from '../../agent/protocol.js'
 
 export interface CompletionBlocker {
@@ -88,11 +89,11 @@ export const codingFlowPlugin = (
 ): Plugin => journal => {
   let activeTurnId: string | undefined
 
-  journal.subscribe(USER_MESSAGE, event => {
-    const message = event.data as UserMessage
+  journal.subscribe(CONTEXT_DYNAMIC, event => {
+    const context = event.data as DynamicContext
     if (activeTurnId !== undefined) return
-    activeTurnId = message.turnId
-    journal.append(LLM_REQUEST, { purpose: 'agent', turnId: message.turnId })
+    activeTurnId = context.turnId
+    journal.append(LLM_REQUEST, { purpose: 'agent', turnId: context.turnId })
   })
 
   journal.subscribe(TOOL_RESULT, event => {

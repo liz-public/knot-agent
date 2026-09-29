@@ -1,4 +1,6 @@
-import type { AgentAssemblyFactory } from './assembly.js'
+import type { LlmProviderSource } from '../agent/plugins/llm.js'
+import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
+import type { WorkbenchAssemblyDefinition } from './assembly.js'
 import { createEventHub } from './event-hub.js'
 import { createInteractionBroker } from './interactions.js'
 import { JOURNAL_CHANGE_METADATA, journalChangePlugin } from './journal-bridge.js'
@@ -14,8 +16,10 @@ export interface LiveSessionOptions {
   readonly projectId?: string
   readonly cwd: string
   readonly journalPath: string
-  readonly assembly: AgentAssemblyFactory
+  readonly assembly: WorkbenchAssemblyDefinition
+  readonly llm: LlmProviderSource
   readonly defaultConfiguration?: SessionConfiguration
+  readonly subagentFactory?: SubagentFactory
   readonly parentSessionId?: string
   readonly delegationDepth?: number
 }
@@ -28,6 +32,7 @@ export async function createLiveSession(
   const agent = await options.assembly.create({
     cwd: options.cwd,
     journalPath: options.journalPath,
+    llm: options.llm,
     liveOutput: workbenchLiveOutput(event => hub.emit(event)),
     toolOutput: workbenchToolOutput(event => hub.emit(event)),
     approvalPort: interactions.approval,
@@ -36,6 +41,7 @@ export async function createLiveSession(
       plugin: journalChangePlugin(() => hub.emit({ kind: 'journal.changed' })),
       metadata: JOURNAL_CHANGE_METADATA,
     }],
+    ...(options.subagentFactory === undefined ? {} : { subagentFactory: options.subagentFactory }),
   })
 
   let recorded: SessionConfiguration = {}
@@ -69,9 +75,9 @@ export async function createLiveSession(
         id: options.id,
         title: options.title,
         ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
-        assembly: options.assembly.id,
+        assembly: options.assembly.description.id,
         workspace: options.cwd,
-        model: inference?.model ?? options.assembly.model,
+        ...(inference === undefined ? {} : { model: inference.model }),
         ...(inference === undefined ? {} : {
           providerProfileId: inference.providerProfileId,
           ...(inference.reasoningEffort === undefined ? {} : { reasoningEffort: inference.reasoningEffort }),

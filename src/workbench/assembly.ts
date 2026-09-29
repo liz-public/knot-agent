@@ -52,17 +52,13 @@ export interface SessionRuntime {
 export interface AssemblyInput {
   readonly cwd: string
   readonly journalPath: string
+  readonly llm: LlmProviderSource
   readonly liveOutput: GenerationOutput
   readonly toolOutput: ToolOutput
   readonly approvalPort: HostApprovalPort
   readonly askPort: HostAskPort
   readonly platformPlugins: readonly PluginNode[]
-}
-
-export interface AgentAssemblyFactory {
-  readonly id: string
-  readonly model: string
-  create(input: AssemblyInput): Promise<SessionRuntime>
+  readonly subagentFactory?: SubagentFactory
 }
 
 export interface AssemblyPluginDeclaration {
@@ -80,22 +76,16 @@ export interface AssemblyDescription {
   readonly protocols: readonly string[]
 }
 
-export interface AssemblyBuildOptions {
-  readonly llm: LlmProviderSource
-  readonly model: string
-  readonly subagentFactory?: SubagentFactory
-}
-
 export interface WorkbenchAssemblyDefinition {
   readonly description: AssemblyDescription
-  create(options: AssemblyBuildOptions): AgentAssemblyFactory
+  create(input: AssemblyInput): Promise<SessionRuntime>
 }
 
 export function defineAssembly(input: {
   readonly id: string
   readonly title: string
   readonly plugins?: readonly AssemblyPluginDeclaration[]
-  create(options: AssemblyBuildOptions): AgentAssemblyFactory
+  create(input: AssemblyInput): Promise<SessionRuntime>
 }): WorkbenchAssemblyDefinition {
   const declarations = input.plugins ?? []
   const plugins = declarations.map(item => item.metadata)

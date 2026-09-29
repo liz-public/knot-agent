@@ -22,19 +22,15 @@ test('an Assembly may intentionally declare no prompt, tools, or chat protocols'
   const definition = defineAssembly({
     id: 'event-only',
     title: 'Event-only assembly',
-    create: options => ({
-      id: 'event-only',
-      model: options.model,
-      async create() {
-        return {
-          async submit() {},
-          steer() {},
-          pause() {},
-          resume() {},
-          status: () => 'idle',
-        }
-      },
-    }),
+    async create() {
+      return {
+        async submit() {},
+        steer() {},
+        pause() {},
+        resume() {},
+        status: () => 'idle',
+      }
+    },
   })
 
   assert.equal(definition.description.systemPrompt, '')
@@ -52,17 +48,18 @@ test('Workbench runs a CASE1 assembly through the same live Session boundary', a
     title: 'CASE1 mobile assistant',
     cwd: directory,
     journalPath: join(directory, 'case1.jsonl'),
-    assembly: definition.create({
-      model: 'mock-mobile',
-      llm: {
-        async generate() {
-          return {
-            generated: { content: '手电筒已打开。', toolCalls: [] },
-            usage: { inputTokens: 40, outputTokens: 8, totalTokens: 48, contextWindow: 4096 },
-          }
-        },
+    assembly: definition,
+    defaultConfiguration: {
+      inference: { providerProfileId: 'mock', provider: 'openai-compatible', model: 'mock-mobile' },
+    },
+    llm: {
+      async generate() {
+        return {
+          generated: { content: '手电筒已打开。', toolCalls: [] },
+          usage: { inputTokens: 40, outputTokens: 8, totalTokens: 48, contextWindow: 4096 },
+        }
       },
-    }),
+    },
   })
   const events: LiveSessionEvent[] = []
   const idle = new Promise<void>(resolve => {

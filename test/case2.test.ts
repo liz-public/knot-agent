@@ -3,16 +3,19 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import type { Event } from '../src/journal.js'
+import { createJournal, type Event } from '../src/journal.js'
 import { createCase2Agent, createPersistentCase2Agent } from '../src/cases/case2/case2.js'
+import { codingFlowPlugin } from '../src/cases/case2/coding-flow.js'
 import { case2PluginMetadata } from '../src/cases/case2/plugin-definitions.js'
 import { codingTools } from '../src/cases/case2/coding-tools.js'
 import type { LlmProvider } from '../src/agent/plugins/llm.js'
 import type { ToolDefinition } from '../src/agent/plugins/tools.js'
 import {
   ASSISTANT_MESSAGE,
+  CONTEXT_DYNAMIC,
   HISTORY_CHECKPOINT,
   LLM_INVOKE,
+  LLM_REQUEST,
   SESSION_START,
   TOOL_CALL,
   TOOL_RESULT,
@@ -21,6 +24,22 @@ import {
 } from '../src/agent/protocol.js'
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
+
+test('CASE2 flow waits for the current turn context instead of plugin registration order', async () => {
+  const { journal, runUntilIdle } = createJournal()
+  codingFlowPlugin([])(journal)
+
+  journal.append(USER_MESSAGE, { turnId: 'turn-1', content: 'Inspect the workspace.' })
+  await runUntilIdle()
+  assert.equal(journal.read().some(event => event.type === LLM_REQUEST), false)
+
+  journal.append(CONTEXT_DYNAMIC, { turnId: 'turn-1', content: 'Current workspace: /tmp/project' })
+  await runUntilIdle()
+  assert.deepEqual(
+    journal.read().filter(event => event.type === LLM_REQUEST).map(event => event.data),
+    [{ purpose: 'agent', turnId: 'turn-1' }],
+  )
+})
 
 function deferred() {
   let resolve!: () => void

@@ -7,7 +7,7 @@ import type { LlmProvider, LlmProviderResolver } from '../src/agent/plugins/llm.
 import { projectSessionConfiguration } from '../src/agent/session-configuration.js'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import { createInteractionBroker } from '../src/workbench/interactions.js'
-import { case2AssemblyFactory } from '../src/workbench/case2-assembly.js'
+import { case2Assembly } from '../src/workbench/case2-assembly.js'
 import { createLiveSession } from '../src/workbench/live-session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from '../src/workbench/session-catalog.js'
 import { createSessionRegistry } from '../src/workbench/session-registry.js'
@@ -119,7 +119,8 @@ test('live CASE2 session streams generation, resolves approval, and persists aut
     title: 'Live CASE2',
     cwd: directory,
     journalPath: join(directory, 'session.jsonl'),
-    assembly: case2AssemblyFactory({ llm, model: 'mock' }),
+    assembly: case2Assembly,
+    llm,
   })
   const events: LiveSessionEvent[] = []
   const subscribe = session.subscribe!
@@ -162,12 +163,10 @@ test('persistent subagent session registers independently and returns its commit
       inference: { providerProfileId: 'deepseek', provider: 'deepseek', model: 'mock-child', reasoningEffort: 'low' },
       approvalMode: 'auto',
     },
-    assembly: case2AssemblyFactory({
-      model: 'mock-child',
-      llm: { async generate() {
-        return { generated: { content: 'Child inspected the workspace.', toolCalls: [] }, usage }
-      } },
-    }),
+    assembly: case2Assembly,
+    llm: { async generate() {
+      return { generated: { content: 'Child inspected the workspace.', toolCalls: [] }, usage }
+    } },
   })
   const result = await runSubagentSession(child, registry, 'Inspect the workspace.')
   assert.deepEqual(result, { summary: 'Child inspected the workspace.', sessionId: 'child-1' })
@@ -202,11 +201,13 @@ test('two live sessions run concurrently without crossing workspace, journal, or
   }
   const left = await createLiveSession({
     id: 'left', title: 'Left', cwd: leftCwd, journalPath: join(root, 'left.jsonl'),
-    assembly: case2AssemblyFactory({ llm: provider('left'), model: 'mock' }),
+    assembly: case2Assembly,
+    llm: provider('left'),
   })
   const right = await createLiveSession({
     id: 'right', title: 'Right', cwd: rightCwd, journalPath: join(root, 'right.jsonl'),
-    assembly: case2AssemblyFactory({ llm: provider('right'), model: 'mock' }),
+    assembly: case2Assembly,
+    llm: provider('right'),
   })
   const leftEvents: LiveSessionEvent[] = []
   const rightEvents: LiveSessionEvent[] = []
@@ -246,15 +247,13 @@ test('approval policy changes are Journal facts used by the next tool call', asy
     id: 'auto', title: 'Auto approval', cwd: directory,
     journalPath: join(directory, 'session.jsonl'),
     defaultConfiguration: { approvalMode: 'ask' },
-    assembly: case2AssemblyFactory({
-      model: 'mock',
-      llm: { async generate() {
-        generation += 1
-        return generation === 1
-          ? { generated: { toolCalls: [{ id: 'write-1', name: 'write', arguments: { path: 'auto.txt', content: 'ok\n' } }] }, usage }
-          : { generated: { content: 'Done.', toolCalls: [] }, usage }
-      } },
-    }),
+    assembly: case2Assembly,
+    llm: { async generate() {
+      generation += 1
+      return generation === 1
+        ? { generated: { toolCalls: [{ id: 'write-1', name: 'write', arguments: { path: 'auto.txt', content: 'ok\n' } }] }, usage }
+        : { generated: { content: 'Done.', toolCalls: [] }, usage }
+    } },
   })
   const events: LiveSessionEvent[] = []
   session.subscribe!(event => events.push(event))
@@ -293,7 +292,8 @@ test('inference configuration selects the provider at invoke time and restores f
       inference: { providerProfileId: 'first', provider: 'openai-compatible', model: 'model-a', reasoningEffort: 'low' },
       approvalMode: 'ask',
     },
-    assembly: case2AssemblyFactory({ llm: resolver, model: 'model-a' }),
+    assembly: case2Assembly,
+    llm: resolver,
   })
   assert.equal((await session.snapshot()).events.length, 0)
   const waitForIdle = () => nextEvent([], session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
@@ -330,7 +330,8 @@ test('inference configuration selects the provider at invoke time and restores f
       inference: { providerProfileId: 'first', provider: 'openai-compatible', model: 'model-a' },
       approvalMode: 'ask',
     },
-    assembly: case2AssemblyFactory({ llm: resolver, model: 'model-a' }),
+    assembly: case2Assembly,
+    llm: resolver,
   })
   assert.equal((await restored.summary()).providerProfileId, 'second')
   const restoredIdle = nextEvent([], restored.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
@@ -347,12 +348,13 @@ test('workbench HTTP commands drive one injected live session', async t => {
     title: 'Live CASE2',
     cwd: directory,
     journalPath: join(directory, 'session.jsonl'),
-    assembly: case2AssemblyFactory({ llm: {
+    assembly: case2Assembly,
+    llm: {
       async generate(_call, onUpdate) {
         await onUpdate?.({ kind: 'content', text: 'Done.' })
         return { generated: { content: 'Done.', toolCalls: [] }, usage }
       },
-    }, model: 'mock' }),
+    },
   })
   let createInput: { title?: string; cwd?: string; assemblyId?: string; providerProfileId?: string; reasoningEffort?: string; approvalMode?: string } | undefined
   const createdSession: WorkbenchSession = {
@@ -482,7 +484,11 @@ test('live CASE2 completes a coding turn and continues it after host reconstruct
     title: 'Coding session',
     cwd: directory,
     journalPath,
-    assembly: case2AssemblyFactory({ llm: firstProvider, model: 'mock-coder' }),
+    assembly: case2Assembly,
+    llm: firstProvider,
+    defaultConfiguration: {
+      inference: { providerProfileId: 'mock', provider: 'openai-compatible', model: 'mock-coder' },
+    },
   })
   const firstEvents: LiveSessionEvent[] = []
   first.subscribe!(event => {
@@ -519,15 +525,13 @@ test('live CASE2 completes a coding turn and continues it after host reconstruct
     title: 'Coding session',
     cwd: directory,
     journalPath,
-    assembly: case2AssemblyFactory({
-      model: 'mock-coder',
-      llm: {
-        async generate(call) {
-          restoredMessages = call.messages
-          return { generated: { content: 'The previous edit and verification are in this session.', toolCalls: [] }, usage }
-        },
+    assembly: case2Assembly,
+    llm: {
+      async generate(call) {
+        restoredMessages = call.messages
+        return { generated: { content: 'The previous edit and verification are in this session.', toolCalls: [] }, usage }
       },
-    }),
+    },
   })
   const restoredEvents: LiveSessionEvent[] = []
   const restoredIdle = nextEvent(restoredEvents, restored.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')

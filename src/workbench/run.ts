@@ -3,7 +3,8 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { LlmProvider, LlmProviderResolver } from '../agent/plugins/llm.js'
 import { projectSessionConfiguration, type SessionConfiguration } from '../agent/session-configuration.js'
-import type { AgentAssemblyFactory } from './assembly.js'
+import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
+import type { WorkbenchAssemblyDefinition } from './assembly.js'
 import { createAssemblyCatalog } from './assembly-catalog.js'
 import { createWorkbenchServer } from './http-server.js'
 import { createLiveSession } from './live-session.js'
@@ -31,59 +32,6 @@ function configuredStoredSessions(): readonly StoredSessionConfig[] {
 const registry = createSessionRegistry()
 const assemblies = createAssemblyCatalog()
 let studio: StudioController | undefined
-
-function assemblyFor(
-  assemblyId: string,
-  profile: ProviderProfile,
-  reasoningEffort?: ReasoningEffort,
-  parent?: { readonly id: string; readonly projectId: string; readonly delegationDepth: number },
-) {
-  const definition = assemblies.get(assemblyId)
-  if (definition === undefined) throw new Error(`Unknown assembly ${assemblyId}`)
-  return definition.create({
-    llm: providerResolver(profile, reasoningEffort),
-    model: profile.model,
-    ...(assemblyId !== 'case2' || parent === undefined || parent.delegationDepth >= 1 ? {} : {
-      subagentFactory: {
-        run: input => runSubagent({
-          parentSessionId: parent.id,
-          projectId: parent.projectId,
-          assemblyId,
-          parentProfile: profile,
-          parentReasoningEffort: reasoningEffort,
-          ...input,
-        }),
-      },
-    }),
-  })
-}
-
-function providerResolver(
-  fallback: ProviderProfile,
-  fallbackReasoningEffort?: ReasoningEffort,
-): LlmProviderResolver {
-  return {
-    resolve(events) {
-      const configured = projectSessionConfiguration(events).inference
-      if (configured === undefined) {
-        return fallback.create({ reasoningEffort: fallbackReasoningEffort })
-      }
-      const profile = providerStore.get(configured.providerProfileId)
-      if (profile?.configured !== true) {
-        throw new Error(`Provider profile ${configured.providerProfileId} is not configured`)
-      }
-      if (profile.adapter !== configured.provider) {
-        throw new Error(`Provider profile ${profile.id} no longer uses ${configured.provider}`)
-      }
-      return profile.create({
-        model: configured.model,
-        ...(configured.reasoningEffort === undefined
-          ? {}
-          : { reasoningEffort: configured.reasoningEffort }),
-      })
-    },
-  }
-}
 
 function defaultConfiguration(
   profile: ProviderProfile | undefined,
@@ -113,6 +61,47 @@ const providerStore = await createProviderProfileStore(
   providerFile,
   providerProfilesFromEnvironment(process.env),
 )
+const runtimeProviderResolver: LlmProviderResolver = {
+  resolve(events) {
+    const configured = projectSessionConfiguration(events).inference
+    if (configured === undefined) throw new Error('No inference configuration was committed for this request')
+    const profile = providerStore.get(configured.providerProfileId)
+    if (profile?.configured !== true) {
+      throw new Error(`Provider profile ${configured.providerProfileId} is not configured`)
+    }
+    if (profile.adapter !== configured.provider) {
+      throw new Error(`Provider profile ${profile.id} no longer uses ${configured.provider}`)
+    }
+    return profile.create({
+      model: configured.model,
+      ...(configured.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: configured.reasoningEffort }),
+    })
+  },
+}
+
+function subagentFactoryFor(input: {
+  readonly assemblyId: string
+  readonly parentSessionId: string
+  readonly projectId: string
+  readonly delegationDepth: number
+  readonly profile?: ProviderProfile
+  readonly reasoningEffort?: ReasoningEffort
+}): SubagentFactory | undefined {
+  const profile = input.profile
+  if (input.assemblyId !== 'case2' || profile === undefined || input.delegationDepth >= 1) return
+  return {
+    run: request => runSubagent({
+      parentSessionId: input.parentSessionId,
+      projectId: input.projectId,
+      assemblyId: input.assemblyId,
+      parentProfile: profile,
+      parentReasoningEffort: input.reasoningEffort,
+      ...request,
+    }),
+  }
+}
 
 async function newLiveSession(input: {
   id?: string
@@ -125,10 +114,11 @@ async function newLiveSession(input: {
   assemblyId?: string
   parentSessionId?: string
   delegationDepth?: number
-  assemblyOverride?: AgentAssemblyFactory
+  assemblyOverride?: WorkbenchAssemblyDefinition
+  llmOverride?: LlmProvider
 } = {}): Promise<WorkbenchSession> {
-  const projectId = input.projectId ?? input.assemblyId ?? input.assemblyOverride?.id ?? 'case2'
-  const assemblyId = input.assemblyOverride?.id
+  const projectId = input.projectId ?? input.assemblyId ?? input.assemblyOverride?.description.id ?? 'case2'
+  const assemblyId = input.assemblyOverride?.description.id
     ?? studio?.assemblyId(projectId)
     ?? input.assemblyId
     ?? projectId
@@ -152,8 +142,15 @@ async function newLiveSession(input: {
   const approvalMode = input.approvalMode ?? 'ask'
   const id = input.id ?? `${assemblyId}-${randomUUID().slice(0, 8)}`
   const delegationDepth = input.delegationDepth ?? 0
-  const assembly = input.assemblyOverride
-    ?? assemblyFor(assemblyId, profile!, reasoningEffort, { id, projectId, delegationDepth })
+  const assembly = input.assemblyOverride ?? assemblies.get(assemblyId)!
+  const subagentFactory = subagentFactoryFor({
+    assemblyId,
+    parentSessionId: id,
+    projectId,
+    delegationDepth,
+    profile,
+    reasoningEffort,
+  })
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
     id,
@@ -161,14 +158,16 @@ async function newLiveSession(input: {
     projectId,
     cwd: input.cwd?.trim() || defaultCwd,
     journalPath: join(sessionDirectory, `${id}.jsonl`),
-    assembly: assembly.id,
+    assembly: assembly.description.id,
     ...(input.parentSessionId === undefined ? {} : { parentSessionId: input.parentSessionId }),
     delegationDepth,
   }
   const session = await createLiveSession({
     ...descriptor,
     assembly,
+    llm: input.llmOverride ?? runtimeProviderResolver,
     defaultConfiguration: defaultConfiguration(profile, reasoningEffort, approvalMode),
+    ...(subagentFactory === undefined ? {} : { subagentFactory }),
   })
   await saveSessionDescriptor(sessionDirectory, descriptor)
   return session
@@ -227,9 +226,8 @@ async function createStudioRunSession(input: StudioRunInput): Promise<WorkbenchS
       projectId: input.projectId,
       approvalMode: 'auto',
       delegationDepth: 0,
-      assemblyOverride: assemblies.get(input.assemblyId)!.create({
-        llm: mockProviderFor(input.assemblyId), model: 'deterministic-mock',
-      }),
+      assemblyOverride: assemblies.get(input.assemblyId)!,
+      llmOverride: mockProviderFor(input.assemblyId),
     })
     : await newLiveSession({
       id: input.id,
@@ -290,17 +288,25 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
   if (registry.get(descriptor.id) !== undefined) continue
   const profile = providerStore.default()
   const definition = assemblies.get(descriptor.assembly)
-  registry.add(profile === undefined || !profile.configured || definition === undefined
-    ? storedSession(descriptor)
-    : await createLiveSession({
-      ...descriptor,
-      defaultConfiguration: defaultConfiguration(profile, profile.defaultReasoningEffort, 'ask'),
-      assembly: assemblyFor(descriptor.assembly, profile, profile.defaultReasoningEffort, {
-        id: descriptor.id,
-        projectId: descriptor.projectId ?? descriptor.assembly,
-        delegationDepth: descriptor.delegationDepth ?? 0,
-      }),
-    }))
+  if (profile === undefined || !profile.configured || definition === undefined) {
+    registry.add(storedSession(descriptor))
+    continue
+  }
+  const subagentFactory = subagentFactoryFor({
+    assemblyId: descriptor.assembly,
+    parentSessionId: descriptor.id,
+    projectId: descriptor.projectId ?? descriptor.assembly,
+    delegationDepth: descriptor.delegationDepth ?? 0,
+    profile,
+    reasoningEffort: profile.defaultReasoningEffort,
+  })
+  registry.add(await createLiveSession({
+    ...descriptor,
+    llm: runtimeProviderResolver,
+    defaultConfiguration: defaultConfiguration(profile, profile.defaultReasoningEffort, 'ask'),
+    assembly: definition,
+    ...(subagentFactory === undefined ? {} : { subagentFactory }),
+  }))
 }
 
 const studioDirectory = process.env['KNOT_STUDIO_DIR']
@@ -330,12 +336,17 @@ if (configuredJournal !== undefined) {
         projectId: 'case2',
         cwd: defaultCwd,
         journalPath: configuredJournal,
+        llm: runtimeProviderResolver,
         defaultConfiguration: defaultConfiguration(profile, profile.defaultReasoningEffort, 'ask'),
         delegationDepth: 0,
-        assembly: assemblyFor('case2', profile, profile.defaultReasoningEffort, {
-          id: 'case2-main',
+        assembly: assemblies.get('case2')!,
+        subagentFactory: subagentFactoryFor({
+          assemblyId: 'case2',
+          parentSessionId: 'case2-main',
           projectId: 'case2',
           delegationDepth: 0,
+          profile,
+          reasoningEffort: profile.defaultReasoningEffort,
         }),
       }))
   }

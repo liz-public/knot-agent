@@ -71,16 +71,12 @@ test('Studio accepts an Assembly without prompt, tools, or chat protocols', asyn
   const definition = defineAssembly({
     id: 'event-only',
     title: 'Event-only assembly',
-    create: options => ({
-      id: 'event-only',
-      model: options.model,
-      create: async () => ({
-        submit: async () => undefined,
-        steer: () => undefined,
-        pause: () => undefined,
-        resume: () => undefined,
-        status: () => 'idle',
-      }),
+    create: async () => ({
+      submit: async () => undefined,
+      steer: () => undefined,
+      pause: () => undefined,
+      resume: () => undefined,
+      status: () => 'idle',
     }),
   })
   const studio = await createStudioController({
