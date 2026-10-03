@@ -112,9 +112,8 @@ VITE_KNOT_DSH_MODE=workbench KNOT_WORKBENCH_URL=http://127.0.0.1:4320 npm run de
 - The exact persisted assistant message settles its stream before the Step closes.
   HTTP snapshot refreshes append only unseen display records. Local prompt receipt
   identities retire native optimistic echoes, without altering persisted user messages.
-- The native Stop button maps to **graceful pause**, not abort. A Knot composer dock
-  labels that meaning and provides Pause/Resume while running/paused; it has no separate
-  idle/event-count badge. B5 extends the native statistics below.
+- The native Stop button maps to **graceful pause**, not abort. S1 reuses that same
+  InputBar primary button for Resume while paused; no second runtime control is shown.
 - Bash stdout/stderr are expandable in a temporary live-output dock while the
   command runs. After close, the native tool row owns the persisted result. Its
   final result remains Knot JSON, not a fabricated DSH terminal payload.
@@ -143,7 +142,7 @@ were modified by that Session. These are smoke measurements, not performance cla
   totals/cache coverage are explicitly labelled; unknown is not zero. The latest
   input-cache ratio and **end-to-end** output rate remain distinct from native decode TPS.
 - Todo/Goal are derived only from `tool.result.state`, never guessed from a call
-  or a denied operation. Expand their composer summaries to see the current state.
+  or a denied operation. S1 connects the native Todo panel and read-only GoalBar.
   Native per-tool views receive presentation-only aliases for `todo.write`,
   `goal.write`, `spawn_agent` and `ask`; Journal/Context names remain unchanged.
   Native per-tool history/diff semantics are not fully equivalent to Knot's.
@@ -163,7 +162,7 @@ breadcrumb. This Session has no Goal fact: Goal projection has controlled tests,
 but a real online Goal interaction still needs user acceptance.
 
 Remaining differences are intentional review items, not claims of DSH parity:
-sidebar activity updates, live-output layout flashes, refresh/stream scheduling,
+live-output layout flashes, refresh/stream scheduling,
 custom configuration interactions, Ask close/skip, cross-client synchronization,
 native specialized tool-result semantics and partial custom i18n. Historical
 TTFT/decode timing, old cache counts and lost transient prefixes cannot be fabricated.
@@ -182,6 +181,30 @@ The Vite proxy is for development, not a production deployment configuration.
 npm test
 VITE_KNOT_DSH_MODE=workbench npm run build
 ```
+
+### S1 native presentation convergence
+
+- `todos` feeds the original collapsible Todo panel. The custom Todo/Goal dock is removed.
+- `goal` exposes only the observed objective, success criteria and phase. The published
+  GoalBar renders active goals and hides completed ones. Its mutation controls are hidden
+  and inert, with refusing callbacks; the original GoalService plugin is **not** activated.
+  A view-only loader facade exports the unchanged component factory, not DSH backend RPC.
+- The native InputBar's public component seat is wrapped once at assembly time, keeping
+  its injected hooks, child-slot ownership and layout. Stop means graceful Pause;
+  the same button means Resume when paused, preserving the unsent draft.
+  The wrapper restores the original component on disposal. It does not copy native code.
+- `knotRunState` initializes the view on load. Subsequent pause/resume transitions use
+  the existing transient `knot/live` port: no new Journal fact or fake sequence is created.
+  This matters because native durable projections reject equal-sequence updates.
+- Sidebar activity uses the snapshot's actual last activity timestamp, never refresh time.
+  Text-only shortcut replies count completed rounds, with zero model steps and no fabricated usage.
+
+Verification: root 140 tests and Client 20 tests pass; both Workbench and fixture builds pass.
+The real 1,134-event Session displays its original Todo panel. An isolated model-free Host
+verifies active/completed Goal, Todo expansion, live Pause/Resume, draft preservation and
+sidebar activity. No user Session facts, business plugins, Host APIs or Journal core changed.
+For the isolated smoke above, select `s1-native` and use stdin `goal`, `todo`, `running`,
+`pause`, `complete`; the native Resume button calls the real Host route.
 
 ## Boundary
 

@@ -71,7 +71,7 @@ function dshClientFixture(): Plugin {
   const readOnly = process.env['VITE_KNOT_DSH_MODE'] === 'workbench'
   // UI-only capability owners are hidden until their Knot operations are connected.
   const unconnectedUi = new Set(['ui-model-selection', 'ui-agent-preset', 'ui-permission-presets',
-    'ui-plan', 'ui-goal', 'ui-jobs', 'ui-plugin-manager', 'ui-cordis', 'ui-attachment',
+    'ui-plan', 'ui-jobs', 'ui-plugin-manager', 'ui-cordis', 'ui-attachment',
     'ui-settings-models', 'ui-settings-account', 'ui-settings-plugins', 'ui-settings-plugin-inventory'])
   for (const entry of entries) {
     if (entry.disabled === true || typeof entry.name !== 'string') continue
@@ -87,12 +87,14 @@ function dshClientFixture(): Plugin {
     const declaration = manifest.dsh?.client
     if (manifest.name !== entry.name || declaration?.platform !== 'web') continue
     const index = unordered.length.toString().padStart(3, '0')
+    const goalViewOnly = readOnly && entry.name === '@deepseek-ai/dsh-client-ui-goal'
     unordered.push({
       id: entry.name,
       url: `/dsh-plugins/${index}.js`,
       rev: REVISION,
       bundlePath: require.resolve(`${entry.name}/client`),
-      ...(declaration.inject === undefined ? {} : { inject: declaration.inject }),
+      ...(goalViewOnly ? { inject: ['@deepseek-ai/dsh-client-ui-primitives'] }
+        : declaration.inject === undefined ? {} : { inject: declaration.inject }),
       ...(declaration.external === undefined ? {} : { external: declaration.external }),
       ...(declaration.immediately === true ? { immediately: true } : {}),
     })
@@ -110,8 +112,8 @@ function dshClientFixture(): Plugin {
     bundlePath: '', inject: ['@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-primitives'],
     external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] })
   if (readOnly) plugins.push({ id: '@knot-agent/client-business', url: '/dsh-plugins/business.js', rev: REVISION,
-    bundlePath: '', inject: ['@deepseek-ai/dsh-client-ui-chat', '@deepseek-ai/dsh-client-ui-tool', '@deepseek-ai/dsh-client-ui-workspace'],
-    external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] })
+    bundlePath: '', inject: ['@deepseek-ai/dsh-client-ui-chat', '@deepseek-ai/dsh-client-ui-tool', '@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-goal'],
+    external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives', '@deepseek-ai/dsh-client-ui-goal/client'] })
   const bootstrapEntries = plugins.filter(entry => entry.id === BOOTSTRAP_ID)
   const applicationEntries = plugins.filter(entry => entry.id !== BOOTSTRAP_ID)
   const graph = {
@@ -140,7 +142,7 @@ function dshClientFixture(): Plugin {
   const clientSource = (name: string, id: string) => {
     const compiled = buildSync({ entryPoints: [join(import.meta.dirname, `src/${name}-client.tsx`)],
       bundle: true, write: false, format: 'cjs', jsx: 'automatic',
-      external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'],
+      external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives', '@deepseek-ai/dsh-client-ui-goal/client'],
     }).outputFiles[0]!.text
     return `window.__ModuleLoader__.load({id:${JSON.stringify(id)},factory:(require)=>{var module={exports:{}};var exports=module.exports;${compiled}\nreturn module.exports;}})`
   }
@@ -151,6 +153,11 @@ function dshClientFixture(): Plugin {
     else source = entry.bundlePath === ''
       ? `window.__ModuleLoader__.load({id:'@knot-agent/client-readonly',factory:${readonlyClientFactory.toString()}})`
       : readFileSync(entry.bundlePath, 'utf8')
+    if (readOnly && entry.id === '@deepseek-ai/dsh-client-ui-goal') {
+      // Load the unchanged published factory as a view library. Its full apply()
+      // is deliberately not activated: Knot exposes no GoalService mutation RPC.
+      source = `window.__ModuleLoader__.load({id:${JSON.stringify(entry.id)},factory:(require)=>{let registration;const window={__ModuleLoader__:{load:(value)=>{registration=value}}};${source}\nreturn {GoalBar:registration.factory(require).GoalBar,apply(){}};}})`
+    }
     sources.set(entry.url, source)
   }
   if (readOnly) sources.set('/knot-configuration.css', readFileSync(join(import.meta.dirname, 'src/configuration-client.css')))

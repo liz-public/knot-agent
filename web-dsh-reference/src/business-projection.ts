@@ -3,7 +3,7 @@ import type { SessionSnapshotDto } from '../../src/workbench/session.js'
 
 export function projectBusinessState({ events }: SessionSnapshotDto) {
   let todo: unknown = null
-  let goal: unknown = null
+  let goal: { objective: string; successCriteria: string[]; status: string } | null = null
   let inputTokens = 0, outputTokens = 0, knownCalls = 0, calls = 0
   let cachedTokens = 0, cacheInputTokens = 0, cacheKnownCalls = 0
   let latest: { cacheHitRate?: number; outputRate?: number } = {}
@@ -34,7 +34,11 @@ export function projectBusinessState({ events }: SessionSnapshotDto) {
       }
     }
   }
-  return { knotTodo: todo, knotGoal: goal, knotUsage: {
+  // Presentation subset only: no GoalService CAS/revision/activation is invented.
+  return { todos: todo, goal: goal === null ? null : { goal: {
+    objective: goal.objective, successCriteria: goal.successCriteria,
+    phase: goal.status === 'completed' ? 'complete' : 'active',
+  } }, knotUsage: {
     inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, knownCalls, calls, cacheKnownCalls, cachedInputTokens: cachedTokens,
     ...(cacheInputTokens > 0 ? { knownCacheHitRate: cachedTokens / cacheInputTokens } : {}), latest,
   } }

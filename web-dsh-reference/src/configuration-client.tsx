@@ -1,11 +1,12 @@
 /** Small Knot-owned configuration surfaces in the published DSH Client slots.
  * No Journal writes here: the carrier calls existing Host APIs, which own pending configuration.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ProviderProfileSummary } from '../../src/workbench/provider-profile.js'
 import type { ProviderProfileDraft } from '../../src/workbench/provider-profile-store.js'
 import type { SessionSummaryDto } from '../../src/workbench/session.js'
+import { extendNativeSlot } from './native-slot.ts'
 
 type Call = <T>(endpoint: string, input?: unknown) => Promise<T>
 interface Catalog { providers: ProviderProfileSummary[]; assemblies: { id: string; title: string }[] }
@@ -198,9 +199,7 @@ function NewSession({ call, openSession, close }: { call: Call; openSession: (id
 }
 
 function RuntimeDock({ call, sessionId }: { call: Call; sessionId: string }) {
-  const [state, setState] = useState('idle')
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
   const [tools, setTools] = useState<Record<string, { command: string; text: string }>>({})
   useEffect(() => {
     const abort = new AbortController()
@@ -208,7 +207,7 @@ function RuntimeDock({ call, sessionId }: { call: Call; sessionId: string }) {
     void (async () => {
       const rpc = (window as any).__DSH_TRANSPORT__.rpc
       for await (const event of rpc.open('$knot', 'knot/live', { args: [{ sessionId }] }, abort.signal)) {
-        if (event.kind === 'state.changed') { setState(event.runState); if (event.runState === 'running') setError('') }
+        if (event.kind === 'state.changed' && event.runState === 'running') setError('')
         if (event.kind === 'run.error') setError(event.message)
         if (event.kind === 'tool.open') setTools(previous => ({ ...previous, [event.callId]: { command: event.command, text: '' } }))
         if (event.kind === 'tool.update') setTools(previous => previous[event.callId] ? {
@@ -221,23 +220,12 @@ function RuntimeDock({ call, sessionId }: { call: Call; sessionId: string }) {
     })().catch(value => { if (!abort.signal.aborted) setError(String(value)) })
     return () => abort.abort()
   }, [call, sessionId])
-  const control = async (action: string) => {
-    setBusy(true); setError('')
-    try { await call('knot/session/' + action, { sessionId }) }
-    catch (value) { setError(String(value)) } finally { setBusy(false) }
-  }
-  if (state !== 'running' && state !== 'paused' && !error && Object.keys(tools).length === 0) return null
+  if (!error && Object.keys(tools).length === 0) return null
   return <div className="knot-runtime">
-    <div className="knot-runtime-bar">
-      {state === 'paused' && <span>暂停已请求 · 当前 handler 完成后停止</span>}
-      {state === 'running' && <button className="knot-config-chip" disabled={busy} onClick={() => void control('pause')}>优雅暂停</button>}
-      {state === 'paused' && <button className="knot-config-chip" disabled={busy} onClick={() => void control('resume')}>恢复运行</button>}
-    </div>
     {Object.entries(tools).map(([id, tool]) => <details key={id} className="knot-runtime-tool">
       <summary>正在执行 · {tool.command}</summary><pre>{tool.text || '等待输出…'}</pre>
     </details>)}
     <ErrorText value={error} />
-    {state === 'running' && <small>运行中仅支持 Steering（默认 Cmd/Ctrl+Enter）；排队发送尚未接线。停止按钮仅请求优雅暂停。刷新或切换会话不保留未落盘的流式前缀，完成后显示完整结果。</small>}
   </div>
 }
 
@@ -250,6 +238,56 @@ export function apply(ctx: any): void {
     if (!result.ok) throw new Error(result.error.message)
     return result.value
   }
+  extendNativeSlot(ctx, 'conversation.composer.bar', () => true, native => {
+    const Original = native.component
+    function Composer(props: any) {
+      const snapshotState = props.useProjection('knotRunState')
+      const [liveState, setLiveState] = useState<string>()
+      const paused = (liveState ?? snapshotState) === 'paused'
+      const [error, setError] = useState('')
+      useEffect(() => { setError('') }, [props.sessionId, paused])
+      useEffect(() => {
+        const abort = new AbortController()
+        setLiveState(undefined)
+        // Pause can change without a new Journal fact. Native sequenced
+        // projections reject equal-seq updates, so use the transient live port.
+        void (async () => {
+          const rpc = (window as any).__DSH_TRANSPORT__.rpc
+          for await (const event of rpc.open('$knot', 'knot/live', { args: [{ sessionId: props.sessionId }] }, abort.signal)) {
+            if (event.kind === 'state.changed') setLiveState(event.runState)
+          }
+        })().catch(value => { if (!abort.signal.aborted) setError(String(value)) })
+        return () => abort.abort()
+      }, [props.sessionId])
+      const useSession = useCallback((selector: any) => props.useSession((state: any) =>
+        selector(paused ? { ...state, running: true, subagent: null } : state)), [props.useSession, paused])
+      const useStopShortcut = useCallback((selector: any) => props.useStopShortcut((keys: any) =>
+        selector(paused ? [] : keys)), [props.useStopShortcut, paused])
+      const zh = document.documentElement.lang.startsWith('zh')
+      const notice = useMemo(() => error ? { level: 'error', text: error } : paused ? {
+        level: 'info', text: zh ? '暂停已请求 · 当前 handler 完成后停止；恢复后继续'
+          : 'Pause requested · stops after the current handler; resume to continue',
+      } : undefined, [error, paused, zh])
+      const useNotices = useCallback((selector: any) => props.useNotices((current: any) =>
+        selector(notice ?? current)), [props.useNotices, notice])
+      // Native Stop stays the only control. While paused, its existing blocked
+      // posture preserves the draft and gives the same button Resume semantics.
+      const stop = paused ? () => {
+        void call('knot/session/resume', { sessionId: props.sessionId }).catch(value => setError(String(value)))
+      } : props.stop
+      return <Original {...props} useSession={useSession} useStopShortcut={useStopShortcut} useNotices={useNotices} stop={stop}
+          blocked={props.blocked ?? (paused ? { reason: 'Pause requested' } : undefined)}
+          t={(key: string, params: any) => key === 'input.stop'
+            ? paused ? (zh ? '恢复运行' : 'Resume') : (zh ? '优雅暂停' : 'Pause gracefully') : props.t(key, params)} />
+    }
+    // Keep the original entry's child-slot ownership and injected hooks. A new
+    // shadow entry cannot redeclare these children. This wraps the public
+    // mutable component seat at assembly time, without copying the InputBar.
+    ctx.effect(() => {
+      native.component = Composer
+      return () => { native.component = Original }
+    })
+  })
   ctx.slots.inject('conversation.input.model', () => ctx.slots.register({
     name: 'conversation.input.model', inject: (sessionId: string) => ({ call, sessionId }),
   }, SessionModel))

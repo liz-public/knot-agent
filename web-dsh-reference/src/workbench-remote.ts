@@ -272,6 +272,7 @@ export function createWorkbenchRemote(
               }
             }
             projected = next
+            if (next.updatedAt > 0) publish('$events', { type: 'emit', event: 'api-session/activity', args: [id, next.updatedAt] })
             publish('knot/live/' + id, { kind: 'projection', values: next.projections.values })
             if (cursor >= 0) for (const [key, value] of Object.entries(next.projections.values)) publish('session/control', {
               type: 'projection', sessionId: id, key, value, seq: cursor,

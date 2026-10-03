@@ -84,3 +84,18 @@ test('shortcut-only turns and structured tool failures remain visible', () => {
   assert.equal(result.records.filter(record => record.event.type === 'assistant/message').length, 1)
   assert.equal(result.records.at(-1)!.event.type, 'turn/end')
 })
+
+test('S1 text shortcuts count completed rounds without inventing LLM steps or usage', () => {
+  const result = projectKnotSnapshot(snapshot([
+    ['user.message', { turnId: 't1', content: 'Hi' }],
+    ['assistant.message', { turnId: 't1', content: 'Hello' }],
+    ['user.message', { turnId: 't2', content: 'Hi again' }],
+    ['assistant.message', { turnId: 't2', content: 'Hello again' }],
+    ['user.message', { turnId: 't3', content: 'Still pending' }],
+  ]))
+  assert.equal((result.projections.values.sessionStats as any).turns, 2)
+  assert.equal((result.projections.values.sessionStats as any).steps, 0)
+  assert.equal(result.projections.values.tokenUsage, undefined)
+  assert.equal(result.records.filter(record => record.event.type === 'turn/end').length, 2)
+  assert.equal(result.projections.values.knotRunState, 'idle')
+})

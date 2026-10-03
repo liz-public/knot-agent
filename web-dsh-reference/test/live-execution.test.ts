@@ -54,12 +54,13 @@ test('B4 carrier sends, steers, settles, pauses/resumes and forwards errors with
   listeners.get('one')!({ kind: 'generation.update', requestId: 'r', update: { kind: 'tool_call', index: 0, id: 'c', name: 'bash', argumentsDelta: '{}' } })
   await tick()
   assert.equal(frames.filter(value => value.type === 'assistant-stream').length, 7)
-  events.push({ position: 2, type: 'llm.generated', data: { requestId: 'r', request: { turnId: 't', purpose: 'agent' }, generated: {
+  events.push({ position: 2, type: 'llm.generated', observedAt: '2026-10-03T10:00:00Z', data: { requestId: 'r', request: { turnId: 't', purpose: 'agent' }, generated: {
     content: 'content', reasoning: 'reasoning', toolCalls: [{ id: 'c', name: 'bash', arguments: {} }],
   }, usage: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 90 } } })
   listeners.get('one')!({ kind: 'journal.changed' })
   await tick()
   const assistant = frames.findIndex(value => value.event?.type === 'assistant/message')
+  assert.equal(statuses.find(value => value.event === 'api-session/activity').args[1], Date.parse('2026-10-03T10:00:00Z'))
   assert.equal(frames[assistant + 1].frame.type, 'end')
   assert.equal(frames[assistant + 1].frame.outcome.seq, frames[assistant].event.seq)
   listeners.get('one')!({ kind: 'journal.changed' }); await tick()
@@ -80,6 +81,30 @@ test('B4 carrier sends, steers, settles, pauses/resumes and forwards errors with
   assert.equal(statuses.find(value => value.event === 'api-session/error').args[1], 'Controlled failure')
   abort.abort(); await Promise.all(pumps)
   assert.equal(listeners.size, 0)
+})
+
+test('S1 paused posture survives reconnect and transient changes do not fabricate Journal sequence numbers', async () => {
+  let emit: (event: any) => void = () => {}
+  let session = { id: 's', title: 's', writable: true, runState: 'paused', eventCount: 1 }
+  const events = [{ position: 0, type: 'user.message', data: { turnId: 't', content: 'Start' }, observedAt: '2026-10-03T01:00:00Z' }]
+  const remote = createWorkbenchRemote((async (url: string) => Response.json(url.endsWith('/sessions') ? { sessions: [session] } : { session, events })) as typeof fetch,
+    (_id, listener) => { emit = listener; return () => {} })
+  const abort = new AbortController(), frames: any[] = [], controls: any[] = [], activity: any[] = [], live: any[] = []
+  const pump = async (endpoint: string, args: unknown, target: any[]) => {
+    for await (const value of remote.open('$test', endpoint, { args: [args] }, abort.signal)) target.push(value)
+  }
+  const pumps = [pump('session/follow', { address: { kind: 'session', sessionId: 's' } }, frames),
+    pump('session/control', {}, controls), pump('$events', {}, activity), pump('knot/live', { sessionId: 's' }, live)]
+  const tick = () => new Promise(resolve => setImmediate(resolve))
+  await tick()
+  assert.equal(frames[0].projections.values.knotRunState, 'paused')
+  session = { ...session, runState: 'running' }
+  emit({ kind: 'state.changed', runState: 'running' }); await tick()
+  assert.equal(live.at(-1).runState, 'running')
+  assert.equal(controls.some(value => value.type === 'projection' && value.key === 'knotRunState'), false)
+  emit({ kind: 'journal.changed' }); await tick()
+  assert.equal(activity.find(value => value.event === 'api-session/activity').args[1], Date.parse(events[0].observedAt))
+  abort.abort(); await Promise.all(pumps)
 })
 
 test('B4 reconnect repairs history but does not invent an unseen generation prefix', async () => {

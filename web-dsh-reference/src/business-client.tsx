@@ -1,6 +1,8 @@
 /** Knot-only presentation contributions; native DSH Chat/Trajectory stay intact. */
 import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { GoalBar } from '@deepseek-ai/dsh-client-ui-goal/client'
+import { extendNativeSlot } from './native-slot.ts'
 import type { SessionSnapshotDto, SessionSummaryDto } from '../../src/workbench/session.js'
 import type { StudioAssemblyDto } from '../../src/workbench/studio.js'
 import type { ContextProjectionDto } from '../../src/workbench/context-projection.js'
@@ -9,15 +11,16 @@ type Call = (endpoint: string, input: Record<string, unknown>, signal?: AbortSig
 type Inspection = SessionSnapshotDto & { assembly?: StudioAssemblyDto; children: SessionSummaryDto[] }
 const percent = (value: number) => (value * 100).toFixed(2) + '%'
 
-function TaskState({ useProjection }: any) {
-  const todos = useProjection('knotTodo')
-  const goal = useProjection('knotGoal')
-  if (!Array.isArray(todos) && !goal) return null
-  return <div className="knot-task-state">
-    {goal && <details><summary>◎ Goal · {goal.status} · {goal.objective}</summary>
-      <ul>{goal.successCriteria?.map((value: string, i: number) => <li key={i}>{value}</li>)}</ul></details>}
-    {Array.isArray(todos) && <details><summary>☑ Todo · {todos.filter(item => item.status === 'completed').length}/{todos.length}</summary>
-      <ul>{todos.map((item: any) => <li key={item.id}><span>{item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '◉' : '○'}</span> {item.content}</li>)}</ul></details>}
+const readonlyGoalAction = async () => ({ ok: false as const, error: { code: 'knot/read-only', message: 'Goal is read-only', details: {} } })
+function ReadonlyGoal({ useProjection }: any) {
+  const goal = useProjection('goal')?.goal
+  if (!goal || goal.phase === 'complete') return null
+  // The published GoalBar has no readOnly prop. Hide its mutation controls and
+  // make the native subtree inert; do not activate ui-goal or fabricate goals RPC.
+  return <div className="knot-goal-readonly" {...{ inert: '' }} title={goal.successCriteria?.join('\n')}>
+    <GoalBar goal={goal} onEdit={readonlyGoalAction} onPause={readonlyGoalAction}
+      onResume={readonlyGoalAction} onClear={readonlyGoalAction}
+      t={() => document.documentElement.lang.startsWith('zh') ? '进行中的目标（只读）' : 'Ongoing goal (read-only)'} />
   </div>
 }
 
@@ -117,26 +120,20 @@ export function apply(ctx: any) {
     return result.value
   }
   // Client plugins activate when their services arrive, not merely in bundle order.
-  const extend = (slot: string, matches: (entry: any) => boolean, install: (entry: any) => void) => {
-    let installed = false
-    const check = () => {
-      if (installed) return
-      const native = ctx.slots.entries(slot).find(matches)
-      if (native) { installed = true; install(native) }
-    }
-    ctx.on('slots/changed', (key: string) => { if (key === slot) check() })
-    check()
-  }
   // Public SlotRegistry entries + shadowing: keep the original component and its hooks/styles.
-  extend('conversation.composer.dock', entry => entry.options.id === 'stats', native => {
+  extendNativeSlot(ctx, 'conversation.composer.dock', entry => entry.options.id === 'stats', native => {
     const Original = native.component
     function Stats(props: any) {
       const events = props.useProjection('knotEventCount')
       const usage = props.useProjection('knotUsage')
       const nativeUsage = props.useProjection('tokenUsage')
+      const stats = props.useProjection('sessionStats')
       return <div className="knot-stats-inline">
         <Original {...props} t={(key: string, params: any) => key === 'stats.counts' && typeof events === 'number'
           ? props.t(key, params) + (document.documentElement.lang.startsWith('zh') ? ` ${events} 事件` : ` ${events} events`) : props.t(key, params)} />
+        {stats?.turns > 0 && stats.steps === 0 && !nativeUsage && <span>
+          {props.t('stats.counts', { turns: stats.turns, steps: 0 })}{typeof events === 'number' ? ` · ${events} ${document.documentElement.lang.startsWith('zh') ? '事件' : 'events'}` : ''}
+        </span>}
         {usage?.knownCalls > 0 && !nativeUsage && <details><summary>{usage.totalTokens.toLocaleString()} tok{usage.knownCalls < usage.calls ? '（部分）' : ''}</summary>
           <p>输入 {usage.inputTokens.toLocaleString()} · 输出 {usage.outputTokens.toLocaleString()} · Usage {usage.knownCalls}/{usage.calls} 次</p>
           <p>历史缓存计数 {usage.cacheKnownCalls}/{usage.calls} 次；{usage.knownCacheHitRate === undefined ? '缓存未知' : '已知调用加权缓存率 ' + percent(usage.knownCacheHitRate)}</p></details>}
@@ -147,7 +144,7 @@ export function apply(ctx: any) {
     ctx.slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0, priority: -10,
       locale: native.locale, inject: native.inject }, Stats)
   })
-  ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({ name: 'conversation.composer.dock', id: 'knot-tasks', order: 20 }, TaskState))
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({ name: 'conversation.input.dock', id: 'goal', order: 10 }, ReadonlyGoal))
   ctx.slots.inject('conversation.view', () => ctx.slots.register({ name: 'conversation.view', id: 'knot-inspection', order: 20,
     label: () => 'Knot Inspector', inject: (sessionId: string) => ({ call, sessionId,
       openChild: async (id: string) => { await ctx.sessions.refresh(); ctx.uiWorkspace.openSession(id) },
@@ -155,7 +152,7 @@ export function apply(ctx: any) {
   }, InspectionView))
   // Same native per-tool views with a display alias only. Facts/Context keep Knot names.
   for (const [name, nativeName] of [['todo.write', 'todo_write'], ['goal.write', 'update_goal'], ['spawn_agent', 'subagent'], ['ask', 'ask_user_question']]) {
-    extend('tool.call.toolview', entry => entry.options.key === nativeName, native => {
+    extendNativeSlot(ctx, 'tool.call.toolview', entry => entry.options.key === nativeName, native => {
       const Original = native.component
       ctx.slots.register({ name: 'tool.call.toolview', key: name, locale: native.locale, inject: native.inject },
         (props: any) => <Original {...props} toolName={nativeName} />)

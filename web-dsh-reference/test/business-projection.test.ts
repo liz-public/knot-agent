@@ -13,8 +13,12 @@ test('B5 projects successful Todo/Goal state and does not infer state from a den
     { type: 'tool.result', data: { results: [{ content: '{"ok":false,"error":"permission_denied"}' }] } },
   ]
   const result = projectBusinessState({ events } as any)
-  assert.deepEqual(result.knotTodo, todos); assert.deepEqual(result.knotGoal, goal)
-  assert.equal(projectBusinessState({ events: [] } as any).knotGoal, null)
+  assert.deepEqual(result.todos, todos)
+  assert.deepEqual(result.goal, { goal: { objective: 'Ship', successCriteria: ['Tests pass'], phase: 'complete' } })
+  assert.equal(projectBusinessState({ events: [] } as any).goal, null)
+  assert.equal('knotTodo' in result, false); assert.equal('knotGoal' in result, false)
+  events.push({ type: 'tool.result', data: { results: [{ state: { key: 'goal', value: { ...goal, status: 'active' } } }] } })
+  assert.equal(projectBusinessState({ events } as any).goal?.goal.phase, 'active')
 })
 
 test('B5 keeps total usage with partial cache, counts compression, and labels end-to-end rate separately', () => {
@@ -49,12 +53,13 @@ test('B5 inspection uses Host metadata and lazy Context endpoints without execut
   assert.equal(paths.at(-1), '/api/workbench/sessions/s/context?requestId=r')
 })
 
-test('B5 native contributions install even when the original Client activates later', () => {
+test('B5 native contributions install even when the original Client activates later', async () => {
   const output = buildSync({ entryPoints: [new URL('../src/business-client.tsx', import.meta.url).pathname], bundle: true,
-    write: false, format: 'cjs', jsx: 'automatic', external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] }).outputFiles[0].text
+    write: false, format: 'cjs', jsx: 'automatic', external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives', '@deepseek-ai/dsh-client-ui-goal/client'] }).outputFiles[0].text
   const module = { exports: {} as any }
   new Function('require', 'module', 'exports', output)((name: string) =>
-    name === 'react/jsx-runtime' ? { jsx: (type: any, props: any) => ({ type, props }), jsxs: (type: any, props: any) => ({ type, props }) } : {}, module, module.exports)
+    name === 'react/jsx-runtime' ? { jsx: (type: any, props: any) => ({ type, props }), jsxs: (type: any, props: any) => ({ type, props }) }
+      : name === '@deepseek-ai/dsh-client-ui-goal/client' ? { GoalBar: 'NativeGoalBar' } : {}, module, module.exports)
   const entries: any[] = [], listeners: Array<(slot: string) => void> = []
   const ctx = { sessions: {}, uiWorkspace: {}, on: (_: string, handler: any) => listeners.push(handler),
     slots: { entries: (slot: string) => entries.filter(entry => entry.options.name === slot), inject: (_: string, setup: any) => setup(),
@@ -75,6 +80,13 @@ test('B5 native contributions install even when the original Client activates la
   const todo = entries.find(entry => entry.options.key === 'todo.write')
   assert.equal(todo.component({ toolName: 'todo.write' }).type, Todo)
   assert.equal(todo.component({ toolName: 'todo.write' }).props.toolName, 'todo_write')
+  assert.equal(entries.some(entry => entry.options.id === 'knot-tasks'), false)
+  const goalDock = entries.find(entry => entry.options.name === 'conversation.input.dock' && entry.options.id === 'goal')
+  const readonly = goalDock.component({ useProjection: () => ({ goal: { objective: 'Ship', phase: 'active' } }) })
+  assert.equal(readonly.props.inert, '')
+  assert.equal(readonly.props.children.type, 'NativeGoalBar')
+  assert.equal((await readonly.props.children.props.onEdit('Not permitted')).ok, false)
+  assert.equal(goalDock.component({ useProjection: () => ({ goal: { phase: 'complete' } }) }), null)
   listeners.forEach(handler => handler('tool.call.toolview'))
   assert.equal(entries.filter(entry => entry.options.key === 'todo.write').length, 1)
 })

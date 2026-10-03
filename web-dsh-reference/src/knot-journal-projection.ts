@@ -41,7 +41,7 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
   const stepCounts = new Map<number, number>()
   const steps = new Map<string, Step>()
   const calls = new Map<string, { step: Step; start: ReadEvent }>()
-  const closedTurns = new Set<number>()
+  const completedTurns = new Set<number>()
   const generatedTurns = new Set<string>()
   let nextTurn = 0
   let active: number | undefined
@@ -73,7 +73,6 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
     if (step.closed) return
     step.closed = true
     stats.steps++
-    closedTurns.add(step.turn)
     emit(event, 'step/end', { turn: step.turn, step: step.step })
   }
 
@@ -165,17 +164,19 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
           }, 'append')
         }
         emit(event, 'turn/end', { turn, reason: { kind: 'completed' } })
+        completedTurns.add(turn)
         if (active === turn) active = undefined
         break
       }
     }
   }
-  stats.turns = closedTurns.size
+  stats.turns = completedTurns.size
   const business = projectBusinessState(snapshot)
   const values: Record<string, unknown> = {
     title: session.title,
     sessionStats: stats,
     knotEventCount: events.length,
+    knotRunState: session.runState,
     ...business,
     modelSelection: {
       lastUsed: latestUsed === undefined ? null : selection(latestUsed),
