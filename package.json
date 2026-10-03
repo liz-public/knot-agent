@@ -17,7 +17,9 @@
     "verify:adb-p1": "npm run build --silent && node scripts/verify-adb-p1.mjs",
     "smoke:case1-adb": "npm run build --silent && node scripts/smoke-case1-adb.mjs",
     "web:dev": "npm --prefix web run dev",
-    "web:build": "npm --prefix web run build"
+    "web:build": "npm --prefix web run build",
+    "dsh-reference:dev": "npm --prefix web-dsh-reference run dev",
+    "dsh-reference:build": "npm --prefix web-dsh-reference run build"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
