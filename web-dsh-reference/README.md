@@ -14,7 +14,7 @@ Open <http://127.0.0.1:4175/>. The fixture includes multiple Sessions, a long
 conversation, tool presentations, an Ask card, images, usage records, and the
 original DSH trajectory view.
 
-## B1–B4: real Knot history, configuration, interaction and execution
+## B1–B5: real Knot history, configuration, interaction and execution
 
 Start the existing Knot Workbench Host on port 4317, then run:
 
@@ -113,8 +113,8 @@ VITE_KNOT_DSH_MODE=workbench KNOT_WORKBENCH_URL=http://127.0.0.1:4320 npm run de
   HTTP snapshot refreshes append only unseen display records. Local prompt receipt
   identities retire native optimistic echoes, without altering persisted user messages.
 - The native Stop button maps to **graceful pause**, not abort. A Knot composer dock
-  labels that meaning and provides Pause/Resume. It also shows current event count,
-  total request tokens and input-cache hit ratio; these agree with native usage totals.
+  labels that meaning and provides Pause/Resume while running/paused; it has no separate
+  idle/event-count badge. B5 extends the native statistics below.
 - Bash stdout/stderr are expandable in a temporary live-output dock while the
   command runs. After close, the native tool row owns the persisted result. Its
   final result remains Knot JSON, not a fabricated DSH terminal payload.
@@ -132,6 +132,41 @@ with content + reasoning + tool call, graceful pause and resume. The final snaps
 has 2 turns, 5 model calls, 34 Journal facts and 8,727 request tokens (73.4% input-cache
 hit). Refresh reconstructs the same persisted conversation. No repository files
 were modified by that Session. These are smoke measurements, not performance claims.
+
+### B5 business facts and inspection
+
+- The original DSH statistics component still renders turns/steps. A public Client
+  slot wrapper appends the Journal event count to its counts label, e.g.
+  **2 turns 5 steps 34 events**, without copying the component or mutating its DOM.
+- Total request tokens include all recorded model usage (including compaction).
+  Older calls with unknown cache counts do not hide known token totals. Partial
+  totals/cache coverage are explicitly labelled; unknown is not zero. The latest
+  input-cache ratio and **end-to-end** output rate remain distinct from native decode TPS.
+- Todo/Goal are derived only from `tool.result.state`, never guessed from a call
+  or a denied operation. Expand their composer summaries to see the current state.
+  Native per-tool views receive presentation-only aliases for `todo.write`,
+  `goal.write`, `spawn_agent` and `ask`; Journal/Context names remain unchanged.
+  Native per-tool history/diff semantics are not fully equivalent to Knot's.
+- **Knot Inspector** is a conversation tab alongside the unchanged native Chat
+  and Trajectory. Context selects an actual `llm.invoke` and reads the existing
+  Host `/context` projection. Journal filters raw events, initially shows the
+  latest 100 and lazily expands their payloads. Plugin/protocol/tool metadata
+  comes from `/studio`; it describes **current code**, not a historical code snapshot.
+  Child Sessions come from the real parent relation and open in the native workspace.
+- Inspector data is read-only. New carrier methods only call existing Host
+  endpoints; no backend, Journal kernel, business plugin or dependency was added.
+
+Verified against the real 1,134-event coding Session: 204 agent calls, 5 displayed
+turns (Steering shares its active turn), 25,731,858 cumulative request tokens,
+99.89% latest input-cache hit and Todo 7/7. Its 49-event child opens with the parent
+breadcrumb. This Session has no Goal fact: Goal projection has controlled tests,
+but a real online Goal interaction still needs user acceptance.
+
+Remaining differences are intentional review items, not claims of DSH parity:
+sidebar activity updates, live-output layout flashes, refresh/stream scheduling,
+custom configuration interactions, Ask close/skip, cross-client synchronization,
+native specialized tool-result semantics and partial custom i18n. Historical
+TTFT/decode timing, old cache counts and lost transient prefixes cannot be fabricated.
 
 ```text
 DSH published Client → workbench-remote → existing Knot HTTP API
@@ -165,6 +200,7 @@ No DSH UI source is copied into this directory. `src/fixture-remote.ts` is an
 adaptation of DSH's MIT-licensed assembled-client test carrier.
 
 This is a reference integration, not yet the default Knot product frontend.
-Goal/Todo dedicated projections, further child controls and custom Knot trajectory
-remain later wiring batches. Native unsupported affordances (for example fork,
+The planned B1–B5 integration is connected, not every DSH product capability.
+Further child control and native specialized tool presentation require separate review.
+Native unsupported affordances (for example fork,
 rename and feedback) still refuse writes; this is not yet a full DSH feature clone.

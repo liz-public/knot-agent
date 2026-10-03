@@ -1,6 +1,7 @@
 /** Disposable DSH history read model. Does not execute or mutate a Journal. */
 import type { SessionSnapshotDto } from '../../src/workbench/session.js'
 import type { ReadEvent } from '../../src/workbench/read-journal.js'
+import { projectBusinessState } from './business-projection.ts'
 
 export interface DshEventRecord {
   readonly type: 'event'
@@ -48,10 +49,6 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
   let latestUsed: Record<string, any> | undefined
   let latestUsage: Record<string, any> | undefined
   const stats = { turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0 }
-  const tokens = { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
-  let usageKnown = true
-  let cacheKnown = true
-  let usageCount = 0
 
   const emit = (source: ReadEvent, type: string, data: unknown, surfaceOp?: string) => {
     records.push({ type: 'event', event: { seq: records.length, time: time(source), type, data, ...(surfaceOp ? { surfaceOp } : {}) } })
@@ -116,14 +113,6 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
         }
         const usage = object(data.usage)
         latestUsage = usage
-        usageCount++
-        usageKnown &&= typeof usage.inputTokens === 'number' && typeof usage.outputTokens === 'number'
-        cacheKnown &&= typeof usage.cachedInputTokens === 'number'
-        if (typeof usage.inputTokens === 'number') {
-          tokens.cacheReadTokens += usage.cachedInputTokens ?? 0
-          tokens.uncachedInputTokens += usage.inputTokens - (usage.cachedInputTokens ?? 0)
-        }
-        tokens.outputTokens += usage.outputTokens ?? 0
         stats.llmMs += duration(step.start, event)
         emit(event, 'assistant/message', {
           turn: step.turn, step: step.step,
@@ -182,10 +171,12 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
     }
   }
   stats.turns = closedTurns.size
+  const business = projectBusinessState(snapshot)
   const values: Record<string, unknown> = {
     title: session.title,
     sessionStats: stats,
     knotEventCount: events.length,
+    ...business,
     modelSelection: {
       lastUsed: latestUsed === undefined ? null : selection(latestUsed),
       next: session.providerProfileId && session.model ? { provider: session.providerProfileId, model: session.model,
@@ -194,7 +185,11 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
   }
   // DSH's accounting component assumes all cache buckets are known; omit the
   // aggregate rather than show a fictitious 0% cache hit for older logs.
-  if (usageCount > 0 && usageKnown && cacheKnown) values.tokenUsage = tokens
+  const usage = business.knotUsage
+  if (usage.calls > 0 && usage.knownCalls === usage.calls && usage.cacheKnownCalls === usage.calls) values.tokenUsage = {
+    uncachedInputTokens: usage.inputTokens - usage.cachedInputTokens, outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cachedInputTokens, cacheWriteTokens: 0,
+  }
   if (typeof latestUsage?.inputTokens === 'number' && typeof latestUsage.contextWindow === 'number') {
     values.contextPressure = { pressureTokens: latestUsage.inputTokens, contextWindow: latestUsage.contextWindow }
   }

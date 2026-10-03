@@ -109,6 +109,9 @@ function dshClientFixture(): Plugin {
   if (readOnly) plugins.push({ id: '@knot-agent/client-configuration', url: '/dsh-plugins/configuration.js', rev: REVISION,
     bundlePath: '', inject: ['@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-primitives'],
     external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] })
+  if (readOnly) plugins.push({ id: '@knot-agent/client-business', url: '/dsh-plugins/business.js', rev: REVISION,
+    bundlePath: '', inject: ['@deepseek-ai/dsh-client-ui-chat', '@deepseek-ai/dsh-client-ui-tool', '@deepseek-ai/dsh-client-ui-workspace'],
+    external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] })
   const bootstrapEntries = plugins.filter(entry => entry.id === BOOTSTRAP_ID)
   const applicationEntries = plugins.filter(entry => entry.id !== BOOTSTRAP_ID)
   const graph = {
@@ -134,22 +137,24 @@ function dshClientFixture(): Plugin {
 
   const sources = new Map<string, string | Buffer>()
   sources.set('/DSH-LICENSE.txt', readFileSync(join(import.meta.dirname, 'DSH-LICENSE.txt'), 'utf8'))
-  const configurationSource = () => {
-    const compiled = buildSync({ entryPoints: [join(import.meta.dirname, 'src/configuration-client.tsx')],
+  const clientSource = (name: string, id: string) => {
+    const compiled = buildSync({ entryPoints: [join(import.meta.dirname, `src/${name}-client.tsx`)],
       bundle: true, write: false, format: 'cjs', jsx: 'automatic',
       external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'],
     }).outputFiles[0]!.text
-    return `window.__ModuleLoader__.load({id:'@knot-agent/client-configuration',factory:(require)=>{var module={exports:{}};var exports=module.exports;${compiled}\nreturn module.exports;}})`
+    return `window.__ModuleLoader__.load({id:${JSON.stringify(id)},factory:(require)=>{var module={exports:{}};var exports=module.exports;${compiled}\nreturn module.exports;}})`
   }
   for (const entry of plugins) {
     let source: string
-    if (entry.id === '@knot-agent/client-configuration') source = configurationSource()
+    if (entry.id === '@knot-agent/client-configuration') source = clientSource('configuration', entry.id)
+    else if (entry.id === '@knot-agent/client-business') source = clientSource('business', entry.id)
     else source = entry.bundlePath === ''
       ? `window.__ModuleLoader__.load({id:'@knot-agent/client-readonly',factory:${readonlyClientFactory.toString()}})`
       : readFileSync(entry.bundlePath, 'utf8')
     sources.set(entry.url, source)
   }
   if (readOnly) sources.set('/knot-configuration.css', readFileSync(join(import.meta.dirname, 'src/configuration-client.css')))
+  if (readOnly) sources.set('/knot-business.css', readFileSync(join(import.meta.dirname, 'src/business-client.css')))
   sources.set('/dsh-plugins/bootstrap.js', bootstrapEntries
     .map(entry => String(sources.get(entry.url) ?? ''))
     .join('\n;\n'))
@@ -170,12 +175,14 @@ function dshClientFixture(): Plugin {
   return {
     name: 'knot-dsh-client-fixture',
     buildStart() {
-      if (readOnly) for (const name of ['configuration-client.tsx', 'configuration-client.css']) this.addWatchFile(join(import.meta.dirname, 'src', name))
+      if (readOnly) for (const name of ['configuration', 'business']) for (const ext of ['tsx', 'css']) this.addWatchFile(join(import.meta.dirname, 'src', `${name}-client.${ext}`))
     },
     handleHotUpdate(context) {
-      if (readOnly && /\/configuration-client\.(tsx|css)$/.test(context.file)) {
-        sources.set('/dsh-plugins/configuration.js', configurationSource())
-        sources.set('/knot-configuration.css', readFileSync(join(import.meta.dirname, 'src/configuration-client.css')))
+      if (readOnly && /\/(configuration|business)-client\.(tsx|css)$/.test(context.file)) {
+        for (const name of ['configuration', 'business']) {
+          sources.set(`/dsh-plugins/${name}.js`, clientSource(name, `@knot-agent/client-${name}`))
+          sources.set(`/knot-${name}.css`, readFileSync(join(import.meta.dirname, `src/${name}-client.css`)))
+        }
         sources.set('/dsh-plugins/application.js', applicationEntries.map(entry => String(sources.get(entry.url) ?? '')).join('\n;\n'))
         context.server.ws.send({ type: 'full-reload' })
         return []
@@ -200,7 +207,7 @@ function dshClientFixture(): Plugin {
         moduleLoaderFacade: facade.text,
         bootstrapUrl: '/dsh-plugins/bootstrap.js',
         shellScriptUrl: `/dsh-shell/${shellScript}`,
-        shellStyleUrls: [...shellStyles.map(path => `/dsh-shell/${path}`), ...(readOnly ? ['/knot-configuration.css'] : [])],
+        shellStyleUrls: [...shellStyles.map(path => `/dsh-shell/${path}`), ...(readOnly ? ['/knot-configuration.css', '/knot-business.css'] : [])],
       })}`
     },
     configureServer(server) {

@@ -161,6 +161,14 @@ export function createWorkbenchRemote(
           }
           case 'knot/providers': return ok(await get('providers', signal))
           case 'knot/session': return ok((await snapshot(input.sessionId, signal)).session)
+          case 'knot/inspection': {
+            const [source, studio, sessions] = await Promise.all([
+              snapshot(input.sessionId, signal), get<StudioSnapshotDto>('studio', signal), list(signal),
+            ])
+            return ok({ ...source, assembly: studio.projects.find(item => item.assembly.id === source.session.assembly)?.assembly,
+              children: sessions.filter(item => item.parentSessionId === source.session.id) })
+          }
+          case 'knot/context': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/context${input.requestId ? '?requestId=' + encodeURIComponent(input.requestId) : ''}`, signal))
           case 'knot/session/create': return ok(await created(input, signal))
           case 'knot/session/configure': {
             const current = (await snapshot(input.sessionId, signal)).session

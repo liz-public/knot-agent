@@ -201,16 +201,14 @@ function RuntimeDock({ call, sessionId }: { call: Call; sessionId: string }) {
   const [state, setState] = useState('idle')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [values, setValues] = useState<any>({})
   const [tools, setTools] = useState<Record<string, { command: string; text: string }>>({})
   useEffect(() => {
     const abort = new AbortController()
-    setTools({}); setError(''); setValues({})
+    setTools({}); setError('')
     void (async () => {
       const rpc = (window as any).__DSH_TRANSPORT__.rpc
       for await (const event of rpc.open('$knot', 'knot/live', { args: [{ sessionId }] }, abort.signal)) {
         if (event.kind === 'state.changed') { setState(event.runState); if (event.runState === 'running') setError('') }
-        if (event.kind === 'projection') setValues(event.values)
         if (event.kind === 'run.error') setError(event.message)
         if (event.kind === 'tool.open') setTools(previous => ({ ...previous, [event.callId]: { command: event.command, text: '' } }))
         if (event.kind === 'tool.update') setTools(previous => previous[event.callId] ? {
@@ -228,16 +226,12 @@ function RuntimeDock({ call, sessionId }: { call: Call; sessionId: string }) {
     try { await call('knot/session/' + action, { sessionId }) }
     catch (value) { setError(String(value)) } finally { setBusy(false) }
   }
-  const usage = values.tokenUsage
-  const input = usage ? usage.uncachedInputTokens + usage.cacheReadTokens : 0
+  if (state !== 'running' && state !== 'paused' && !error && Object.keys(tools).length === 0) return null
   return <div className="knot-runtime">
     <div className="knot-runtime-bar">
-      <span>{state === 'paused' ? '暂停已请求 · 当前 handler 完成后停止' : state}</span>
+      {state === 'paused' && <span>暂停已请求 · 当前 handler 完成后停止</span>}
       {state === 'running' && <button className="knot-config-chip" disabled={busy} onClick={() => void control('pause')}>优雅暂停</button>}
       {state === 'paused' && <button className="knot-config-chip" disabled={busy} onClick={() => void control('resume')}>恢复运行</button>}
-      <span>{values.knotEventCount ?? '—'} events</span>
-      {usage && <span>{(input + usage.outputTokens).toLocaleString()} total tokens</span>}
-      {input > 0 && <span>{(100 * usage.cacheReadTokens / input).toFixed(1)}% cache hit</span>}
     </div>
     {Object.entries(tools).map(([id, tool]) => <details key={id} className="knot-runtime-tool">
       <summary>正在执行 · {tool.command}</summary><pre>{tool.text || '等待输出…'}</pre>
