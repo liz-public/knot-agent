@@ -9,7 +9,8 @@ export function readonlyClientFactory() {
     apply(ctx: Context) {
       const update = () => {
         for (const id of ctx.sessions.list.getSnapshot().ids) {
-          ctx.conversation.blocks.set(id, { reason: 'B3 · 配置与交互已接线，发送与实时输出等待 B4 / Sending is not connected yet' })
+          const available = ctx.sessions.list.getSnapshot().byId[id]?.agentAvailable
+          ctx.conversation.blocks.set(id, available === false ? { reason: '此 Session 只读 / Read-only Session' } : undefined)
         }
       }
       ctx.effect(() => ctx.sessions.list.subscribe(update))

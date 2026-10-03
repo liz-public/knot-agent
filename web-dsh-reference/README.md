@@ -14,7 +14,7 @@ Open <http://127.0.0.1:4175/>. The fixture includes multiple Sessions, a long
 conversation, tool presentations, an Ask card, images, usage records, and the
 original DSH trajectory view.
 
-## B1–B3: real Knot history, configuration and interaction ports
+## B1–B4: real Knot history, configuration, interaction and execution
 
 Start the existing Knot Workbench Host on port 4317, then run:
 
@@ -25,7 +25,7 @@ VITE_KNOT_DSH_MODE=workbench npm run dev -- --port 4178 --strictPort
 Open <http://127.0.0.1:4178/> and choose an existing Session in the sidebar.
 `KNOT_WORKBENCH_URL` can override the development proxy target.
 Chat, official Trajectory, child navigation and basic statistics share the same
-snapshot projection. Send remains blocked. Unconnected actions explicitly refuse requests.
+snapshot projection. Text sending and live execution are connected. Unconnected actions explicitly refuse requests.
 
 The first visit without a saved selection can cause the official Client to create
 a blank Session with Host defaults. Missing historical usage/timing is not filled with defaults.
@@ -47,7 +47,7 @@ owns these configuration surfaces because Knot's Provider profiles and immutable
 are not DSH's settings schemas, credential store, agent preset switching or permission presets.
 Pending selections are read from the Host summary, not fabricated as sequenced history projections.
 Only acknowledged local creation mutations notify the Client catalog in B2; cross-client
-updates and online execution streams are not connected yet.
+catalog updates outside the followed Session are not connected yet.
 
 ### Accepted presentation differences (B2)
 
@@ -100,7 +100,38 @@ node test/interaction-host.mjs
 VITE_KNOT_DSH_MODE=workbench KNOT_WORKBENCH_URL=http://127.0.0.1:4320 npm run dev -- --port 4179 --strictPort
 ```
 
-Sending, tool execution and their live output are still B4; B3 does not enable them.
+### B4 online execution
+
+- The native composer submits text through the existing Host `/messages` route.
+  Pending model/approval configuration is committed by the Host's existing submit boundary.
+  While running, Cmd/Ctrl+Enter uses Steering with the default DSH input preference.
+  Queue requests are refused rather than silently converted to Steering; attachments remain unconnected.
+- One followed Session's existing SSE supplies Journal invalidations, reasoning,
+  content and tool-argument deltas. These become disposable DSH display events and
+  dense assistant-stream frames, never new Knot Journal facts.
+- The exact persisted assistant message settles its stream before the Step closes.
+  HTTP snapshot refreshes append only unseen display records. Local prompt receipt
+  identities retire native optimistic echoes, without altering persisted user messages.
+- The native Stop button maps to **graceful pause**, not abort. A Knot composer dock
+  labels that meaning and provides Pause/Resume. It also shows current event count,
+  total request tokens and input-cache hit ratio; these agree with native usage totals.
+- Bash stdout/stderr are expandable in a temporary live-output dock while the
+  command runs. After close, the native tool row owns the persisted result. Its
+  final result remains Knot JSON, not a fabricated DSH terminal payload.
+- Runtime errors reach the native Session error surface and the dock. Switching
+  Sessions closes the old SSE and discards transient presentation. Reopening/refreshing
+  reads the complete Journal; missing live prefixes are not invented. An in-progress
+  generation opened before this browser followed it appears in full after commitment.
+- SSE reconnect refreshes durable history. It cannot reconstruct lost deltas from
+  the Host (which retains no stream prefix); final commitment repairs the display.
+  Reload/switch also drops the temporary live Bash console, not the underlying command.
+
+Verified with a real DeepSeek CASE2 Session in an isolated temporary workspace:
+read → approved Bash → Ask free-text reply → final, followed by a second Bash
+with content + reasoning + tool call, graceful pause and resume. The final snapshot
+has 2 turns, 5 model calls, 34 Journal facts and 8,727 request tokens (73.4% input-cache
+hit). Refresh reconstructs the same persisted conversation. No repository files
+were modified by that Session. These are smoke measurements, not performance claims.
 
 ```text
 DSH published Client → workbench-remote → existing Knot HTTP API
@@ -134,5 +165,6 @@ No DSH UI source is copied into this directory. `src/fixture-remote.ts` is an
 adaptation of DSH's MIT-licensed assembled-client test carrier.
 
 This is a reference integration, not yet the default Knot product frontend.
-Online execution/output are later wiring batches. Total-token/cache-rate/event-count
-display reconciliation remains part of the later statistics batch.
+Goal/Todo dedicated projections, further child controls and custom Knot trajectory
+remain later wiring batches. Native unsupported affordances (for example fork,
+rename and feedback) still refuse writes; this is not yet a full DSH feature clone.

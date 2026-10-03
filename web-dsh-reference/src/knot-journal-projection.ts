@@ -13,6 +13,7 @@ export interface ProjectedKnotSession {
   readonly updatedAt: number
   readonly createdAt: number
   readonly records: readonly DshEventRecord[]
+  readonly attempts: Readonly<Record<string, { turn: number; step: number }>>
   readonly projections: { readonly asOfSeq: number; readonly values: Record<string, unknown> }
 }
 interface Step {
@@ -202,7 +203,8 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
     sessionId: session.id, cwd: session.workspace, title: session.title,
     createdAt: timestamps[0] ?? 0,
     updatedAt: Date.parse(session.updatedAt ?? '') || timestamps.at(-1) || 0,
-    records, projections: { asOfSeq: records.length - 1, values },
+    records, attempts: Object.fromEntries([...steps].map(([id, value]) => [id, { turn: value.turn, step: value.step }])),
+    projections: { asOfSeq: records.length - 1, values },
   }
 }
 function selection(value: Record<string, any>) {

@@ -5,11 +5,13 @@ import type { ProviderProfileSummary } from '../../src/workbench/provider-profil
 import type { StudioSnapshotDto } from '../../src/workbench/studio.js'
 import { projectKnotSnapshot } from './knot-journal-projection.ts'
 import { interactionAnswer, interactionFrame } from './interaction-projection.ts'
+import { GenerationProjection } from './generation-projection.ts'
 
-type SubscribeSession = (id: string, listener: (event: LiveSessionEvent) => void) => () => void
-const subscribeSession: SubscribeSession = (id, listener) => {
+type SubscribeSession = (id: string, listener: (event: LiveSessionEvent) => void, reconnect?: () => void) => () => void
+const subscribeSession: SubscribeSession = (id, listener, reconnect) => {
   const source = new EventSource(`/api/workbench/sessions/${encodeURIComponent(id)}/stream`)
   source.addEventListener('session', event => listener(JSON.parse((event as MessageEvent).data)))
+  source.addEventListener('open', () => reconnect?.())
   return () => source.close()
 }
 
@@ -30,6 +32,8 @@ export function createWorkbenchRemote(
   subscribe: SubscribeSession = subscribeSession,
 ): ClientConnectionRpc {
   const pending = new Map<string, { sessionId: string; interaction: InteractionRequestDto }>()
+  // Browser receipt identities only: never persisted into the Knot Journal.
+  const prompts = new Map<string, { id: string; content: string; after: number; turnId?: string }[]>()
   let clientId: string | undefined
   const listeners = new Set<(endpoint: string, frame: unknown) => void>()
   const publish = (endpoint: string, frame: unknown) => {
@@ -57,12 +61,21 @@ export function createWorkbenchRemote(
   const project = async (id: string, signal?: AbortSignal) => {
     const [source, sessions] = await Promise.all([snapshot(id, signal), list(signal)])
     const projected = projectKnotSnapshot(source)
+    for (const prompt of prompts.get(id) ?? []) {
+      const admitted = source.events.find(event => event.position >= prompt.after && event.type === 'user.message'
+        && object(event.data).content === prompt.content && (prompt.turnId === undefined || object(event.data).turnId === prompt.turnId))
+      if (!admitted) continue
+      prompt.turnId = object(admitted.data).turnId
+      const record = projected.records.find(record => record.event.type === 'user/message' && object(record.event.data).id === 'knot-user-' + prompt.turnId)
+      if (record) object(record.event.data).source.rpcId = prompt.id
+    }
     projected.projections.values.subagentCatalog = children(sessions, id)
-    return { ...projected, writable: source.session.writable }
+    return { ...projected, writable: source.session.writable, runState: source.session.runState }
   }
   const row = (session: SessionSummaryDto) => ({
     sessionId: session.id, updatedAt: Date.parse(session.updatedAt ?? '') || 0,
     running: session.runState === 'running', blank: session.eventCount === 0,
+    agentAvailable: session.writable,
     cwd: session.workspace, parentSessionId: session.parentSessionId,
     ...(session.parentSessionId ? { origin: 'subagent' } : {}),
     projections: { kind: 'cached', asOfSeq: -1, values: { title: session.title, knotEventCount: session.eventCount } },
@@ -102,6 +115,27 @@ export function createWorkbenchRemote(
             return ok(undefined)
           }
           case 'session/list': return ok({ items: (await list(signal)).map(row) })
+          case 'session/prompt': {
+            const id = input.sessionId
+            const current = await snapshot(id, signal)
+            if (!current.session.writable) throw new Error('Session is read-only')
+            if (!Array.isArray(input.content) || input.content.some((part: any) => part.type !== 'text')) throw new Error('Attachments are not connected in B4')
+            const content = input.content.map((part: any) => part.text).join('\n')
+            if (!content.trim()) throw new Error('Message is empty')
+            if (current.session.runState === 'paused') throw new Error('请先恢复 Session，再发送消息')
+            if (current.session.runState === 'running' && input.mode !== 'steer') throw new Error('运行中仅支持 Steering；请使用 Cmd/Ctrl+Enter，或等待 idle 后发送')
+            const receipts = prompts.get(id) ?? []
+            const receipt = { id: input.requestId, content, after: current.events.length }
+            receipts.push(receipt); prompts.set(id, receipts)
+            try { await http(`sessions/${encodeURIComponent(id)}/messages`, signal, 'POST', { content }) }
+            catch (error) { receipts.splice(receipts.indexOf(receipt), 1); throw error }
+            return ok({ accepted: true })
+          }
+          case 'session/cancel': case 'knot/session/pause': case 'knot/session/resume': {
+            const action = endpoint.endsWith('resume') ? 'resume' : 'pause'
+            await http(`sessions/${encodeURIComponent(input.sessionId)}/${action}`, signal, 'POST')
+            return ok({ accepted: true })
+          }
           case 'session/projections': return ok((await project(input.sessionId, signal)).projections)
           case 'subagents/list': {
             const sessions = await list(signal)
@@ -130,7 +164,7 @@ export function createWorkbenchRemote(
           case 'knot/session/create': return ok(await created(input, signal))
           case 'knot/session/configure': {
             const current = (await snapshot(input.sessionId, signal)).session
-            if (!current.writable || current.runState === 'running') throw new Error('Session is not idle and configurable')
+            if (!current.writable || current.runState !== 'idle') throw new Error('Session is not idle and configurable')
             const profiles = (await get<{ providers: ProviderProfileSummary[] }>('providers', signal)).providers
             const profile = profiles.find(item => item.id === (input.providerProfileId ?? current.providerProfileId))
             if (!profile?.configured) throw new Error('Choose a configured Provider')
@@ -180,7 +214,7 @@ export function createWorkbenchRemote(
       const queue: unknown[] = []
       let wake: (() => void) | undefined
       const receive = (target: string, frame: unknown) => {
-        if (target !== endpoint) return
+        if (target !== (endpoint === 'knot/live' ? 'knot/live/' + input.sessionId : endpoint)) return
         queue.push(frame); wake?.()
       }
       const aborted = () => wake?.()
@@ -189,6 +223,7 @@ export function createWorkbenchRemote(
       let unsubscribe: (() => void) | undefined
       let followedId: string | undefined
       let generationId: string | undefined
+      let processing = Promise.resolve()
       try {
       switch (endpoint) {
         case '$events': {
@@ -213,26 +248,99 @@ export function createWorkbenchRemote(
         case 'session/follow': {
           const address = object(input.address)
           const id = address.kind === 'session' ? address.sessionId : address.childSessionId
-          const projected = await project(id, signal)
           followedId = id
-          if (projected.writable) unsubscribe = subscribe(id, event => {
-            if (event.kind !== 'interaction.request') return
-            const frame = interactionFrame(id, event.interaction)
-            if (pending.has(frame.eventId)) return
-            pending.set(frame.eventId, { sessionId: id, interaction: event.interaction })
-            publish('$events', frame)
-          })
+          const generation = new GenerationProjection()
+          const enqueue = (frame: unknown) => { if (!signal.aborted) { queue.push(frame); wake?.() } }
+          let projected: Awaited<ReturnType<typeof project>>
+          let cursor = -1
+          const ready = new Promise<void>(resolve => { wake = resolve })
+          const refresh = async () => {
+            const next = await project(id, signal)
+            for (const record of next.records.slice(cursor + 1)) {
+              enqueue(record); cursor = record.event.seq
+              if (record.event.type === 'assistant/message' && object(record.event.data).message?.id === 'knot-assistant-' + generation.active?.id) {
+                const end = generation.end(cursor)
+                if (end && input.assistantStream) enqueue(end)
+              }
+            }
+            projected = next
+            publish('knot/live/' + id, { kind: 'projection', values: next.projections.values })
+            if (cursor >= 0) for (const [key, value] of Object.entries(next.projections.values)) publish('session/control', {
+              type: 'projection', sessionId: id, key, value, seq: cursor,
+            })
+          }
+          const handle = async (event: LiveSessionEvent) => {
+            if (signal.aborted) return
+            switch (event.kind) {
+              case 'interaction.request': {
+                const frame = interactionFrame(id, event.interaction)
+                if (pending.has(frame.eventId)) break
+                pending.set(frame.eventId, { sessionId: id, interaction: event.interaction })
+                publish('$events', frame); break
+              }
+              case 'journal.changed': await refresh(); break
+              case 'generation.open': {
+                if (event.purpose !== 'agent') break
+                await refresh()
+                const coordinates = projected.attempts[event.requestId]
+                const settled = projected.records.some(record => object(record.event.data).message?.id === 'knot-assistant-' + event.requestId)
+                if (coordinates && !settled && input.assistantStream) {
+                  // No stream prefix exists on Host reload. Only attempts whose open we saw are streamed.
+                  const previous = generation.end(); if (previous) enqueue(previous)
+                  enqueue(generation.start(event.requestId, coordinates, cursor))
+                }
+                break
+              }
+              case 'generation.update':
+                for (const frame of generation.update(event.requestId, event.update, Date.parse((event as any).emittedAt ?? '') || Date.now())) enqueue(frame)
+                break
+              case 'generation.close': await refresh(); break
+              case 'state.changed':
+                publish('$events', { type: 'emit', event: 'api-session/status', args: [id, event.runState === 'running'] })
+                publish('knot/live/' + id, event)
+                if (event.runState === 'idle') {
+                  await refresh()
+                  const end = generation.end(); if (end) enqueue(end)
+                }
+                break
+              case 'run.error': {
+                const end = generation.end(); if (end) enqueue(end)
+                publish('$events', { type: 'emit', event: 'api-session/error', args: [id, event.message] })
+                publish('knot/live/' + id, event); break
+              }
+              default: publish('knot/live/' + id, event)
+            }
+          }
+          const schedule = (event: LiveSessionEvent) => {
+            processing = processing.then(() => ready).then(() => handle(event)).catch(error => {
+              if (signal.aborted) return
+              const end = generation.end(); if (end) enqueue(end)
+              publish('$events', { type: 'emit', event: 'api-session/error', args: [id, String(error)] })
+              publish('knot/live/' + id, { kind: 'run.error', message: String(error) })
+            })
+          }
+          // Subscribe before the snapshot read; queued events cannot fall into a read/subscribe gap.
+          unsubscribe = subscribe(id, schedule, () => schedule({ kind: 'journal.changed' }))
+          projected = await project(id, signal)
+          cursor = projected.records.length - 1
+          const initialized = wake!; wake = undefined; initialized()
+          if (!projected.writable) { unsubscribe(); unsubscribe = undefined }
           yield { type: 'snapshot', header: { version: 3, id, cwd: projected.cwd, createdAt: projected.createdAt, isSeeded: false },
             cursor: projected.records.length - 1, records: projected.records, hasMore: false, projections: projected.projections,
             ...(input.assistantStream ? { assistantStream: { revision: 0 } } : {}),
           }
           break
         }
+        case 'knot/live': {
+          const source = await snapshot(input.sessionId, signal)
+          yield { kind: 'state.changed', runState: source.session.runState }
+          yield { kind: 'projection', values: projectKnotSnapshot(source).projections.values }
+          break
+        }
         case 'job/list': yield { type: 'rows', jobs: [] }; break
         case 'account/watch': yield { status: 'signed-out', attempt: null, links: {} }; break
         default: throw new Error(`Unconnected Knot read stream: ${endpoint}`)
       }
-      // B3 forwards interaction ports only; execution/history live updates wait for B4.
       while (!signal.aborted) {
         if (queue.length === 0) await new Promise<void>(resolve => { wake = resolve })
         wake = undefined

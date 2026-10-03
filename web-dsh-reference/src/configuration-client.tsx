@@ -11,7 +11,7 @@ type Call = <T>(endpoint: string, input?: unknown) => Promise<T>
 interface Catalog { providers: ProviderProfileSummary[]; assemblies: { id: string; title: string }[] }
 type InferenceCatalog = Pick<Catalog, 'providers'>
 const blank: ProviderProfileDraft = { label: '', adapter: 'openai-compatible', model: '' }
-const editable = (session: SessionSummaryDto) => session.writable && session.runState !== 'running'
+const editable = (session: SessionSummaryDto) => session.writable && session.runState === 'idle'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="knot-config-field"><span>{label}</span>{children}</label>
@@ -87,7 +87,7 @@ function SessionModel({ call, sessionId }: { call: Call; sessionId: string }) {
       footer={<Button disabled={busy || !session || !editable(session) || !profileId} onClick={() => void save()}>保存 · 下一轮生效</Button>}>
       <div className="knot-config">
         <p>Assembly：{session?.assembly ?? '加载中…'}（创建后不变）</p>
-        <p className="knot-config-muted">修改的是待提交配置；下一次发送 query 才写入 Journal。本批次尚未接通发送。</p>
+        <p className="knot-config-muted">修改的是待提交配置；下一次发送 query 才写入 Journal。</p>
         {session && !editable(session) && <p>此 Session 当前只读或正在运行，不能修改配置。</p>}
         {catalog && <InferenceFields catalog={catalog} profileId={profileId} effort={effort} onEffort={setEffort}
           onProfile={id => { setProfile(id); setEffort('') }} />}
@@ -197,6 +197,56 @@ function NewSession({ call, openSession, close }: { call: Call; openSession: (id
   </div>
 }
 
+function RuntimeDock({ call, sessionId }: { call: Call; sessionId: string }) {
+  const [state, setState] = useState('idle')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [values, setValues] = useState<any>({})
+  const [tools, setTools] = useState<Record<string, { command: string; text: string }>>({})
+  useEffect(() => {
+    const abort = new AbortController()
+    setTools({}); setError(''); setValues({})
+    void (async () => {
+      const rpc = (window as any).__DSH_TRANSPORT__.rpc
+      for await (const event of rpc.open('$knot', 'knot/live', { args: [{ sessionId }] }, abort.signal)) {
+        if (event.kind === 'state.changed') { setState(event.runState); if (event.runState === 'running') setError('') }
+        if (event.kind === 'projection') setValues(event.values)
+        if (event.kind === 'run.error') setError(event.message)
+        if (event.kind === 'tool.open') setTools(previous => ({ ...previous, [event.callId]: { command: event.command, text: '' } }))
+        if (event.kind === 'tool.update') setTools(previous => previous[event.callId] ? {
+          ...previous, [event.callId]: { ...previous[event.callId], text: previous[event.callId].text + event.update.text },
+        } : previous)
+        if (event.kind === 'tool.close') setTools(previous => {
+          const next = { ...previous }; delete next[event.callId]; return next
+        })
+      }
+    })().catch(value => { if (!abort.signal.aborted) setError(String(value)) })
+    return () => abort.abort()
+  }, [call, sessionId])
+  const control = async (action: string) => {
+    setBusy(true); setError('')
+    try { await call('knot/session/' + action, { sessionId }) }
+    catch (value) { setError(String(value)) } finally { setBusy(false) }
+  }
+  const usage = values.tokenUsage
+  const input = usage ? usage.uncachedInputTokens + usage.cacheReadTokens : 0
+  return <div className="knot-runtime">
+    <div className="knot-runtime-bar">
+      <span>{state === 'paused' ? '暂停已请求 · 当前 handler 完成后停止' : state}</span>
+      {state === 'running' && <button className="knot-config-chip" disabled={busy} onClick={() => void control('pause')}>优雅暂停</button>}
+      {state === 'paused' && <button className="knot-config-chip" disabled={busy} onClick={() => void control('resume')}>恢复运行</button>}
+      <span>{values.knotEventCount ?? '—'} events</span>
+      {usage && <span>{(input + usage.outputTokens).toLocaleString()} total tokens</span>}
+      {input > 0 && <span>{(100 * usage.cacheReadTokens / input).toFixed(1)}% cache hit</span>}
+    </div>
+    {Object.entries(tools).map(([id, tool]) => <details key={id} className="knot-runtime-tool">
+      <summary>正在执行 · {tool.command}</summary><pre>{tool.text || '等待输出…'}</pre>
+    </details>)}
+    <ErrorText value={error} />
+    {state === 'running' && <small>运行中仅支持 Steering（默认 Cmd/Ctrl+Enter）；排队发送尚未接线。停止按钮仅请求优雅暂停。刷新或切换会话不保留未落盘的流式前缀，完成后显示完整结果。</small>}
+  </div>
+}
+
 export const inject = ['slots', 'uiWorkspace', 'sessions']
 // The transport is the sole browser-facing Knot wire boundary.
 export function apply(ctx: any): void {
@@ -209,6 +259,10 @@ export function apply(ctx: any): void {
   ctx.slots.inject('conversation.input.model', () => ctx.slots.register({
     name: 'conversation.input.model', inject: (sessionId: string) => ({ call, sessionId }),
   }, SessionModel))
+  ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+    name: 'conversation.composer.dock', id: 'knot-runtime', order: 50,
+    inject: (sessionId: string) => ({ call, sessionId }),
+  }, RuntimeDock))
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'models', order: 10, label: () => '模型 Provider', inject: () => ({ call }),
   }, Providers))
