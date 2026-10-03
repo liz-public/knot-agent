@@ -14,7 +14,7 @@ Open <http://127.0.0.1:4175/>. The fixture includes multiple Sessions, a long
 conversation, tool presentations, an Ask card, images, usage records, and the
 original DSH trajectory view.
 
-## B1/B2: real Knot history and configuration
+## B1–B3: real Knot history, configuration and interaction ports
 
 Start the existing Knot Workbench Host on port 4317, then run:
 
@@ -65,6 +65,43 @@ require these presentation differences. After wiring, review whether the Knot
 contribution can reuse more original menu/form interactions without inventing
 DSH settings, permission-review or preset-switching backend semantics.
 
+### B3 interaction ports
+
+The original DSH approval and user-question Client plugins remain enabled.
+For followed writable Sessions, the carrier subscribes to the existing Knot SSE
+endpoint and translates `interaction.request` into a scoped `$events` waterfall.
+The reply posts the exact interaction id to the existing Host `/interactions`
+route. The Host broker, not this projection, owns waiting and execution.
+
+- Concurrent approvals use the original single-card pending UI (DSH selects the
+  displayed pending item; this integration does not impose FIFO).
+- Approval arguments remain visible. Only `allowed-once` / `rejected` map to
+  Knot `allow` / `deny`; no persistent permission grant is invented.
+- Ask maps to one question with optional choices and free-text input. An answer
+  must match that question; unknown choices, empty/skipped answers and multi-select
+  do not resolve the broker.
+- Pending requests replay when a Session stream reconnects. Duplicate deliveries
+  are suppressed; stale/duplicate decisions and HTTP failures are not accepted.
+  Session disposal withdraws presentation, never grants approval or answers Ask.
+- Native Ask **close/skip are not Host cancellation operations**. Closing withdraws
+  the card while the Host still waits; reopen/reload the Session to answer it.
+  These visible native affordances need interaction refinement before treating
+  the shell as a complete Run product. Cross-client settlement synchronization
+  is not part of B3; this batch validates a single Client.
+
+Browser smoke uses an isolated Host with the real HTTP server and broker, but no
+model, tools or persistent data:
+
+```sh
+# Root build is required by the controlled Host fixture.
+npm --prefix .. run build
+node test/interaction-host.mjs
+# In another terminal; type approvals / ask / free / status into the Host terminal.
+VITE_KNOT_DSH_MODE=workbench KNOT_WORKBENCH_URL=http://127.0.0.1:4320 npm run dev -- --port 4179 --strictPort
+```
+
+Sending, tool execution and their live output are still B4; B3 does not enable them.
+
 ```text
 DSH published Client → workbench-remote → existing Knot HTTP API
                            ↓
@@ -97,5 +134,5 @@ No DSH UI source is copied into this directory. `src/fixture-remote.ts` is an
 adaptation of DSH's MIT-licensed assembled-client test carrier.
 
 This is a reference integration, not yet the default Knot product frontend.
-Online output, approvals and Ask are later wiring batches. Total-token/cache-rate/event-count
+Online execution/output are later wiring batches. Total-token/cache-rate/event-count
 display reconciliation remains part of the later statistics batch.

@@ -1,9 +1,17 @@
 /** DSH presentation carrier over existing Knot HTTP APIs; no DSH Host. */
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionSnapshotDto, SessionSummaryDto } from '../../src/workbench/session.js'
+import type { InteractionRequestDto, LiveSessionEvent, SessionSnapshotDto, SessionSummaryDto } from '../../src/workbench/session.js'
 import type { ProviderProfileSummary } from '../../src/workbench/provider-profile.js'
 import type { StudioSnapshotDto } from '../../src/workbench/studio.js'
 import { projectKnotSnapshot } from './knot-journal-projection.ts'
+import { interactionAnswer, interactionFrame } from './interaction-projection.ts'
+
+type SubscribeSession = (id: string, listener: (event: LiveSessionEvent) => void) => () => void
+const subscribeSession: SubscribeSession = (id, listener) => {
+  const source = new EventSource(`/api/workbench/sessions/${encodeURIComponent(id)}/stream`)
+  source.addEventListener('session', event => listener(JSON.parse((event as MessageEvent).data)))
+  return () => source.close()
+}
 
 const ok = (value: unknown) => ({ ok: true as const, value })
 const object = (value: unknown): Record<string, any> =>
@@ -19,7 +27,10 @@ const unsupported = () => ({ ok: false as const, error: {
 
 export function createWorkbenchRemote(
   fetcher: typeof fetch = fetch,
+  subscribe: SubscribeSession = subscribeSession,
 ): ClientConnectionRpc {
+  const pending = new Map<string, { sessionId: string; interaction: InteractionRequestDto }>()
+  let clientId: string | undefined
   const listeners = new Set<(endpoint: string, frame: unknown) => void>()
   const publish = (endpoint: string, frame: unknown) => {
     for (const listener of listeners) listener(endpoint, frame)
@@ -47,7 +58,7 @@ export function createWorkbenchRemote(
     const [source, sessions] = await Promise.all([snapshot(id, signal), list(signal)])
     const projected = projectKnotSnapshot(source)
     projected.projections.values.subagentCatalog = children(sessions, id)
-    return projected
+    return { ...projected, writable: source.session.writable }
   }
   const row = (session: SessionSummaryDto) => ({
     sessionId: session.id, updatedAt: Date.parse(session.updatedAt ?? '') || 0,
@@ -74,6 +85,22 @@ export function createWorkbenchRemote(
       try {
         const input = request(payload)
         switch (endpoint) {
+          case '$events/result': {
+            const outcome = object(input.outcome)
+            // Withdrawal is not a user decision: never resolve the Host broker on scope loss or Ask close.
+            if (outcome.kind === 'rejected') {
+              if (object(outcome.error).code === 'ASK_CANCELLED') return ok(undefined)
+              throw new Error(object(outcome.error).message ?? 'Client interaction failed')
+            }
+            const item = pending.get(input.eventId)
+            if (input.clientId !== clientId || !item) throw new Error('Interaction delivery is no longer active')
+            if (outcome.kind !== 'result') throw new Error('Interaction was not handled by this Client')
+            const value = interactionAnswer(item.interaction, outcome.value)
+            await http(`sessions/${encodeURIComponent(item.sessionId)}/interactions`, signal, 'POST', { id: item.interaction.id, value })
+            pending.delete(input.eventId)
+            publish('$events', { type: 'cancel', eventId: input.eventId })
+            return ok(undefined)
+          }
           case 'session/list': return ok({ items: (await list(signal)).map(row) })
           case 'session/projections': return ok((await project(input.sessionId, signal)).projections)
           case 'subagents/list': {
@@ -159,12 +186,19 @@ export function createWorkbenchRemote(
       const aborted = () => wake?.()
       listeners.add(receive)
       signal.addEventListener('abort', aborted, { once: true })
+      let unsubscribe: (() => void) | undefined
+      let followedId: string | undefined
+      let generationId: string | undefined
       try {
       switch (endpoint) {
-        case '$events':
+        case '$events': {
           // No DSH Host: this only establishes the Client's read connection.
-          yield { type: 'ready', clientId: 'knot-client', host: { home: '' } }
+          generationId = clientId = crypto.randomUUID()
+          const replay = [...pending.values()]
+          yield { type: 'ready', clientId, host: { home: '' } }
+          for (const item of replay) yield interactionFrame(item.sessionId, item.interaction)
           break
+        }
         case 'session/control':
           yield { type: 'baseline', value: { projections: {} } }
           break
@@ -180,6 +214,14 @@ export function createWorkbenchRemote(
           const address = object(input.address)
           const id = address.kind === 'session' ? address.sessionId : address.childSessionId
           const projected = await project(id, signal)
+          followedId = id
+          if (projected.writable) unsubscribe = subscribe(id, event => {
+            if (event.kind !== 'interaction.request') return
+            const frame = interactionFrame(id, event.interaction)
+            if (pending.has(frame.eventId)) return
+            pending.set(frame.eventId, { sessionId: id, interaction: event.interaction })
+            publish('$events', frame)
+          })
           yield { type: 'snapshot', header: { version: 3, id, cwd: projected.cwd, createdAt: projected.createdAt, isSeeded: false },
             cursor: projected.records.length - 1, records: projected.records, hasMore: false, projections: projected.projections,
             ...(input.assistantStream ? { assistantStream: { revision: 0 } } : {}),
@@ -190,14 +232,20 @@ export function createWorkbenchRemote(
         case 'account/watch': yield { status: 'signed-out', attempt: null, links: {} }; break
         default: throw new Error(`Unconnected Knot read stream: ${endpoint}`)
       }
-      // Only local acknowledged configuration/create mutations notify in B2.
-      // Online generation and changes from other clients remain later batches.
+      // B3 forwards interaction ports only; execution/history live updates wait for B4.
       while (!signal.aborted) {
         if (queue.length === 0) await new Promise<void>(resolve => { wake = resolve })
         wake = undefined
         while (queue.length && !signal.aborted) yield queue.shift()
       }
       } finally {
+        unsubscribe?.()
+        if (followedId !== undefined) for (const [eventId, item] of pending) {
+          if (item.sessionId !== followedId) continue
+          pending.delete(eventId)
+          publish('$events', { type: 'cancel', eventId })
+        }
+        if (generationId === clientId) clientId = undefined
         listeners.delete(receive)
         signal.removeEventListener('abort', aborted)
       }

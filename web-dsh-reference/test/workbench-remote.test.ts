@@ -15,7 +15,7 @@ test('carrier reads Knot snapshots, exposes child history and refuses unconnecte
       session: sessions.find(session => url.endsWith(session.id)),
       events: [{ position: 0, type: 'user.message', data: { turnId: 't1', content: url.endsWith('child') ? 'Child text' : 'Parent text' } }],
     })
-  }) as typeof fetch)
+  }) as typeof fetch, () => () => {})
   const control = new AbortController()
   const call = (endpoint: string, args: unknown) => remote.call('$control', endpoint, { args: [args] }, control.signal)
   const listing = await call('session/list', {}) as any
