@@ -20,7 +20,7 @@ async function evaluateBundle(url: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (import.meta.env.VITE_KNOT_DSH_MODE === 'workbench') document.title = 'Knot · DSH Run · Read-only'
+  if (import.meta.env.VITE_KNOT_DSH_MODE === 'workbench') document.title = 'Knot · DSH Run'
   const fixtureWindow = window as FixtureWindow
   fixtureWindow.__DSH_BOOT__ = boot.graph
   ;(0, eval)(boot.moduleLoaderFacade)

@@ -1,0 +1,223 @@
+/** Small Knot-owned configuration surfaces in the published DSH Client slots.
+ * No Journal writes here: the carrier calls existing Host APIs, which own pending configuration.
+ */
+import { useEffect, useState, type ReactNode } from 'react'
+import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ProviderProfileSummary } from '../../src/workbench/provider-profile.js'
+import type { ProviderProfileDraft } from '../../src/workbench/provider-profile-store.js'
+import type { SessionSummaryDto } from '../../src/workbench/session.js'
+
+type Call = <T>(endpoint: string, input?: unknown) => Promise<T>
+interface Catalog { providers: ProviderProfileSummary[]; assemblies: { id: string; title: string }[] }
+type InferenceCatalog = Pick<Catalog, 'providers'>
+const blank: ProviderProfileDraft = { label: '', adapter: 'openai-compatible', model: '' }
+const editable = (session: SessionSummaryDto) => session.writable && session.runState !== 'running'
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <label className="knot-config-field"><span>{label}</span>{children}</label>
+}
+function ErrorText({ value }: { value: string }) {
+  return value ? <p role="alert" className="knot-config-error">{value}</p> : null
+}
+function InferenceFields({ catalog, profileId, effort, onProfile, onEffort }: {
+  catalog: InferenceCatalog; profileId: string; effort: string; onProfile: (id: string) => void; onEffort: (effort: string) => void;
+}) {
+  const profile = catalog.providers.find(item => item.id === profileId)
+  return <>
+    <Field label="Provider / 模型"><select value={profileId} onChange={e => onProfile(e.target.value)}>
+      <option value="" disabled>选择已配置的 Provider</option>
+      {catalog.providers.map(item => <option key={item.id} value={item.id} disabled={!item.configured}>
+        {item.label} · {item.model}{item.configured ? '' : '（未配置）'}
+      </option>)}
+    </select></Field>
+    <Field label="推理强度"><select value={effort} onChange={e => onEffort(e.target.value)} disabled={!profile?.reasoningEfforts?.length}>
+      <option value="">Provider 默认</option>
+      {profile?.reasoningEfforts?.map(value => <option key={value} value={value}>{value}</option>)}
+    </select></Field>
+  </>
+}
+function ApprovalField({ value, change }: { value: string; change: (value: 'ask' | 'auto') => void }) {
+  return <Field label="工具审批"><select value={value} onChange={e => change(e.target.value as 'ask' | 'auto')}>
+    <option value="ask">手动审批</option><option value="auto">自动批准（不是自动审查；无沙箱）</option>
+  </select></Field>
+}
+
+function SessionModel({ call, sessionId }: { call: Call; sessionId: string }) {
+  const [session, setSession] = useState<SessionSummaryDto>()
+  const [catalog, setCatalog] = useState<InferenceCatalog>()
+  const [open, setOpen] = useState(false)
+  const [profileId, setProfile] = useState('')
+  const [effort, setEffort] = useState('')
+  const [approval, setApproval] = useState<'ask' | 'auto'>('ask')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const load = async () => {
+    const [next, options] = await Promise.all([call<SessionSummaryDto>('knot/session', { sessionId }), call<InferenceCatalog>('knot/providers')])
+    setSession(next); setCatalog(options); setProfile(next.providerProfileId ?? '')
+    setEffort(next.reasoningEffort ?? ''); setApproval(next.approvalMode ?? 'ask')
+  }
+  useEffect(() => { let active = true
+    void call<SessionSummaryDto>('knot/session', { sessionId }).then(value => { if (active) setSession(value) })
+      .catch(value => { if (active) setError(String(value)) })
+    return () => { active = false }
+  }, [sessionId, call])
+  const show = async () => { setError(''); setOpen(true); setBusy(true)
+    try { await load() } catch (value) { setError(String(value)) } finally { setBusy(false) }
+  }
+  const save = async () => {
+    if (approval === 'auto' && session?.approvalMode !== 'auto'
+      && !window.confirm('自动批准将允许工具直接操作工作目录或设备，没有沙箱。确认启用？')) return
+    setBusy(true); setError('')
+    try {
+      setSession(await call<SessionSummaryDto>('knot/session/configure', {
+        sessionId, providerProfileId: profileId, reasoningEffort: effort, approvalMode: approval,
+      })); setOpen(false)
+    } catch (value) { setError(String(value)) } finally { setBusy(false) }
+  }
+  return <>
+    <span className="knot-config-controls">
+    <button className="knot-config-chip" onClick={() => void show()} title="Session 模型与审批 · 下一轮生效">
+      {session?.model ?? '模型配置'}{session?.reasoningEffort ? ` · ${session.reasoningEffort}` : ''} ▾
+    </button>
+    <button className="knot-config-chip" onClick={() => void show()} title="工具审批策略 · 下一轮生效">
+      {session?.approvalMode === 'auto' ? '自动批准' : '手动审批'} ▾
+    </button>
+    </span>
+    <Modal open={open} onClose={() => setOpen(false)} title="Session 模型与审批" closeLabel="关闭"
+      footer={<Button disabled={busy || !session || !editable(session) || !profileId} onClick={() => void save()}>保存 · 下一轮生效</Button>}>
+      <div className="knot-config">
+        <p>Assembly：{session?.assembly ?? '加载中…'}（创建后不变）</p>
+        <p className="knot-config-muted">修改的是待提交配置；下一次发送 query 才写入 Journal。本批次尚未接通发送。</p>
+        {session && !editable(session) && <p>此 Session 当前只读或正在运行，不能修改配置。</p>}
+        {catalog && <InferenceFields catalog={catalog} profileId={profileId} effort={effort} onEffort={setEffort}
+          onProfile={id => { setProfile(id); setEffort('') }} />}
+        <ApprovalField value={approval} change={setApproval} /><ErrorText value={error} />
+      </div>
+    </Modal>
+  </>
+}
+
+function Providers({ call }: { call: Call }) {
+  const [catalog, setCatalog] = useState<InferenceCatalog>()
+  const [draft, setDraft] = useState<ProviderProfileDraft>()
+  const [id, setId] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const load = async () => setCatalog(await call<InferenceCatalog>('knot/providers'))
+  useEffect(() => { void load().catch(value => setError(String(value))) }, [call])
+  const action = async (run: () => Promise<unknown>, success: string) => {
+    setBusy(true); setError(''); setMessage('')
+    try { await run(); await load(); setMessage(success) } catch (value) { setError(String(value)) } finally { setBusy(false) }
+  }
+  const edit = (profile?: ProviderProfileSummary) => {
+    setId(profile?.id); setDraft(profile ? { label: profile.label, adapter: profile.adapter, model: profile.model,
+      baseUrl: profile.baseUrl, contextWindow: profile.contextWindow, defaultReasoningEffort: profile.defaultReasoningEffort } : blank)
+    setError(''); setMessage('')
+  }
+  const update = (value: Partial<ProviderProfileDraft>) => setDraft(previous => previous ? { ...previous, ...value } : previous)
+  return <div className="knot-config">
+    <h3>模型 Provider</h3><p className="knot-config-muted">使用 Knot 的 DeepSeek / OpenAI-compatible 配置。API Key 只交给 Host，不读取或存入浏览器。</p>
+    <div><Button disabled={busy} onClick={() => edit()}>新增 Provider</Button></div>
+    {catalog?.providers.map(profile => <section key={profile.id} className="knot-config-card">
+      <strong>{profile.label}{profile.isDefault ? ' · 默认' : ''}</strong><span>{profile.adapter} · {profile.model}</span>
+      <span className="knot-config-muted">{profile.configured ? '已配置' : '未配置'}{profile.editable === false ? ' · 环境变量配置（只读）' : ''}</span>
+      <div className="knot-config-actions">
+        <Button size="sm" variant="outline" disabled={busy || profile.editable === false} onClick={() => edit(profile)}>编辑</Button>
+        <Button size="sm" variant="outline" disabled={busy || !profile.configured} onClick={() => {
+          if (window.confirm('测试会发起一次真实的模型 API 请求，可能产生费用。继续？')) void action(() => call('knot/providers/test', { id: profile.id }), '连接测试成功')
+        }}>测试</Button>
+        <Button size="sm" variant="outline" disabled={busy || !profile.configured || profile.isDefault} onClick={() => void action(() => call('knot/providers/default', { id: profile.id }), '已设置默认 Provider')}>设为默认</Button>
+        <Button size="sm" variant="outline" disabled={busy || profile.editable === false} onClick={() => {
+          if (window.confirm(`删除 ${profile.label}？使用该配置的历史 Session 可能无法继续运行。`)) void action(() => call('knot/providers/delete', { id: profile.id }), '已删除')
+        }}>删除</Button>
+      </div>
+    </section>)}
+    <p role="status">{message}</p><ErrorText value={error} />
+    <Modal open={!!draft} onClose={() => setDraft(undefined)} title={id ? '编辑 Provider' : '新增 Provider'} closeLabel="关闭"
+      footer={<Button disabled={busy || !draft?.label.trim() || !draft.model.trim()} onClick={() => void action(async () => {
+        const value = { ...draft }
+        if (!value.apiKey?.trim()) delete value.apiKey
+        await call('knot/providers/save', { ...value, ...(id ? { id } : {}) }); setDraft(undefined)
+      }, 'Provider 已保存')}>保存</Button>}>
+      {draft && <div className="knot-config">
+        <Field label="名称"><Input value={draft.label} onChange={e => update({ label: e.target.value })} /></Field>
+        <Field label="API 格式"><select value={draft.adapter} onChange={e => update({ adapter: e.target.value as ProviderProfileDraft['adapter'], defaultReasoningEffort: undefined })}>
+          <option value="openai-compatible">OpenAI-compatible</option><option value="deepseek">DeepSeek</option>
+        </select></Field>
+        <Field label="模型 ID"><Input value={draft.model} onChange={e => update({ model: e.target.value })} /></Field>
+        <Field label="Base URL"><Input value={draft.baseUrl ?? ''} onChange={e => update({ baseUrl: e.target.value })} placeholder={draft.adapter === 'deepseek' ? '默认 DeepSeek 官方地址' : 'https://…/v1'} /></Field>
+        <Field label={id ? 'API Key（留空保留原值）' : 'API Key'}><Input type="password" autoComplete="new-password" value={draft.apiKey ?? ''} onChange={e => update({ apiKey: e.target.value })} /></Field>
+        <Field label="上下文窗口（可选）"><Input type="number" min="1" value={draft.contextWindow ?? ''} onChange={e => update({ contextWindow: e.target.value ? Number(e.target.value) : undefined })} /></Field>
+        {draft.adapter === 'deepseek' && <Field label="默认推理强度"><select value={draft.defaultReasoningEffort ?? ''} onChange={e => update({ defaultReasoningEffort: (e.target.value || undefined) as ProviderProfileDraft['defaultReasoningEffort'] })}>
+          <option value="">API 默认</option>{['none', 'low', 'high', 'max'].map(value => <option key={value}>{value}</option>)}
+        </select></Field>}
+        <ErrorText value={error} />
+      </div>}
+    </Modal>
+  </div>
+}
+
+function NewSession({ call, openSession, close }: { call: Call; openSession: (id: string) => Promise<void>; close: () => void }) {
+  const [catalog, setCatalog] = useState<Catalog>()
+  const [title, setTitle] = useState('')
+  const [cwd, setCwd] = useState('')
+  const [assemblyId, setAssembly] = useState('')
+  const [profileId, setProfile] = useState('')
+  const [effort, setEffort] = useState('')
+  const [approval, setApproval] = useState<'ask' | 'auto'>('ask')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => { void call<Catalog>('knot/catalog').then(options => {
+    setCatalog(options); setAssembly(options.assemblies[0]?.id ?? '')
+    setProfile(options.providers.find(item => item.isDefault && item.configured)?.id ?? options.providers.find(item => item.configured)?.id ?? '')
+  }).catch(value => setError(String(value))) }, [call])
+  const create = async () => {
+    if (approval === 'auto' && !window.confirm('此新 Session 的工具将自动批准执行，没有沙箱。继续？')) return
+    setBusy(true); setError('')
+    try {
+      const session = await call<SessionSummaryDto>('knot/session/create', {
+        assemblyId, providerProfileId: profileId, approvalMode: approval,
+        ...(title.trim() ? { title: title.trim() } : {}), ...(cwd.trim() ? { cwd: cwd.trim() } : {}),
+        ...(effort ? { reasoningEffort: effort } : {}),
+      })
+      await openSession(session.id); close()
+    } catch (value) { setError(String(value)) } finally { setBusy(false) }
+  }
+  return <div className="knot-config">
+    <h3>新建 Knot Session</h3><p className="knot-config-muted">先选择 Assembly，再创建会话；不执行模型或工具。侧栏原生“新建”继续使用 Host 默认 Assembly。</p>
+    <Field label="Assembly"><select value={assemblyId} onChange={e => setAssembly(e.target.value)}>
+      {catalog?.assemblies.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+    </select></Field>
+    <Field label="会话名称（可选）"><Input value={title} onChange={e => setTitle(e.target.value)} /></Field>
+    <Field label="工作目录（留空使用 Host 默认）"><Input value={cwd} onChange={e => setCwd(e.target.value)} /></Field>
+    {catalog && <InferenceFields catalog={catalog} profileId={profileId} effort={effort} onEffort={setEffort} onProfile={id => { setProfile(id); setEffort('') }} />}
+    <ApprovalField value={approval} change={setApproval} /><ErrorText value={error} />
+    <div><Button disabled={busy || !assemblyId || !profileId} onClick={() => void create()}>创建并打开 Session</Button></div>
+  </div>
+}
+
+export const inject = ['slots', 'uiWorkspace', 'sessions']
+// The transport is the sole browser-facing Knot wire boundary.
+export function apply(ctx: any): void {
+  const call: Call = async (endpoint, input = {}) => {
+    const transport = (window as any).__DSH_TRANSPORT__
+    const result = await transport.rpc.call('$knot', endpoint, { args: [input] }, new AbortController().signal)
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
+  ctx.slots.inject('conversation.input.model', () => ctx.slots.register({
+    name: 'conversation.input.model', inject: (sessionId: string) => ({ call, sessionId }),
+  }, SessionModel))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section', id: 'models', order: 10, label: () => '模型 Provider', inject: () => ({ call }),
+  }, Providers))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section', id: 'knot-new-session', order: 11, label: () => '新建 Session',
+    inject: () => ({ call, openSession: async (id: string) => {
+      // Creation is acknowledged before forwarded catalog notifications settle.
+      await ctx.sessions.refresh()
+      ctx.uiWorkspace.openSession(id)
+    } }),
+  }, NewSession))
+}

@@ -1,0 +1,12 @@
+.knot-config { display:flex; flex-direction:column; gap:12px; max-width:720px; color:var(--dsw-alias-label-primary); font-size:14px; line-height:22px }
+.knot-config h3,.knot-config p { margin:0 }
+.knot-config-field { display:flex; flex-direction:column; gap:6px }
+.knot-config-field select { width:100%; min-height:36px; border-radius:8px; padding:6px 10px; border:1px solid var(--dsw-alias-border-l3); background:var(--dsw-alias-settings-card-fill); color:var(--dsw-alias-label-primary); font:inherit }
+.knot-config-card { display:flex; flex-direction:column; gap:6px; border:0.5px solid var(--dsw-alias-settings-card-stroke); background:var(--dsw-alias-settings-card-fill); border-radius:12px; padding:12px 14px }
+.knot-config-actions { display:flex; flex-wrap:wrap; gap:8px }
+.knot-config-controls { display:flex; align-items:center; min-width:0 }
+.knot-config-muted { color:var(--dsw-alias-label-tertiary) }
+.knot-config-error { color:var(--dsw-alias-state-warn-label) }
+.knot-config-chip { height:28px; max-width:min(360px,45cqw); padding:0 8px; border:0; border-radius:var(--dsw-radius-sm); background:transparent; color:var(--dsw-alias-label-secondary); font-size:13px; line-height:20px; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.knot-config-chip:hover { background:var(--dsw-alias-interactive-bg-hover) }
+.knot-config-chip:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary) }

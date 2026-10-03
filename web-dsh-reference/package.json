@@ -14,12 +14,15 @@
     "@deepseek-ai/dsh-app-boot": "0.2.0-rc.1",
     "@deepseek-ai/dsh-base": "0.2.0-rc.1",
     "@deepseek-ai/dsh-client-modules": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.1",
     "@deepseek-ai/dsh-remote-mock": "0.2.0-rc.1",
     "@deepseek-ai/dsh-web-app": "0.2.0-rc.1",
     "@deepseek-ai/dsh-web-frontend": "0.2.0-rc.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/react": "~18.3.1",
+    "esbuild": "^0.25.0",
     "typescript": "^6.0.3",
     "vite": "^6.0.0"
   }

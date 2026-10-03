@@ -5,6 +5,7 @@ import * as appBoot from '@deepseek-ai/dsh-app-boot'
 import { bootInjections, orderByModuleGraph } from '@deepseek-ai/dsh-client-modules'
 import { defineConfig, type Plugin } from 'vite'
 import { readonlyClientFactory } from './src/readonly-client.ts'
+import { buildSync } from 'esbuild'
 
 const VIRTUAL_BOOT = 'virtual:dsh-fixture-boot'
 const RESOLVED_VIRTUAL_BOOT = `\0${VIRTUAL_BOOT}`
@@ -105,6 +106,9 @@ function dshClientFixture(): Plugin {
   })
   if (readOnly) plugins.push({ id: '@knot-agent/client-readonly', url: '/dsh-plugins/readonly.js', rev: REVISION,
     bundlePath: '', inject: ['@deepseek-ai/dsh-api-session-controller', '@deepseek-ai/dsh-client-ui-conversation'] })
+  if (readOnly) plugins.push({ id: '@knot-agent/client-configuration', url: '/dsh-plugins/configuration.js', rev: REVISION,
+    bundlePath: '', inject: ['@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-primitives'],
+    external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] })
   const bootstrapEntries = plugins.filter(entry => entry.id === BOOTSTRAP_ID)
   const applicationEntries = plugins.filter(entry => entry.id !== BOOTSTRAP_ID)
   const graph = {
@@ -130,9 +134,22 @@ function dshClientFixture(): Plugin {
 
   const sources = new Map<string, string | Buffer>()
   sources.set('/DSH-LICENSE.txt', readFileSync(join(import.meta.dirname, 'DSH-LICENSE.txt'), 'utf8'))
-  for (const entry of plugins) sources.set(entry.url, entry.bundlePath === ''
-    ? `window.__ModuleLoader__.load({id:'@knot-agent/client-readonly',factory:${readonlyClientFactory.toString()}})`
-    : readFileSync(entry.bundlePath, 'utf8'))
+  const configurationSource = () => {
+    const compiled = buildSync({ entryPoints: [join(import.meta.dirname, 'src/configuration-client.tsx')],
+      bundle: true, write: false, format: 'cjs', jsx: 'automatic',
+      external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'],
+    }).outputFiles[0]!.text
+    return `window.__ModuleLoader__.load({id:'@knot-agent/client-configuration',factory:(require)=>{var module={exports:{}};var exports=module.exports;${compiled}\nreturn module.exports;}})`
+  }
+  for (const entry of plugins) {
+    let source: string
+    if (entry.id === '@knot-agent/client-configuration') source = configurationSource()
+    else source = entry.bundlePath === ''
+      ? `window.__ModuleLoader__.load({id:'@knot-agent/client-readonly',factory:${readonlyClientFactory.toString()}})`
+      : readFileSync(entry.bundlePath, 'utf8')
+    sources.set(entry.url, source)
+  }
+  if (readOnly) sources.set('/knot-configuration.css', readFileSync(join(import.meta.dirname, 'src/configuration-client.css')))
   sources.set('/dsh-plugins/bootstrap.js', bootstrapEntries
     .map(entry => String(sources.get(entry.url) ?? ''))
     .join('\n;\n'))
@@ -152,6 +169,18 @@ function dshClientFixture(): Plugin {
 
   return {
     name: 'knot-dsh-client-fixture',
+    buildStart() {
+      if (readOnly) for (const name of ['configuration-client.tsx', 'configuration-client.css']) this.addWatchFile(join(import.meta.dirname, 'src', name))
+    },
+    handleHotUpdate(context) {
+      if (readOnly && /\/configuration-client\.(tsx|css)$/.test(context.file)) {
+        sources.set('/dsh-plugins/configuration.js', configurationSource())
+        sources.set('/knot-configuration.css', readFileSync(join(import.meta.dirname, 'src/configuration-client.css')))
+        sources.set('/dsh-plugins/application.js', applicationEntries.map(entry => String(sources.get(entry.url) ?? '')).join('\n;\n'))
+        context.server.ws.send({ type: 'full-reload' })
+        return []
+      }
+    },
     resolveId(id) {
       if (id === VIRTUAL_BOOT) return RESOLVED_VIRTUAL_BOOT
       if (id === VIRTUAL_KNOT_JOURNAL) return RESOLVED_VIRTUAL_KNOT_JOURNAL
@@ -171,7 +200,7 @@ function dshClientFixture(): Plugin {
         moduleLoaderFacade: facade.text,
         bootstrapUrl: '/dsh-plugins/bootstrap.js',
         shellScriptUrl: `/dsh-shell/${shellScript}`,
-        shellStyleUrls: shellStyles.map(path => `/dsh-shell/${path}`),
+        shellStyleUrls: [...shellStyles.map(path => `/dsh-shell/${path}`), ...(readOnly ? ['/knot-configuration.css'] : [])],
       })}`
     },
     configureServer(server) {

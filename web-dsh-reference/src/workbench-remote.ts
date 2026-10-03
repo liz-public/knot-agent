@@ -1,6 +1,8 @@
-/** Read-only DSH presentation carrier over the existing Knot HTTP API. */
+/** DSH presentation carrier over existing Knot HTTP APIs; no DSH Host. */
 import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionSnapshotDto, SessionSummaryDto } from '../../src/workbench/session.js'
+import type { ProviderProfileSummary } from '../../src/workbench/provider-profile.js'
+import type { StudioSnapshotDto } from '../../src/workbench/studio.js'
 import { projectKnotSnapshot } from './knot-journal-projection.ts'
 
 const ok = (value: unknown) => ({ ok: true as const, value })
@@ -12,17 +14,27 @@ function request(payload: unknown): Record<string, any> {
   return object(object(first).request ?? first)
 }
 const unsupported = () => ({ ok: false as const, error: {
-  code: 'knot/read-only', message: 'B1 is read-only. This action has not been connected to Knot.', details: {},
+  code: 'knot/unconnected', message: 'This action has not been connected to Knot.', details: {},
 } })
 
 export function createWorkbenchRemote(
   fetcher: typeof fetch = fetch,
 ): ClientConnectionRpc {
-  const get = async <T>(path: string, signal?: AbortSignal): Promise<T> => {
-    const response = await fetcher('/api/workbench/' + path, { signal })
-    if (!response.ok) throw new Error(`Knot HTTP ${response.status}: ${path}`)
-    return await response.json() as T
+  const listeners = new Set<(endpoint: string, frame: unknown) => void>()
+  const publish = (endpoint: string, frame: unknown) => {
+    for (const listener of listeners) listener(endpoint, frame)
   }
+  const http = async <T>(path: string, signal?: AbortSignal, method?: string, body?: unknown): Promise<T> => {
+    const response = await fetcher('/api/workbench/' + path, { signal,
+      ...(method ? { method } : {}), ...(body === undefined ? {} : {
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    })
+    const value = await response.json()
+    if (!response.ok) throw new Error(value.error?.message ?? `Knot HTTP ${response.status}: ${path}`)
+    return value as T
+  }
+  const get = <T>(path: string, signal?: AbortSignal) => http<T>(path, signal)
   const list = async (signal?: AbortSignal) =>
     (await get<{ sessions: SessionSummaryDto[] }>('sessions', signal)).sessions
   const snapshot = (id: string, signal?: AbortSignal) =>
@@ -44,6 +56,18 @@ export function createWorkbenchRemote(
     ...(session.parentSessionId ? { origin: 'subagent' } : {}),
     projections: { kind: 'cached', asOfSeq: -1, values: { title: session.title, knotEventCount: session.eventCount } },
   })
+  const workspaces = (sessions: SessionSummaryDto[]) => {
+    const paths = [...new Set(sessions.map(session => session.workspace).filter((path): path is string => !!path))]
+    return paths.map(path => ({ workspaceId: path, path, title: path.split('/').filter(Boolean).at(-1) ?? path,
+      sessionIds: sessions.filter(session => session.workspace === path && !session.parentSessionId).map(session => session.id),
+      createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() }))
+  }
+  const created = async (input: Record<string, any>, signal?: AbortSignal) => {
+    const { session } = await http<{ session: SessionSummaryDto }>('sessions', signal, 'POST', input)
+    publish('$events', { type: 'emit', event: 'api-session/added', args: [row(session)] })
+    for (const workspace of workspaces(await list(signal))) publish('workspace/follow', { type: 'upsert', workspace })
+    return session
+  }
 
   return {
     async call(_channel, endpoint, payload, signal) {
@@ -58,6 +82,49 @@ export function createWorkbenchRemote(
               entries: children(sessions, input.parentSessionId) })
           }
           case 'workspace/initializeDefault': return ok(undefined)
+          case 'session/create': {
+            // DSH can reconnect a blank Session through create(sessionId).
+            if (input.sessionId) return ok({ sessionId: (await snapshot(input.sessionId, signal)).session.id })
+            const session = await created({ ...(input.cwd || input.workspaceId ? { cwd: input.cwd ?? input.workspaceId } : {}) }, signal)
+            return ok({ sessionId: session.id })
+          }
+          case 'knot/catalog': {
+            const [profiles, studio] = await Promise.all([
+              get<{ providers: ProviderProfileSummary[] }>('providers', signal), get<StudioSnapshotDto>('studio', signal),
+            ])
+            // Assembly roster comes from the Host, not another frontend manifest.
+            const assemblies = [...new Map(studio.projects.map(project => [project.assembly.id, {
+              id: project.assembly.id, title: project.assembly.title,
+            }])).values()]
+            return ok({ providers: profiles.providers, assemblies })
+          }
+          case 'knot/providers': return ok(await get('providers', signal))
+          case 'knot/session': return ok((await snapshot(input.sessionId, signal)).session)
+          case 'knot/session/create': return ok(await created(input, signal))
+          case 'knot/session/configure': {
+            const current = (await snapshot(input.sessionId, signal)).session
+            if (!current.writable || current.runState === 'running') throw new Error('Session is not idle and configurable')
+            const profiles = (await get<{ providers: ProviderProfileSummary[] }>('providers', signal)).providers
+            const profile = profiles.find(item => item.id === (input.providerProfileId ?? current.providerProfileId))
+            if (!profile?.configured) throw new Error('Choose a configured Provider')
+            const changed = profile.id !== current.providerProfileId
+            const effort = Object.hasOwn(input, 'reasoningEffort') ? input.reasoningEffort
+              : changed ? profile.defaultReasoningEffort : current.reasoningEffort
+            const { session } = await http<{ session: SessionSummaryDto }>(`sessions/${encodeURIComponent(input.sessionId)}/configuration`, signal, 'PATCH', {
+              providerProfileId: profile.id, approvalMode: input.approvalMode ?? current.approvalMode ?? 'ask',
+              ...(effort === undefined || effort === '' ? {} : { reasoningEffort: effort }),
+            })
+            return ok(session)
+          }
+          case 'knot/providers/save': {
+            const { id, ...draft } = input
+            return ok(await http('providers' + (id ? '/' + encodeURIComponent(id) : ''), signal, id ? 'PATCH' : 'POST', draft))
+          }
+          case 'knot/providers/delete': case 'knot/providers/default': case 'knot/providers/test': {
+            const action = endpoint.split('/').at(-1)!
+            return ok(await http(`providers/${encodeURIComponent(input.id)}${action === 'delete' ? '' : '/' + action}`, signal,
+              action === 'delete' ? 'DELETE' : 'POST'))
+          }
           case 'settings/describe': return ok({ writable: false, hasDocument: false, namespaces: [{
             // Client presentation policy: diagnostic views on, no Host settings persisted.
             ns: 'ui-settings', schema: { type: 'object', dict: { enabled: { type: 'boolean' } } },
@@ -78,26 +145,33 @@ export function createWorkbenchRemote(
           default: return unsupported()
         }
       } catch (error) {
-        return { ok: false, error: { code: 'knot/read-failed', message: String(error), details: {} } }
+        return { ok: false, error: { code: 'knot/request-failed', message: String(error), details: {} } }
       }
     },
     async *open(_channel, endpoint, payload, signal) {
       const input = request(payload)
+      const queue: unknown[] = []
+      let wake: (() => void) | undefined
+      const receive = (target: string, frame: unknown) => {
+        if (target !== endpoint) return
+        queue.push(frame); wake?.()
+      }
+      const aborted = () => wake?.()
+      listeners.add(receive)
+      signal.addEventListener('abort', aborted, { once: true })
+      try {
       switch (endpoint) {
         case '$events':
           // No DSH Host: this only establishes the Client's read connection.
-          yield { type: 'ready', clientId: 'knot-readonly', host: { home: '' } }
+          yield { type: 'ready', clientId: 'knot-client', host: { home: '' } }
           break
         case 'session/control':
           yield { type: 'baseline', value: { projections: {} } }
           break
         case 'workspace/follow': {
           const sessions = await list(signal)
-          const paths = [...new Set(sessions.map(session => session.workspace).filter((path): path is string => !!path))]
           yield { type: 'baseline', value: {
-            items: paths.map(path => ({ workspaceId: path, path, title: path.split('/').filter(Boolean).at(-1) ?? path,
-              sessionIds: sessions.filter(session => session.workspace === path && !session.parentSessionId).map(session => session.id),
-              createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() })),
+            items: workspaces(sessions),
             archivedSessionIds: [], pinnedSessionIds: [],
           } }
           break
@@ -116,8 +190,17 @@ export function createWorkbenchRemote(
         case 'account/watch': yield { status: 'signed-out', attempt: null, links: {} }; break
         default: throw new Error(`Unconnected Knot read stream: ${endpoint}`)
       }
-      // B1 is snapshot-only, not a simulated live stream. Dispose on navigation.
-      if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }))
+      // Only local acknowledged configuration/create mutations notify in B2.
+      // Online generation and changes from other clients remain later batches.
+      while (!signal.aborted) {
+        if (queue.length === 0) await new Promise<void>(resolve => { wake = resolve })
+        wake = undefined
+        while (queue.length && !signal.aborted) yield queue.shift()
+      }
+      } finally {
+        listeners.delete(receive)
+        signal.removeEventListener('abort', aborted)
+      }
     },
   }
 }

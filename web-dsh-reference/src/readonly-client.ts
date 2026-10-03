@@ -9,7 +9,7 @@ export function readonlyClientFactory() {
     apply(ctx: Context) {
       const update = () => {
         for (const id of ctx.sessions.list.getSnapshot().ids) {
-          ctx.conversation.blocks.set(id, { reason: 'B1 · 只读历史 / Read-only history — 发送与配置尚未接线' })
+          ctx.conversation.blocks.set(id, { reason: 'B2 · 配置已接线，发送与实时输出等待后续批次 / Sending is not connected yet' })
         }
       }
       ctx.effect(() => ctx.sessions.list.subscribe(update))
