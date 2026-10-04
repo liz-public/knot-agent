@@ -78,6 +78,32 @@ test('four inspection Clients register independent native sibling tabs, with no 
   assert.ok(entries.every(entry => Object.keys(entry.options.inject('s')).join() === 'sessionId'))
 })
 
+test('analysis tabs do not invalidate on new facts; Context reuses its compact call directory', () => {
+  for (const name of ['cover', 'tools', 'context', 'plugins']) {
+    const source = buildSync({ entryPoints: [new URL(`../src/${name}-client.tsx`, import.meta.url).pathname],
+      bundle: true, write: false, format: 'cjs', jsx: 'automatic',
+      external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives', './inspection-view.tsx'] }).outputFiles[0].text
+    const module = { exports: {} as any }, reads: any[] = [], entries: any[] = []
+    let facts = 1
+    const read = (endpoint: string, input: any, revision: unknown) => {
+      reads.push({ endpoint, input, revision })
+      return { value: endpoint === 'knot/context-timeline' ? [{ requestId: 'r', position: 3, purpose: 'agent' }] : undefined, refresh: () => {} }
+    }
+    new Function('require', 'module', 'exports', source)((id: string) => id === './inspection-view.tsx' ? { useRead: read }
+      : id === 'react' ? { useState: (value: any) => [value, () => {}], useEffect: () => {}, useMemo: (fn: any) => fn(), useRef: (value: any) => ({ current: value }) }
+      : id === 'react/jsx-runtime' ? { jsx: (type: any, props: any) => ({ type, props }), jsxs: (type: any, props: any) => ({ type, props }) } : {}, module, module.exports)
+    module.exports.apply({ on: () => {}, effect: () => {}, slots: { entries: () => [], inject: (_: string, setup: any) => setup(),
+      register: (_: any, component: any) => entries.push(component) } })
+    const props = { sessionId: 's', useProjection: () => facts, openView: () => {} }
+    entries[0](props); facts = 100; entries[0](props)
+    assert.ok(reads.every(read => read.revision === undefined), name)
+    assert.ok(!reads.some(read => read.endpoint === 'knot/journal'), name)
+    if (name === 'context') assert.deepEqual(reads.slice(0, 2).map(read => [read.endpoint, read.input]), [
+      ['knot/context-timeline', { sessionId: 's' }], ['knot/context', { sessionId: 's', requestId: 'r' }],
+    ])
+  }
+})
+
 test('B5 native contributions install even when the original Client activates later', async () => {
   const output = buildSync({ entryPoints: [new URL('../src/business-client.tsx', import.meta.url).pathname], bundle: true,
     write: false, format: 'cjs', jsx: 'automatic', external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives', '@deepseek-ai/dsh-client-ui-goal/client'] }).outputFiles[0].text

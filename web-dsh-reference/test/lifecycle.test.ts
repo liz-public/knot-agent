@@ -5,6 +5,75 @@ import { createInteractionBroker } from '../../src/workbench/interactions.ts'
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve))
 
+test('incremental carrier fetches only the tail, avoids catalog reads on refresh and releases history on close', async () => {
+  let emit = (_: any) => {}
+  const events: any[] = Array.from({ length: 1200 }, (_, position) => ({ position, type: 'trace.note', data: 'history' }))
+  const urls: string[] = [], sizes: number[] = []
+  const remote = createWorkbenchRemote((async (url: string) => {
+    urls.push(url)
+    const parsed = new URL(url, 'http://test')
+    if (parsed.pathname.endsWith('/sessions')) return Response.json({ sessions: [] })
+    const after = parsed.searchParams.has('after') ? Number(parsed.searchParams.get('after')) : undefined
+    const tail = after === undefined ? [...events] : events.slice(after + 1)
+    sizes.push(tail.length)
+    return Response.json({ session: { id: 's', writable: true, runState: 'idle' }, events: tail,
+      ...(after === undefined ? {} : { after }) })
+  }) as typeof fetch, (_id, listener) => { emit = listener; return () => {} })
+  const abort = new AbortController(), frames: any[] = []
+  const consume = (async () => {
+    for await (const frame of remote.open('$session', 'session/follow', { args: [{ address: { kind: 'session', sessionId: 's' } }] }, abort.signal)) frames.push(frame)
+  })()
+  await tick()
+  const before = urls.length
+  events.push({ position: 1200, type: 'user.message', data: { turnId: 't', content: 'New' } })
+  emit({ kind: 'journal.changed' }); await tick()
+  assert.deepEqual(urls.slice(before), ['/api/workbench/sessions/s?after=1199'])
+  assert.equal(sizes.at(-1), 1)
+  assert.equal(frames.filter(frame => frame.event?.type === 'user/message').length, 1)
+  emit({ kind: 'journal.changed' }); await tick()
+  assert.equal(sizes.at(-1), 0)
+  assert.equal(frames.filter(frame => frame.event?.type === 'user/message').length, 1)
+  abort.abort(); await consume
+  const next = new AbortController()
+  const stream = remote.open('$session', 'session/follow', { args: [{ address: { kind: 'session', sessionId: 's' } }] }, next.signal)
+  await stream.next()
+  assert.equal(urls.at(-1), '/api/workbench/sessions/s')
+  assert.equal(sizes.at(-1), 1201)
+  next.abort(); await stream.return?.()
+})
+
+test('catalog stream updates child navigation without tying it to every Journal notification', async () => {
+  let changed = () => {}, reads = 0
+  const sessions: any[] = [{ id: 'parent', title: 'Parent', workspace: '/test', assembly: 'case2', writable: true }]
+  const remote = createWorkbenchRemote((async (url: string) => {
+    if (url.endsWith('/sessions')) { reads++; return Response.json({ sessions: [...sessions] }) }
+    return Response.json({ session: sessions[0], events: [] })
+  }) as typeof fetch, () => () => {}, listener => { changed = listener; return () => {} })
+  const abort = new AbortController(), frames: any[] = [], controls: any[] = []
+  const follow = (async () => {
+    for await (const _ of remote.open('$session', 'session/follow', { args: [{ address: { kind: 'session', sessionId: 'parent' } }] }, abort.signal)) {}
+  })()
+  const control = (async () => {
+    for await (const frame of remote.open('$control', 'session/control', {}, abort.signal)) controls.push(frame)
+  })()
+  const consume = (async () => {
+    for await (const frame of remote.open('$workspace', 'workspace/follow', {}, abort.signal)) frames.push(frame)
+  })()
+  await tick()
+  sessions.push({ id: 'child', title: 'Child', parentSessionId: 'parent', workspace: '/test', assembly: 'case2' })
+  changed(); await tick()
+  const before = reads
+  changed(); await tick()
+  assert.equal(reads, before + 1)
+  assert.ok(controls.every(frame => frame.type !== 'projection' || frame.seq >= 0))
+  assert.equal(frames.at(-1).type, 'upsert')
+  assert.deepEqual(frames.at(-1).workspace.sessionIds, ['parent'])
+  const children: any = await remote.call('$test', 'subagents/list', { args: [{ parentSessionId: 'parent' }] })
+  assert.equal(children.ok, true)
+  assert.equal(children.value.entries[0].id, 'child')
+  abort.abort(); await Promise.all([consume, follow, control])
+})
+
 test('S3 coalesces long-history refresh bursts without losing stream order or final settlement', async () => {
   const events: any[] = Array.from({ length: 1200 }, (_, position) => ({ position, type: 'trace.note', data: { text: 'history' } }))
   let emit = (_: any) => {}, reads = 0, release: (() => void) | undefined

@@ -1,5 +1,24 @@
 import type { WorkbenchSession } from './session.js'
 import type { SessionRegistry } from './session-registry.js'
+import type { Event } from '../journal.js'
+import { projectSessionConfiguration, type SessionConfiguration } from '../agent/session-configuration.js'
+import type { ReasoningEffort } from './session.js'
+
+/** Inherit committed facts, not the parent's next-turn UI draft or creation defaults. */
+export function subagentConfiguration(
+  events: readonly Event[],
+  request: { readonly reasoningEffort?: ReasoningEffort },
+): SessionConfiguration {
+  const configuration = projectSessionConfiguration(events)
+  if (configuration.inference === undefined) throw new Error('Parent has no committed inference configuration')
+  return {
+    ...configuration,
+    inference: {
+      ...configuration.inference,
+      ...(request.reasoningEffort === undefined ? {} : { reasoningEffort: request.reasoningEffort }),
+    },
+  }
+}
 
 export async function runSubagentSession(
   session: WorkbenchSession,

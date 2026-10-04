@@ -7,7 +7,6 @@ import type {
 import type { LlmProviderSource } from '../agent/plugins/llm.js'
 import type { SessionConfiguration } from '../agent/session-configuration.js'
 import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
-import type { ToolDefinition } from '../agent/plugins/tools.js'
 
 export interface GenerationOutput {
   open(meta: { readonly requestId: string; readonly turnId: string; readonly purpose: string }): {
@@ -60,7 +59,6 @@ export interface AssemblyInput {
   readonly askPort: HostAskPort
   readonly platformPlugins: readonly PluginNode[]
   readonly subagentFactory?: SubagentFactory
-  readonly extraTools?: readonly ToolDefinition[]
 }
 
 export interface AssemblyPluginDeclaration {

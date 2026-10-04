@@ -44,6 +44,7 @@ const defaultMaxEvents = 20_000
 export async function readJournalSnapshot(
   path: string,
   limits: JournalReadLimits = {},
+  missing: 'empty' | 'error' = 'error',
 ): Promise<JournalSnapshotDto> {
   const maxBytes = limits.maxBytes ?? defaultMaxBytes
   const maxEvents = limits.maxEvents ?? defaultMaxEvents
@@ -53,6 +54,7 @@ export async function readJournalSnapshot(
     size = (await stat(path)).size
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      if (missing === 'empty') return { source: { name: basename(path), readOnly: true }, eventCount: 0, events: [] }
       throw new JournalReadError('source_not_found', 'Journal source was not found')
     }
     throw new JournalReadError('read_failed', 'Journal source could not be inspected')
@@ -123,9 +125,5 @@ export async function readJournalSnapshot(
     }
   })
 
-  return {
-    source: { name: basename(path), readOnly: true },
-    eventCount: events.length,
-    events,
-  }
+  return { source: { name: basename(path), readOnly: true }, eventCount: events.length, events }
 }

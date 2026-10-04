@@ -1,4 +1,4 @@
-import { JournalReadError, readJournalSnapshot, type JournalReadLimits } from './read-journal.js'
+import { readJournalSnapshot, type JournalReadLimits } from './read-journal.js'
 import { projectSessionConfiguration } from '../agent/session-configuration.js'
 import type { SessionSnapshotDto, WorkbenchSession } from './session.js'
 
@@ -18,13 +18,7 @@ export function storedSession(
   limits: JournalReadLimits = {},
 ): WorkbenchSession {
   async function snapshot(): Promise<SessionSnapshotDto> {
-    let journal
-    try {
-      journal = await readJournalSnapshot(config.journalPath, limits)
-    } catch (error) {
-      if (!(error instanceof JournalReadError) || error.code !== 'source_not_found') throw error
-      journal = { eventCount: 0, events: [] }
-    }
+    const journal = await readJournalSnapshot(config.journalPath, { maxBytes: Infinity, maxEvents: Infinity, ...limits })
     const updatedAt = journal.events.at(-1)?.observedAt
     const configuration = projectSessionConfiguration(journal.events)
     const inference = configuration.inference

@@ -1,11 +1,65 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import { JournalReadError, readJournalSnapshot } from '../src/workbench/read-journal.js'
 import { storedSession } from '../src/workbench/stored-session.js'
+import { createAssemblyCatalog } from '../src/workbench/assembly-catalog.js'
+
+test('session reads have no retained history; missing live logs are empty, stored logs remain errors', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-session-read-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const path = join(directory, 'session.jsonl')
+  const session = storedSession({ id: 's', title: 'S', assembly: 'case2', journalPath: path })
+  await assert.rejects(() => session.snapshot(), /source was not found/)
+  assert.equal((await readJournalSnapshot(path, {}, 'empty')).eventCount, 0)
+  await writeFile(path, JSON.stringify({ type: 'note', data: 'first' }) + '\n')
+  const first = await session.snapshot()
+  await appendFile(path, JSON.stringify({ type: 'note', data: 'second' }) + '\n')
+  assert.equal((await session.snapshot()).events.length, 2)
+  assert.equal(first.events.length, 1)
+  await writeFile(path, JSON.stringify({ type: 'note', data: 'replacement' }) + '\n')
+  assert.equal((await session.snapshot()).events[0]?.data, 'replacement')
+})
+
+test('owned Session history passes the import reader limits without weakening bounded imports', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-large-history-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const path = join(directory, 'large.jsonl')
+  await writeFile(path, JSON.stringify({ type: 'tool.result', data: 'x'.repeat(8 * 1024 * 1024) }) + '\n')
+  await assert.rejects(() => readJournalSnapshot(path), /read limit/)
+  const session = storedSession({ id: 'large', title: 'Large', assembly: 'case2', journalPath: path })
+  assert.equal((await session.snapshot()).events.length, 1)
+  await writeFile(path, (JSON.stringify({ type: 'note', data: null }) + '\n').repeat(20_001))
+  await assert.rejects(() => readJournalSnapshot(path), /event read limit/)
+  assert.equal((await session.snapshot()).events.length, 20_001)
+})
+
+test('HTTP deltas preserve positions and plugin analytics works without Studio', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-delta-http-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const path = join(directory, 'session.jsonl')
+  await writeFile(path, JSON.stringify({ type: 'user.message', data: { content: 'Hello' } }) + '\n')
+  const server = createWorkbenchServer({
+    assemblies: createAssemblyCatalog(),
+    sessions: [storedSession({ id: 's', title: 'S', assembly: 'case2', journalPath: path })],
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) })
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/workbench/sessions/s`
+  const get = async (suffix: string) => (await fetch(base + suffix)).json()
+  assert.equal((await get('')).events.length, 1)
+  assert.deepEqual((await get('?after=0')).events, [])
+  await appendFile(path, JSON.stringify({ type: 'assistant.message', data: { content: 'Done' } }) + '\n')
+  const delta = await get('?after=0')
+  assert.equal(delta.after, 0); assert.equal(delta.session.eventCount, 2)
+  assert.equal(delta.events[0].position, 1); assert.equal(delta.events.length, 1)
+  assert.equal((await get('?after=99')).after, -1)
+  assert.ok((await get('/analytics/plugins')).plugins.some((plugin: { id: string }) => plugin.id === 'coding-flow'))
+  assert.equal((await fetch(base + '?after=wrong')).status, 400)
+})
 
 test('workbench reader returns ordered detached Journal events without changing the source', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-'))

@@ -1,5 +1,5 @@
 /** Small read/display helpers, not a second inspection runtime or data store. */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, JsonTree } from '@deepseek-ai/dsh-client-ui-primitives'
 
 export interface ViewProps {
@@ -15,9 +15,12 @@ export function useRead<T>(endpoint: string | undefined, input: Record<string, u
   const [value, setValue] = useState<T>()
   const [error, setError] = useState('')
   const [reload, setReload] = useState(0)
+  const source = useRef('')
   useEffect(() => {
     const abort = new AbortController()
-    setValue(undefined); setError('')
+    const identity = endpoint + ':' + key
+    if (source.current !== identity) { source.current = identity; setValue(undefined) }
+    setError('')
     if (endpoint) void (window as any).__DSH_TRANSPORT__.rpc.call('$knot', endpoint,
       { args: [JSON.parse(key)] }, abort.signal).then((result: any) => {
       if (abort.signal.aborted) return

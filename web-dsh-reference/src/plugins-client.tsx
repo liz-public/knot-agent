@@ -3,8 +3,8 @@ import type { PluginAnalyticsDto } from '../../src/workbench/plugin-analytics.js
 import { download, Metric, Panel, percent, useRead, type ViewProps } from './inspection-view.tsx'
 import { descending } from './inspection-order.ts'
 
-function PluginsView({ sessionId, useProjection }: ViewProps) {
-  const { value, error, refresh } = useRead<PluginAnalyticsDto>('knot/plugins', { sessionId }, useProjection('knotEventCount'))
+function PluginsView({ sessionId }: ViewProps) {
+  const { value, error, refresh } = useRead<PluginAnalyticsDto>('knot/plugins', { sessionId })
   return <Panel title="插件与协议" note="当前 Assembly 的声明 × 本会话事实 · 订阅匹配不是实际处理次数，不归因输出" error={error} refresh={refresh}
     actions={value && <Button onClick={() => download(`knot-plugins-${sessionId}.json`, value)}>导出订阅匹配</Button>}>
     {!value ? <p>读取插件声明…</p> : !value.assembly ? <p>Host 没有此 Assembly 的元数据，匹配次数未知，不按零处理。</p> : <>

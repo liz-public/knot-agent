@@ -9,6 +9,7 @@ import type { ApprovalMode, ReasoningEffort } from './session.js'
 import { createSessionRegistry, type SessionRegistry } from './session-registry.js'
 import type { StudioController } from './studio.js'
 import { projectContextTimeline, projectModelContext } from './context-projection.js'
+import type { AssemblyCatalog } from './assembly-catalog.js'
 import { projectToolAnalytics } from './tool-analytics.js'
 import { projectPluginAnalytics } from './plugin-analytics.js'
 import { projectSessionCover } from './session-cover.js'
@@ -23,6 +24,7 @@ export interface WorkbenchServerOptions {
   readonly setDefaultProviderProfile?: (id: string) => Promise<ProviderProfileSummary>
   readonly testProviderProfile?: (id: string) => Promise<void>
   readonly studio?: StudioController
+  readonly assemblies?: AssemblyCatalog
   readonly createSession?: (input: {
     title?: string
     cwd?: string
@@ -329,7 +331,15 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
           return
         }
-        sendJson(response, 200, await session.snapshot())
+        const snapshot = await session.snapshot()
+        const cursor = url.searchParams.get('after')
+        if (cursor === null) sendJson(response, 200, snapshot)
+        else {
+          const after = Number(cursor)
+          if (!/^-?\d+$/.test(cursor) || !Number.isSafeInteger(after) || after < -1) throw new Error('after must be an event position >= -1')
+          const base = after < snapshot.events.length ? after : -1
+          sendJson(response, 200, { ...snapshot, after: base, events: snapshot.events.slice(base + 1) })
+        }
         return
       }
 
@@ -363,7 +373,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           return
         }
         const snapshot = await session.snapshot()
-        const assembly = (await options.studio?.snapshot())?.projects.find(project => project.assembly.id === snapshot.session.assembly)?.assembly
+        const assembly = options.assemblies?.get(snapshot.session.assembly)?.description
         sendJson(response, 200, projectPluginAnalytics(snapshot.events, assembly))
         return
       }

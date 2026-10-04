@@ -8,6 +8,13 @@ import { interactionAnswer, interactionFrame } from './interaction-projection.ts
 import { GenerationProjection } from './generation-projection.ts'
 
 type SubscribeSession = (id: string, listener: (event: LiveSessionEvent) => void, reconnect?: () => void) => () => void
+type SubscribeCatalog = (listener: () => void) => () => void
+const subscribeCatalog: SubscribeCatalog = listener => {
+  const source = new EventSource('/api/workbench/sessions/stream')
+  source.addEventListener('catalog', listener)
+  source.addEventListener('open', listener)
+  return () => source.close()
+}
 const subscribeSession: SubscribeSession = (id, listener, reconnect) => {
   const source = new EventSource(`/api/workbench/sessions/${encodeURIComponent(id)}/stream`)
   source.addEventListener('session', event => listener(JSON.parse((event as MessageEvent).data)))
@@ -30,6 +37,7 @@ const unsupported = () => ({ ok: false as const, error: {
 export function createWorkbenchRemote(
   fetcher: typeof fetch = fetch,
   subscribe: SubscribeSession = subscribeSession,
+  catalogSubscribe: SubscribeCatalog | undefined = typeof EventSource === 'undefined' ? undefined : subscribeCatalog,
 ): ClientConnectionRpc {
   const pending = new Map<string, { sessionId: string; interaction: InteractionRequestDto }>()
   // Browser receipt identities only: never persisted into the Knot Journal.
@@ -50,16 +58,41 @@ export function createWorkbenchRemote(
     return value as T
   }
   const get = <T>(path: string, signal?: AbortSignal) => http<T>(path, signal)
-  const list = async (signal?: AbortSignal) =>
-    (await get<{ sessions: SessionSummaryDto[] }>('sessions', signal)).sessions
-  const snapshot = (id: string, signal?: AbortSignal) =>
-    get<SessionSnapshotDto>('sessions/' + encodeURIComponent(id), signal)
+  let catalog: SessionSummaryDto[] | undefined
+  const listedIds = new Set<string>()
+  const list = async (signal?: AbortSignal) => {
+    catalog = (await get<{ sessions: SessionSummaryDto[] }>('sessions', signal)).sessions
+    return catalog
+  }
+  // Full history exists only for followed Sessions, and is discarded on close.
+  const follows = new Map<string, number>()
+  const snapshots = new Map<string, SessionSnapshotDto>()
+  const reads = new Map<string, Promise<SessionSnapshotDto>>()
+  const cursors = new Map<string, number>()
+  const snapshot = (id: string, signal?: AbortSignal): Promise<SessionSnapshotDto> => {
+    const read = async () => {
+      const previous = snapshots.get(id)
+      const next = await get<SessionSnapshotDto>('sessions/' + encodeURIComponent(id)
+        + (previous ? '?after=' + (previous.events.length - 1) : ''), signal)
+      const events = next.after === undefined || next.after === -1 ? next.events
+        : next.after !== (previous?.events.length ?? 0) - 1
+          ? (() => { throw new Error('Journal delta does not follow the current snapshot') })()
+          : next.events.length ? [...previous!.events, ...next.events] : previous!.events
+      const result = { session: next.session, events }
+      if (follows.has(id)) snapshots.set(id, result)
+      return result
+    }
+    const result = (reads.get(id) ?? Promise.resolve()).then(read, read)
+    reads.set(id, result)
+    void result.finally(() => { if (reads.get(id) === result) reads.delete(id) }).catch(() => {})
+    return result
+  }
   const children = (sessions: SessionSummaryDto[], id: string) => sessions
     .filter(session => session.parentSessionId === id)
     .map(session => ({ id: session.id, label: session.title,
       createdAt: 0, mode: 'unknown' as const }))
   const project = async (id: string, signal?: AbortSignal) => {
-    const [source, sessions] = await Promise.all([snapshot(id, signal), list(signal)])
+    const [source, sessions] = await Promise.all([snapshot(id, signal), catalog ?? list(signal)])
     const projected = projectKnotSnapshot(source)
     const claimed = new Set<string>()
     for (const prompt of prompts.get(id) ?? []) {
@@ -99,6 +132,7 @@ export function createWorkbenchRemote(
   const created = async (input: Record<string, any>, signal?: AbortSignal) => {
     const { session } = await http<{ session: SessionSummaryDto }>('sessions', signal, 'POST', input)
     publish('$events', { type: 'emit', event: 'api-session/added', args: [row(session)] })
+    listedIds.add(session.id)
     for (const workspace of workspaces(await list(signal))) publish('workspace/follow', { type: 'upsert', workspace })
     return session
   }
@@ -123,7 +157,11 @@ export function createWorkbenchRemote(
             // race queued duplicate requests with a second local cancellation.
             return ok(undefined)
           }
-          case 'session/list': return ok({ items: (await list(signal)).map(row) })
+          case 'session/list': {
+            const sessions = await list(signal)
+            for (const session of sessions) listedIds.add(session.id)
+            return ok({ items: sessions.map(row) })
+          }
           case 'session/prompt': {
             const id = input.sessionId
             const current = await snapshot(id, signal)
@@ -246,7 +284,26 @@ export function createWorkbenchRemote(
           yield { type: 'baseline', value: { projections: {} } }
           break
         case 'workspace/follow': {
+          unsubscribe = catalogSubscribe?.(() => {
+            // Membership changes, not every Journal append, invalidate the catalog.
+            catalog = undefined
+            processing = processing.then(async () => {
+              if (signal.aborted) return
+              const sessions = await list(signal)
+              for (const session of sessions) if (!listedIds.has(session.id)) {
+                publish('$events', { type: 'emit', event: 'api-session/added', args: [row(session)] })
+                listedIds.add(session.id)
+              }
+              for (const workspace of workspaces(sessions)) publish('workspace/follow', { type: 'upsert', workspace })
+              for (const id of follows.keys()) {
+                const seq = cursors.get(id) ?? -1
+                if (seq >= 0) publish('session/control', { type: 'projection', sessionId: id,
+                  key: 'subagentCatalog', value: children(sessions, id), seq })
+              }
+            }).catch(() => {})
+          })
           const sessions = await list(signal)
+          for (const session of sessions) listedIds.add(session.id)
           yield { type: 'baseline', value: {
             items: workspaces(sessions),
             archivedSessionIds: [], pinnedSessionIds: [],
@@ -257,6 +314,7 @@ export function createWorkbenchRemote(
           const address = object(input.address)
           const id = address.kind === 'session' ? address.sessionId : address.childSessionId
           followedId = id
+          follows.set(id, (follows.get(id) ?? 0) + 1)
           const generation = new GenerationProjection()
           const enqueue = (frame: unknown) => { if (!signal.aborted) { queue.push(frame); wake?.() } }
           let projected: Awaited<ReturnType<typeof project>>
@@ -276,6 +334,7 @@ export function createWorkbenchRemote(
             }
             acknowledge(id, added)
             projected = next
+            cursors.set(id, cursor)
             if (next.updatedAt > 0) publish('$events', { type: 'emit', event: 'api-session/activity', args: [id, next.updatedAt] })
             publish('knot/live/' + id, { kind: 'projection', values: next.projections.values })
             if (cursor >= 0) for (const [key, value] of Object.entries(next.projections.values)) publish('session/control', {
@@ -362,6 +421,7 @@ export function createWorkbenchRemote(
           unsubscribe = subscribe(id, schedule, () => schedule({ kind: 'journal.changed' }))
           projected = await project(id, signal)
           cursor = projected.records.length - 1
+          cursors.set(id, cursor)
           acknowledge(id, projected.records)
           const initialized = wake!; wake = undefined; initialized()
           if (!projected.writable) { unsubscribe(); unsubscribe = undefined }
@@ -388,6 +448,11 @@ export function createWorkbenchRemote(
       }
       } finally {
         unsubscribe?.()
+        if (followedId !== undefined) {
+          const remaining = (follows.get(followedId) ?? 1) - 1
+          if (remaining) follows.set(followedId, remaining)
+          else { follows.delete(followedId); snapshots.delete(followedId); cursors.delete(followedId) }
+        }
         if (followedId !== undefined) for (const [eventId, item] of pending) {
           if (item.sessionId !== followedId) continue
           pending.delete(eventId)

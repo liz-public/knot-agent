@@ -12,6 +12,7 @@ import {
 import type { OutputSinks } from '../../agent/plugins/output.js'
 import { SESSION_START, USER_MESSAGE } from '../../agent/protocol.js'
 import type { ToolDefinition } from '../../agent/plugins/tools.js'
+import type { WebSearchProvider } from '../../agent/providers/deepseek-search.js'
 import type { ToolOutput } from './coding-tools.js'
 import { controlledEventBoundary } from '../../plugins/controlled-boundary.js'
 import { buildCase2PluginNodes } from './plugin-definitions.js'
@@ -30,6 +31,7 @@ export interface Case2Options {
   readonly approvalPort?: ApprovalPort
   readonly askPort?: AskPort
   readonly extraTools?: readonly ToolDefinition[]
+  readonly webSearch?: WebSearchProvider
   readonly subagentFactory?: SubagentFactory
   readonly compression?: CompressHistoryOptions
   /** Optional outward observers assembled before business plugins. */

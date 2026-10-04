@@ -6,7 +6,41 @@ import test from 'node:test'
 import { defineAssembly } from '../src/workbench/assembly.js'
 import { createAssemblyCatalog } from '../src/workbench/assembly-catalog.js'
 import { createLiveSession } from '../src/workbench/live-session.js'
+import { createCase2Assembly } from '../src/workbench/case2-assembly.js'
 import type { LiveSessionEvent } from '../src/workbench/session.js'
+
+test('CASE2 search declaration and execution use the same assembled provider capability', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knot-search-assembly-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const queries: string[] = []
+  const assembly = createCase2Assembly({ async search(query) {
+    queries.push(query)
+    return { sources: [{ url: 'https://example.com', title: 'Test source' }] }
+  } })
+  assert.equal(assembly.description.tools.filter(tool => tool.name === 'web_search').length, 1)
+  assert.equal(createCase2Assembly().description.tools.some(tool => tool.name === 'web_search'), false)
+  let step = 0
+  const session = await createLiveSession({
+    id: 'search', title: 'Search', cwd: directory, journalPath: join(directory, 'session.jsonl'), assembly,
+    subagentFactory: { run: async () => ({ summary: '' }) },
+    llm: { async generate(input) {
+      const names = input.tools.map(tool => (tool['function'] as { name: string }).name)
+      assert.deepEqual(names, assembly.description.tools.map(tool => tool.name))
+      return { usage: { contextWindow: 32_768 }, generated: ++step === 1
+        ? { toolCalls: [{ id: 'search-1', name: 'web_search', arguments: { query: 'journal-first' } }] }
+        : { content: 'Search completed.', toolCalls: [] } }
+    } },
+  })
+  const idle = new Promise<void>(resolve => session.subscribe!(event => {
+    if (event.kind === 'state.changed' && event.runState === 'idle') resolve()
+  }))
+  session.submit!('Search for journal-first')
+  await idle
+  assert.deepEqual(queries, ['journal-first'])
+  const snapshot = await session.snapshot()
+  const result = snapshot.events.find(event => event.type === 'tool.result')?.data
+  assert.match(JSON.stringify(result), /Test source/)
+})
 
 test('assembly catalog exposes CASE1 and CASE2 from their executable definitions', () => {
   const catalog = createAssemblyCatalog()

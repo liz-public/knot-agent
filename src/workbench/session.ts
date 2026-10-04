@@ -29,6 +29,8 @@ export interface SessionSummaryDto {
 export interface SessionSnapshotDto {
   readonly session: SessionSummaryDto
   readonly events: readonly ReadEvent[]
+  /** HTTP delta response only: events strictly after this position; -1 resets. */
+  readonly after?: number
 }
 
 export type LiveSessionEvent =

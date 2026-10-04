@@ -29,7 +29,7 @@ test('B4 carrier sends, steers, settles, pauses/resumes and forwards errors with
   const events: any[] = []
   const writes: any[] = []
   const remote = createWorkbenchRemote((async (url: string, options?: RequestInit) => {
-    const id = url.split('/')[4]
+    const id = new URL(url, 'http://test').pathname.split('/')[4]
     if (options?.method) { writes.push({ url, body: options.body ? JSON.parse(options.body as string) : undefined }); return Response.json({ accepted: true }) }
     return Response.json(url.endsWith('/sessions') ? { sessions } : { session: sessions.find(value => value.id === id), events: id === 'one' ? events : [] })
   }) as typeof fetch, (id, listener) => { listeners.set(id, listener); return () => { listeners.delete(id) } })

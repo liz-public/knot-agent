@@ -3,8 +3,8 @@ import type { ToolAnalyticsDto } from '../../src/workbench/tool-analytics.js'
 import { download, Metric, Panel, percent, useRead, type ViewProps } from './inspection-view.tsx'
 import { descending } from './inspection-order.ts'
 
-function ToolsView({ sessionId, useProjection, openView }: ViewProps) {
-  const { value, error, refresh } = useRead<ToolAnalyticsDto>('knot/tools', { sessionId }, useProjection('knotEventCount'))
+function ToolsView({ sessionId, openView }: ViewProps) {
+  const { value, error, refresh } = useRead<ToolAnalyticsDto>('knot/tools', { sessionId })
   return <Panel title="工具统计" note="全会话的注册工具与调用事实 · 零调用保留，不代表工具应该被使用" error={error} refresh={refresh}
     actions={value && <Button onClick={() => download(`knot-tools-${sessionId}.json`, value)}>导出 JSON</Button>}>
     {!value ? <p>读取工具统计…</p> : <>

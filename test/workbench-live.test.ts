@@ -12,9 +12,26 @@ import { createLiveSession } from '../src/workbench/live-session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from '../src/workbench/session-catalog.js'
 import { createSessionRegistry } from '../src/workbench/session-registry.js'
 import type { InteractionRequestDto, LiveSessionEvent, WorkbenchSession } from '../src/workbench/session.js'
-import { runSubagentSession } from '../src/workbench/subagent-session.js'
+import { runSubagentSession, subagentConfiguration } from '../src/workbench/subagent-session.js'
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
+
+test('subagent inheritance reads the latest committed model, effort and approval policy', () => {
+  const events = [
+    { type: 'inference.configured', data: { providerProfileId: 'old', provider: 'deepseek', model: 'old', reasoningEffort: 'low' } },
+    { type: 'approval.policy.configured', data: { mode: 'ask' } },
+    { type: 'inference.configured', data: { providerProfileId: 'new', provider: 'openai-compatible', model: 'chosen-model', reasoningEffort: 'high' } },
+    { type: 'approval.policy.configured', data: { mode: 'auto' } },
+  ]
+  const inherited = subagentConfiguration(events, {})
+  assert.equal(inherited.inference?.providerProfileId, 'new')
+  assert.equal(inherited.inference?.model, 'chosen-model')
+  assert.equal(inherited.inference?.reasoningEffort, 'high')
+  assert.equal(inherited.approvalMode, 'auto')
+  assert.equal(subagentConfiguration(events, { reasoningEffort: 'low' }).inference?.reasoningEffort, 'low')
+  assert.equal(subagentConfiguration(events, {}).inference?.reasoningEffort, 'high')
+  assert.throws(() => subagentConfiguration([], {}), /committed inference/)
+})
 
 test('workbench ask interaction waits for and returns the matching browser answer', async () => {
   const events: LiveSessionEvent[] = []

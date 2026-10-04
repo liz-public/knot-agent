@@ -5,11 +5,10 @@ import { createEventHub } from './event-hub.js'
 import { createInteractionBroker } from './interactions.js'
 import { JOURNAL_CHANGE_METADATA, journalChangePlugin } from './journal-bridge.js'
 import { workbenchLiveOutput } from './live-output.js'
-import { JournalReadError, readJournalSnapshot } from './read-journal.js'
+import { readJournalSnapshot } from './read-journal.js'
 import { projectSessionConfiguration, type SessionConfiguration } from '../agent/session-configuration.js'
 import type { LiveSessionEvent, SessionRunState, WorkbenchSession } from './session.js'
 import { workbenchToolOutput } from './tool-output.js'
-import type { ToolDefinition } from '../agent/plugins/tools.js'
 
 export interface LiveSessionOptions {
   readonly id: string
@@ -23,7 +22,6 @@ export interface LiveSessionOptions {
   readonly subagentFactory?: SubagentFactory
   readonly parentSessionId?: string
   readonly delegationDepth?: number
-  readonly extraTools?: readonly ToolDefinition[]
 }
 
 export async function createLiveSession(
@@ -43,19 +41,11 @@ export async function createLiveSession(
       plugin: journalChangePlugin(() => hub.emit({ kind: 'journal.changed' })),
       metadata: JOURNAL_CHANGE_METADATA,
     }],
-    ...(options.extraTools === undefined ? {} : { extraTools: options.extraTools }),
     ...(options.subagentFactory === undefined ? {} : { subagentFactory: options.subagentFactory }),
   })
 
-  let recorded: SessionConfiguration = {}
-  try {
-    recorded = projectSessionConfiguration((await readJournalSnapshot(options.journalPath, {
-      maxBytes: Number.POSITIVE_INFINITY,
-      maxEvents: Number.POSITIVE_INFINITY,
-    })).events)
-  } catch (error) {
-    if (!(error instanceof JournalReadError) || error.code !== 'source_not_found') throw error
-  }
+  const read = () => readJournalSnapshot(options.journalPath, { maxBytes: Infinity, maxEvents: Infinity }, 'empty')
+  const recorded = projectSessionConfiguration((await read()).events)
   let pendingConfiguration: SessionConfiguration = {
     inference: recorded.inference ?? options.defaultConfiguration?.inference,
     approvalMode: recorded.approvalMode ?? options.defaultConfiguration?.approvalMode,
@@ -64,13 +54,7 @@ export async function createLiveSession(
   let runState: SessionRunState = 'idle'
 
   async function snapshot() {
-    let journal
-    try {
-      journal = await readJournalSnapshot(options.journalPath)
-    } catch (error) {
-      if (!(error instanceof JournalReadError) || error.code !== 'source_not_found') throw error
-      journal = { source: { name: options.journalPath, readOnly: true as const }, eventCount: 0, events: [] }
-    }
+    const journal = await read()
     const updatedAt = journal.events.at(-1)?.observedAt
     const inference = pendingConfiguration.inference
     return {

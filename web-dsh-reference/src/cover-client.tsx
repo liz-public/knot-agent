@@ -22,20 +22,11 @@ function CoverArt({ sessionId }: { sessionId: string }) {
 }
 
 function Cover({ sessionId, useProjection, openView }: ViewProps) {
-  const count = useProjection('knotEventCount')
   const subagentCount = useProjection('subagentCatalog')?.length ?? 0
-  const [state, setState] = useState('')
-  const { value, error, refresh } = useRead<SessionCoverDto>('knot/cover', { sessionId }, `${count}:${state}`)
+  const { value, error, refresh } = useRead<SessionCoverDto>('knot/cover', { sessionId })
   const [filter, setFilter] = useState(''), [limit, setLimit] = useState(50)
   useEffect(() => {
-    setFilter(''); setLimit(50); setState('')
-    const abort = new AbortController()
-    void (async () => {
-      for await (const event of (window as any).__DSH_TRANSPORT__.rpc.open('$knot', 'knot/live', { args: [{ sessionId }] }, abort.signal)) {
-        if (!abort.signal.aborted && event.kind === 'state.changed') setState(event.runState)
-      }
-    })().catch(() => { /* The read endpoint owns errors; live state is optional for archives. */ })
-    return () => abort.abort()
+    setFilter(''); setLimit(50)
   }, [sessionId])
   if (!value) return <section className="knot-cover"><p role={error ? 'alert' : undefined}>{error || '读取会话封面…'}</p>{error && <Button onClick={refresh}>重试</Button>}</section>
   const { session, usage, goal, todos, recordedConfiguration } = value

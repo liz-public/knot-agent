@@ -6,6 +6,8 @@ import { projectSessionConfiguration, type SessionConfiguration } from '../agent
 import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
 import type { WorkbenchAssemblyDefinition } from './assembly.js'
 import { createAssemblyCatalog } from './assembly-catalog.js'
+import { case1Assembly } from './case1-assembly.js'
+import { createCase2Assembly } from './case2-assembly.js'
 import { createWorkbenchServer } from './http-server.js'
 import { createLiveSession } from './live-session.js'
 import {
@@ -14,12 +16,11 @@ import {
   type ProviderProfile,
 } from './provider-profile.js'
 import { createProviderProfileStore } from './provider-profile-store.js'
-import { webSearchTool } from '../agent/tools/web-search.js'
 import type { ApprovalMode, ReasoningEffort, WorkbenchSession } from './session.js'
 import { loadSessionDescriptors, saveSessionDescriptor } from './session-catalog.js'
 import { createSessionRegistry } from './session-registry.js'
 import { storedSession, type StoredSessionConfig } from './stored-session.js'
-import { runSubagentSession } from './subagent-session.js'
+import { runSubagentSession, subagentConfiguration } from './subagent-session.js'
 import { createStudioController, type StudioController, type StudioRunInput } from './studio.js'
 
 function configuredStoredSessions(): readonly StoredSessionConfig[] {
@@ -31,7 +32,6 @@ function configuredStoredSessions(): readonly StoredSessionConfig[] {
 }
 
 const registry = createSessionRegistry()
-const assemblies = createAssemblyCatalog()
 let studio: StudioController | undefined
 
 function defaultConfiguration(
@@ -66,9 +66,10 @@ const searchProfileId = process.env['KNOT_WEB_SEARCH_PROVIDER_PROFILE_ID']
 const searchProfile = searchProfileId === undefined
   ? providerStore.list().find(profile => profile.configured && profile.createWebSearch !== undefined)
   : providerStore.get(searchProfileId)
-const workbenchExtraTools = searchProfile?.createWebSearch === undefined
-  ? []
-  : [webSearchTool(searchProfile.createWebSearch())]
+const assemblies = createAssemblyCatalog([
+  case1Assembly,
+  createCase2Assembly(searchProfile?.createWebSearch?.()),
+])
 const runtimeProviderResolver: LlmProviderResolver = {
   resolve(events) {
     const configured = projectSessionConfiguration(events).inference
@@ -94,18 +95,13 @@ function subagentFactoryFor(input: {
   readonly parentSessionId: string
   readonly projectId: string
   readonly delegationDepth: number
-  readonly profile?: ProviderProfile
-  readonly reasoningEffort?: ReasoningEffort
 }): SubagentFactory | undefined {
-  const profile = input.profile
-  if (input.assemblyId !== 'case2' || profile === undefined || input.delegationDepth >= 1) return
+  if (input.assemblyId !== 'case2' || input.delegationDepth >= 1) return
   return {
     run: request => runSubagent({
       parentSessionId: input.parentSessionId,
       projectId: input.projectId,
       assemblyId: input.assemblyId,
-      parentProfile: profile,
-      parentReasoningEffort: input.reasoningEffort,
       ...request,
     }),
   }
@@ -156,8 +152,6 @@ async function newLiveSession(input: {
     parentSessionId: id,
     projectId,
     delegationDepth,
-    profile,
-    reasoningEffort,
   })
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
@@ -175,7 +169,6 @@ async function newLiveSession(input: {
     assembly,
     llm: input.llmOverride ?? runtimeProviderResolver,
     defaultConfiguration: defaultConfiguration(profile, reasoningEffort, approvalMode),
-    extraTools: workbenchExtraTools,
     ...(subagentFactory === undefined ? {} : { subagentFactory }),
   })
   await saveSessionDescriptor(sessionDirectory, descriptor)
@@ -264,19 +257,20 @@ async function runSubagent(input: {
   readonly parentSessionId: string
   readonly projectId: string
   readonly assemblyId: string
-  readonly parentProfile: ProviderProfile
-  readonly parentReasoningEffort?: ReasoningEffort
 }): Promise<{ summary: string; sessionId: string }> {
+  const parent = registry.get(input.parentSessionId)
+  if (parent === undefined) throw new Error('Parent session was not found')
+  const inherited = subagentConfiguration((await parent.snapshot()).events, input)
   const profile = input.model === undefined
-    ? input.parentProfile
+    ? providerStore.get(inherited.inference!.providerProfileId)
     : providerStore.get(input.model)
       ?? providerStore.list().find(candidate => candidate.configured && candidate.model === input.model)
   if (profile === undefined || !profile.configured) {
     throw new Error(`No configured provider profile or model matches ${input.model}`)
   }
   const reasoningEffort = input.reasoningEffort
-    ?? (profile.id === input.parentProfile.id
-      ? input.parentReasoningEffort
+    ?? (profile.id === inherited.inference?.providerProfileId
+      ? inherited.inference.reasoningEffort
       : profile.defaultReasoningEffort)
   const child = await newLiveSession({
     title: `Subagent · ${input.task.slice(0, 60)}`,
@@ -285,10 +279,12 @@ async function runSubagent(input: {
     assemblyId: input.assemblyId,
     providerProfileId: profile.id,
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-    approvalMode: 'ask',
+    approvalMode: inherited.approvalMode,
     parentSessionId: input.parentSessionId,
     delegationDepth: 1,
   })
+  // The chosen model can differ from the profile's default model.
+  if (input.model === undefined) await child.configure?.(inherited)
   return await runSubagentSession(child, registry, input.task)
 }
 
@@ -307,15 +303,12 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
     parentSessionId: descriptor.id,
     projectId: descriptor.projectId ?? descriptor.assembly,
     delegationDepth: descriptor.delegationDepth ?? 0,
-    profile,
-    reasoningEffort: profile?.defaultReasoningEffort,
   })
   registry.add(await createLiveSession({
     ...descriptor,
     llm: runtimeProviderResolver,
     defaultConfiguration: defaultConfiguration(profile, profile?.defaultReasoningEffort, 'ask'),
     assembly: definition,
-    extraTools: workbenchExtraTools,
     ...(subagentFactory === undefined ? {} : { subagentFactory }),
   }))
 }
@@ -338,8 +331,6 @@ if (configuredJournal !== undefined) {
       parentSessionId: 'case2-main',
       projectId: 'case2',
       delegationDepth: 0,
-      profile,
-      reasoningEffort: profile?.defaultReasoningEffort,
     })
     registry.add(await createLiveSession({
       id: 'case2-main',
@@ -351,7 +342,6 @@ if (configuredJournal !== undefined) {
       defaultConfiguration: defaultConfiguration(profile, profile?.defaultReasoningEffort, 'ask'),
       delegationDepth: 0,
       assembly: assemblies.get('case2')!,
-      extraTools: workbenchExtraTools,
       ...(subagentFactory === undefined ? {} : { subagentFactory }),
     }))
   }
@@ -369,6 +359,7 @@ if (!Number.isInteger(port) || port < 0 || port > 65_535) {
 const server = createWorkbenchServer({
   sessions: [],
   sessionRegistry: registry,
+  assemblies,
   providerProfiles: () => providerStore.list().map(publicProviderProfile),
   createProviderProfile: input => providerStore.add(input),
   updateProviderProfile: (id, input) => providerStore.update(id, input),
