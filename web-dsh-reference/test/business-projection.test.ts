@@ -54,6 +54,8 @@ test('inspection Clients use independent read endpoints without fetching redunda
   assert.equal(paths.at(-1), '/api/workbench/sessions/s/context?requestId=r')
   assert.equal((await call('knot/tools', { sessionId: 's' })).value.tools[0].calls, 1)
   assert.equal(paths.at(-1), '/api/workbench/sessions/s/analytics/tools')
+  await call('knot/cover', { sessionId: 's' })
+  assert.equal(paths.at(-1), '/api/workbench/sessions/s/cover')
   assert.equal(paths.some(path => path === '/api/workbench/sessions' || path === '/api/workbench/studio'), false)
 })
 

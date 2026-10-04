@@ -1,45 +1,11 @@
-/** Read-only Knot facts; no DSH execution semantics or parallel persisted state. */
+/** Native presentation only; counters and state folding share the Host's pure projection. */
 import type { SessionSnapshotDto } from '../../src/workbench/session.js'
+import { projectSessionFacts } from '../../src/workbench/session-facts.ts'
 
 export function projectBusinessState({ events }: SessionSnapshotDto) {
-  let todo: unknown = null
-  let goal: { objective: string; successCriteria: string[]; status: string } | null = null
-  let inputTokens = 0, outputTokens = 0, knownCalls = 0, calls = 0
-  let cachedTokens = 0, cacheInputTokens = 0, cacheKnownCalls = 0
-  let latest: { cacheHitRate?: number; outputRate?: number } = {}
-  const starts = new Map<string, string | undefined>()
-  for (const event of events) {
-    const data = event.data as any
-    if (!data || typeof data !== 'object') continue
-    if (event.type === 'llm.invoke') starts.set(data.requestId, event.observedAt)
-    if (event.type === 'tool.result') for (const result of data.results ?? []) {
-      if (result.state?.key === 'todo') todo = result.state.value
-      if (result.state?.key === 'goal') goal = result.state.value
-    }
-    if (event.type !== 'llm.generated') continue
-    calls++
-    const usage = data.usage
-    if (typeof usage?.inputTokens === 'number' && typeof usage?.outputTokens === 'number') {
-      inputTokens += usage.inputTokens; outputTokens += usage.outputTokens; knownCalls++
-      if (typeof usage.cachedInputTokens === 'number') {
-        cacheKnownCalls++; cachedTokens += usage.cachedInputTokens; cacheInputTokens += usage.inputTokens
-      }
-    }
-    if (data.request?.purpose === 'agent') {
-      const seconds = (Date.parse(event.observedAt ?? '') - Date.parse(starts.get(data.requestId) ?? '')) / 1000
-      latest = {
-        ...(usage?.inputTokens > 0 && typeof usage?.cachedInputTokens === 'number'
-          ? { cacheHitRate: usage.cachedInputTokens / usage.inputTokens } : {}),
-        ...(seconds > 0 && typeof usage?.outputTokens === 'number' ? { outputRate: usage.outputTokens / seconds } : {}),
-      }
-    }
-  }
-  // Presentation subset only: no GoalService CAS/revision/activation is invented.
-  return { todos: todo, goal: goal === null ? null : { goal: {
+  const { todos, goal, usage } = projectSessionFacts(events)
+  return { todos, knotUsage: usage, goal: goal === null ? null : { goal: {
     objective: goal.objective, successCriteria: goal.successCriteria,
     phase: goal.status === 'completed' ? 'complete' : 'active',
-  } }, knotUsage: {
-    inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, knownCalls, calls, cacheKnownCalls, cachedInputTokens: cachedTokens,
-    ...(cacheInputTokens > 0 ? { knownCacheHitRate: cachedTokens / cacheInputTokens } : {}), latest,
-  } }
+  } } }
 }

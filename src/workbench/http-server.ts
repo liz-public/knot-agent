@@ -11,6 +11,7 @@ import type { StudioController } from './studio.js'
 import { projectModelContext } from './context-projection.js'
 import { projectToolAnalytics } from './tool-analytics.js'
 import { projectPluginAnalytics } from './plugin-analytics.js'
+import { projectSessionCover } from './session-cover.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
@@ -329,6 +330,17 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           return
         }
         sendJson(response, 200, await session.snapshot())
+        return
+      }
+
+      const coverId = pathMatch(url.pathname, '/cover')
+      if (request.method === 'GET' && coverId !== undefined) {
+        const session = registry.get(coverId)
+        if (session === undefined) {
+          sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
+          return
+        }
+        sendJson(response, 200, projectSessionCover(await session.snapshot()))
         return
       }
 

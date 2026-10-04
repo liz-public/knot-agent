@@ -72,10 +72,11 @@ function dshClientFixture(): Plugin {
   const localClients = [
     { name: 'configuration', inject: ['@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-primitives'] },
     { name: 'business', inject: ['@deepseek-ai/dsh-client-ui-chat', '@deepseek-ai/dsh-client-ui-tool', '@deepseek-ai/dsh-client-ui-goal'] },
+    { name: 'cover', inject: ['@deepseek-ai/dsh-client-ui-chat', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-primitives'] },
     ...['journal', 'tools', 'context', 'plugins'].map(name => ({ name,
       inject: ['@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-primitives'] })),
   ]
-  const localStyles = ['configuration', 'business', 'inspection']
+  const localStyles = ['configuration', 'business', 'inspection', 'cover']
   // UI-only capability owners are hidden until their Knot operations are connected.
   const unconnectedUi = new Set(['ui-model-selection', 'ui-agent-preset', 'ui-permission-presets',
     'ui-plan', 'ui-jobs', 'ui-plugin-manager', 'ui-cordis', 'ui-attachment',

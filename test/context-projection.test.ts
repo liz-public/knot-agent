@@ -57,5 +57,10 @@ test('workbench exposes a selected model-input projection without adding Journal
   assert.equal(plugins.status, 200)
   assert.deepEqual((await plugins.json() as { plugins: unknown[] }).plugins, []) // Missing metadata is not guessed.
   assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions/missing/analytics/plugins`)).status, 404)
+  const cover = await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions/session-1/cover`)
+  assert.equal(cover.status, 200)
+  const directory = await cover.json() as { queries: { content: string }[]; eventCount: number }
+  assert.equal(directory.eventCount, 3); assert.equal(directory.queries[0]!.content, 'Hello.')
+  assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions/missing/cover`)).status, 404)
   assert.equal((await session.snapshot()).events.length, 3)
 })

@@ -1,0 +1,30 @@
+.knot-cover { max-width:1100px; margin:auto; padding:28px 32px; color:var(--dsw-alias-label-primary); font-size:14px; line-height:22px; box-sizing:border-box }
+.knot-cover-hero { position:relative; overflow:hidden; border:1px solid var(--dsw-alias-border-l3); border-radius:18px; background:var(--dsw-alias-bg-base); min-height:230px }
+.knot-cover-art { position:absolute; width:70%; height:100%; right:-5%; opacity:.3; pointer-events:none }
+.knot-cover-art path { fill:none; stroke:currentColor; stroke-width:3 }
+.knot-cover-art circle { fill:var(--dsw-alias-bg-base); stroke:currentColor; stroke-width:2 }
+.knot-cover-title { position:relative; padding:28px; max-width:75% }
+.knot-cover-title>small { letter-spacing:2px; color:var(--dsw-alias-label-tertiary); font-size:11px }
+.knot-cover h1 { font-size:26px; line-height:34px; margin:10px 0 14px; overflow-wrap:anywhere }
+.knot-cover h2 { font-size:16px; line-height:24px; margin:0 0 12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap }
+.knot-cover small,.knot-cover-note { color:var(--dsw-alias-label-tertiary); font-size:12px; font-weight:400 }
+.knot-cover-tags,.knot-cover-links { display:flex; flex-wrap:wrap; gap:8px }
+.knot-cover-meta { display:flex; flex-direction:column; gap:6px; margin:20px 0; font-size:12px; color:var(--dsw-alias-label-secondary); overflow-wrap:anywhere }
+.knot-cover-note { line-height:20px }
+.knot-cover-work { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:16px; margin:24px 0 }
+.knot-cover-work article,.knot-cover-reply { border:1px solid var(--dsw-alias-border-l3); border-radius:12px; padding:18px; background:var(--dsw-alias-bg-base) }
+.knot-cover-todos { list-style:none; margin:0; padding:0 }
+.knot-cover-todos li { display:flex; gap:10px; padding:5px 0 }
+.knot-cover-reply { margin:24px 0 }
+.knot-cover summary { cursor:pointer; overflow-wrap:anywhere; white-space:pre-wrap }
+.knot-cover pre { font:inherit; white-space:pre-wrap; overflow-wrap:anywhere; max-height:320px; overflow:auto; color:var(--dsw-alias-label-secondary) }
+.knot-cover-directory { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:28px 0 12px }
+.knot-cover-directory h2 { margin:0 }
+.knot-cover-directory>span { width:240px; max-width:100% }
+.knot-cover-queries { list-style:none; padding:0; margin:0 0 20px }
+.knot-cover-queries>li { display:flex; align-items:flex-start; gap:20px; padding:16px 0; border-bottom:1px solid var(--dsw-alias-border-l3) }
+.knot-cover-queries>li>div { flex:1; min-width:0 }
+.knot-cover-queries>li>button { flex-shrink:0 }
+.knot-cover-queries summary { margin-top:5px; line-height:24px }
+.knot-cover-links { margin-top:24px }
+@media(max-width:720px) { .knot-cover { padding:18px 16px } .knot-cover-title { max-width:100%; padding:20px } .knot-cover-queries>li { gap:10px; flex-wrap:wrap } .knot-cover-art { width:100% } }
