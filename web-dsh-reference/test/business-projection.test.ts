@@ -42,6 +42,7 @@ test('inspection Clients use independent read endpoints without fetching redunda
   const remote = createWorkbenchRemote((async (url: string, init: any) => {
     assert.equal(init.method, undefined); paths.push(url)
     if (url.includes('/analytics/plugins')) return Response.json({ assembly, plugins: [] })
+    if (url.includes('/analytics/context')) return Response.json([{ requestId: 'r', breakdown: [] }])
     if (url.includes('/context')) return Response.json({ requestId: 'r', messages: [{ role: 'system', content: 'Actual prompt' }] })
     if (url.includes('/analytics/tools')) return Response.json({ tools: [{ name: 'read', calls: 1 }] })
     return Response.json({ session, events: [{ type: 'llm.invoke', data: { requestId: 'r' } }] })
@@ -52,6 +53,8 @@ test('inspection Clients use independent read endpoints without fetching redunda
   assert.deepEqual((await call('knot/plugins', { sessionId: 's' })).value.assembly, assembly)
   assert.equal((await call('knot/context', { sessionId: 's', requestId: 'r' })).value.messages[0].content, 'Actual prompt')
   assert.equal(paths.at(-1), '/api/workbench/sessions/s/context?requestId=r')
+  assert.equal((await call('knot/context-timeline', { sessionId: 's' })).value[0].requestId, 'r')
+  assert.equal(paths.at(-1), '/api/workbench/sessions/s/analytics/context')
   assert.equal((await call('knot/tools', { sessionId: 's' })).value.tools[0].calls, 1)
   assert.equal(paths.at(-1), '/api/workbench/sessions/s/analytics/tools')
   await call('knot/cover', { sessionId: 's' })

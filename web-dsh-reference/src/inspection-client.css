@@ -42,6 +42,19 @@
 .knot-context-part { display:grid; grid-template-columns:1fr auto; gap:8px; padding:12px 14px; border:1px solid var(--dsw-alias-border-l3); border-radius:8px }
 .knot-context-part>span { color:var(--dsw-alias-label-secondary); font-size:13px }
 .knot-context-part progress,.knot-context-part small { grid-column:1/-1 }
+.knot-context-chart { margin:20px 0 28px; padding:16px; border:1px solid var(--dsw-alias-border-l3); border-radius:12px }
+.knot-context-chart h3 { margin:0 0 10px }
+.knot-context-chart-scroll { overflow-x:auto }
+.knot-context-chart svg { display:block; width:100%; min-width:620px }
+.knot-context-chart-axis line { stroke:var(--dsw-alias-bg-base); stroke-opacity:.45; stroke-width:1; pointer-events:none }
+.knot-context-chart-axis text,.knot-context-chart-tick { fill:var(--dsw-alias-label-secondary); font:12px system-ui,sans-serif }
+.knot-context-chart-cursor { stroke:var(--dsw-alias-label-primary); stroke-width:2; stroke-dasharray:4 3 }
+.knot-context-chart-caption { margin:10px 0; font-size:13px; overflow-wrap:anywhere }
+.knot-context-chart-caption code { color:var(--dsw-alias-label-tertiary); margin-left:8px }
+.knot-context-chart-legend { display:flex; gap:8px 20px; flex-wrap:wrap }
+.knot-context-chart-legend>span { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--dsw-alias-label-secondary) }
+.knot-context-chart-legend i { width:10px; height:10px; border-radius:2px; flex-shrink:0 }
+.knot-context-chart-legend strong { font-variant-numeric:tabular-nums; font-weight:500 }
 .knot-context-message { padding:12px 16px; margin:10px 0; border:1px solid var(--dsw-alias-border-l3); border-radius:8px; overflow-wrap:anywhere }
 .knot-message-text { font-family:inherit; font-size:14px; line-height:23px; white-space:pre-wrap; overflow-wrap:anywhere; max-height:360px; overflow:auto }
 .knot-context-message>summary { cursor:pointer; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap }

@@ -8,7 +8,7 @@ import type { WorkbenchSession } from './session.js'
 import type { ApprovalMode, ReasoningEffort } from './session.js'
 import { createSessionRegistry, type SessionRegistry } from './session-registry.js'
 import type { StudioController } from './studio.js'
-import { projectModelContext } from './context-projection.js'
+import { projectContextTimeline, projectModelContext } from './context-projection.js'
 import { projectToolAnalytics } from './tool-analytics.js'
 import { projectPluginAnalytics } from './plugin-analytics.js'
 import { projectSessionCover } from './session-cover.js'
@@ -365,6 +365,17 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         const snapshot = await session.snapshot()
         const assembly = (await options.studio?.snapshot())?.projects.find(project => project.assembly.id === snapshot.session.assembly)?.assembly
         sendJson(response, 200, projectPluginAnalytics(snapshot.events, assembly))
+        return
+      }
+
+      const contextTimelineId = pathMatch(url.pathname, '/analytics/context')
+      if (request.method === 'GET' && contextTimelineId !== undefined) {
+        const session = registry.get(contextTimelineId)
+        if (session === undefined) {
+          sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
+          return
+        }
+        sendJson(response, 200, projectContextTimeline((await session.snapshot()).events))
         return
       }
 

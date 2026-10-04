@@ -174,6 +174,7 @@ export function createWorkbenchRemote(
           case 'knot/cover': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/cover`, signal))
           case 'knot/plugins': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/analytics/plugins`, signal))
           case 'knot/context': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/context${input.requestId ? '?requestId=' + encodeURIComponent(input.requestId) : ''}`, signal))
+          case 'knot/context-timeline': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/analytics/context`, signal))
           case 'knot/tools': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/analytics/tools`, signal))
           case 'knot/session/create': return ok(await created(input, signal))
           case 'knot/session/configure': {

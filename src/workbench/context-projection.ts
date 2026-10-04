@@ -26,6 +26,33 @@ export interface ContextProjectionDto {
   readonly usage?: LlmUsage
 }
 
+export interface ContextTimelinePoint {
+  readonly requestId: string
+  readonly purpose: LlmInvoke['request']['purpose']
+  readonly position: number
+  readonly totalChars?: number
+  readonly breakdown?: ContextInspection['breakdown']
+  readonly error?: string
+}
+
+/** Compact historical read model; transiently rebuild input, never store it again. */
+export function projectContextTimeline(events: readonly Event[]): readonly ContextTimelinePoint[] {
+  return events.flatMap<ContextTimelinePoint>((event, position) => {
+    if (event.type !== LLM_INVOKE || !isInvoke(event.data)) return []
+    const invoke = event.data
+    const point = { requestId: invoke.requestId, purpose: invoke.request.purpose, position }
+    try {
+      const messages = projectMessages(events, invoke)
+      const tools = invoke.manifest.kind === 'agent' ? projectTools(events, invoke) : []
+      const { totalChars, breakdown } = inspectModelContext(events, invoke, messages, tools)
+      return [{ ...point, totalChars, breakdown }]
+    } catch (error) {
+      // Keep a visible gap for unreconstructable history, rather than fabricate 0%.
+      return [{ ...point, error: error instanceof Error ? error.message : String(error) }]
+    }
+  })
+}
+
 function estimatedTokens(value: unknown): number {
   return Math.ceil(JSON.stringify(value).length / 4)
 }

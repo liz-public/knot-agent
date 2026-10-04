@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionSnapshotDto } from '../../src/workbench/session.js'
-import type { ContextMessageDto, ContextProjectionDto } from '../../src/workbench/context-projection.js'
+import type { ContextMessageDto, ContextProjectionDto, ContextTimelinePoint } from '../../src/workbench/context-projection.js'
 import { download, JsonDetails, Metric, Panel, percent, useRead, type ViewProps } from './inspection-view.tsx'
 import { descending } from './inspection-order.ts'
+import { ContextChart, contextCategories } from './context-chart.tsx'
 
-const labels: Record<string, string> = { system: 'System / 固定上下文 / 指令', user: '用户输入', dynamic: '动态上下文',
-  assistant: '模型文本', reasoning: '历史推理', tool_arguments: '工具参数', tool_results: '工具结果',
-  tool_schemas: '工具 Schema', history_bundle: '压缩任务的历史包', envelope: 'JSON 结构与转义' }
+const labels: Record<string, string> = Object.fromEntries(contextCategories.map(category => [category.key, category.label]))
 function Message({ message, index }: { message: ContextMessageDto; index: number }) {
   const [open, setOpen] = useState(message.role === 'system')
   return <details className="knot-context-message" open={open} onToggle={e => setOpen(e.currentTarget.open)}>
@@ -24,14 +23,18 @@ function Message({ message, index }: { message: ContextMessageDto; index: number
 function ContextView({ sessionId, useProjection }: ViewProps) {
   const count = useProjection('knotEventCount')
   const source = useRead<SessionSnapshotDto>('knot/journal', { sessionId }, count)
+  // Recompute the historical chart on completed calls, not every streamed chunk/fact.
+  const timeline = useRead<readonly ContextTimelinePoint[]>('knot/context-timeline', { sessionId }, useProjection('sessionStats')?.steps)
   // Key the selection by Session so a remembered request cannot leak across Sessions.
   const [selection, setSelection] = useState({ sessionId, requestId: '' })
   const invokes = source.value?.events.filter(event => event.type === 'llm.invoke').map(event => ({ position: event.position, ...(event.data as any) })) ?? []
   const chosen = (selection.sessionId === sessionId ? selection.requestId : '') || invokes.at(-1)?.requestId
   const context = useRead<ContextProjectionDto>(chosen ? 'knot/context' : undefined, { sessionId, requestId: chosen }, count)
   const value = context.value
-  return <Panel title="上下文分析" note="Journal + manifest 重建的模型输入 · 不是重复存储的日志体积" error={source.error || context.error}
-    refresh={() => { source.refresh(); context.refresh() }} actions={value && <Button onClick={() => download(`knot-context-${chosen}.json`, value)}>导出本次输入</Button>}>
+  return <Panel title="上下文分析" note="Journal + manifest 重建的模型输入 · 不是重复存储的日志体积" error={source.error || context.error || timeline.error}
+    refresh={() => { source.refresh(); context.refresh(); timeline.refresh() }} actions={value && <Button onClick={() => download(`knot-context-${chosen}.json`, value)}>导出本次输入</Button>}>
+    {timeline.value ? <ContextChart points={timeline.value} selectedId={chosen} onSelect={requestId => setSelection({ sessionId, requestId })} />
+      : !timeline.error && <p>读取上下文调用历程…</p>}
     <label className="knot-invoke-picker">模型调用<select aria-label="模型调用" value={chosen ?? ''} onChange={e => setSelection({ sessionId, requestId: e.target.value })}>
       {[...invokes].reverse().map(item => <option key={item.requestId} value={item.requestId}>#{item.position} · {item.request.purpose} · {item.requestId}</option>)}
     </select></label>
