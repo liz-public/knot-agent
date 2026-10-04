@@ -1,0 +1,63 @@
+.knot-inspection { padding:24px 28px; color:var(--dsw-alias-label-primary); font-size:14px; line-height:22px; min-width:0; box-sizing:border-box }
+.knot-inspection-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:20px }
+.knot-inspection h2 { margin:0 0 6px; font-size:18px; line-height:26px; font-weight:600 }
+.knot-inspection h3 { margin:22px 0 12px; font-size:15px; font-weight:600 }
+.knot-inspection-heading p,.knot-inspection-note { color:var(--dsw-alias-label-tertiary); font-size:13px; line-height:20px; margin:0 0 12px }
+.knot-inspection-actions,.knot-inspection-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap }
+.knot-inspection-toolbar { margin-bottom:12px }
+.knot-inspection-toolbar>span:first-child { flex:1; min-width:180px }
+.knot-inspection-error { color:var(--dsw-alias-state-danger-primary) }
+.knot-metrics { display:flex; flex-wrap:wrap; gap:24px; padding:16px 0; margin-bottom:14px; border-block:1px solid var(--dsw-alias-border-l3) }
+.knot-metric { display:flex; flex-direction:column; gap:8px; min-width:100px }
+.knot-metric>span,.knot-inspection small { color:var(--dsw-alias-label-tertiary); font-size:12px; font-weight:400 }
+.knot-metric>strong { font-size:22px; line-height:28px; font-weight:500 }
+.knot-table-scroll { overflow-x:auto; margin:18px 0 }
+.knot-inspection-table { width:100%; border-collapse:collapse; font-size:13px; line-height:20px }
+.knot-inspection-table th { color:var(--dsw-alias-label-tertiary); font-weight:500 }
+.knot-inspection-table th,.knot-inspection-table td { padding:12px 14px; border-bottom:1px solid var(--dsw-alias-border-l3); text-align:right; white-space:nowrap; vertical-align:top }
+.knot-inspection-table th:first-child,.knot-inspection-table td:first-child { text-align:left; white-space:normal; min-width:170px }
+.knot-inspection-table tbody tr:hover { background:var(--dsw-alias-interactive-bg-hover) }
+.knot-inspection-table button { border:0; padding:0; background:transparent; color:var(--dsw-alias-state-business-primary); cursor:pointer; font:inherit; font-weight:500 }
+.knot-tool-description { min-width:170px; max-width:360px; margin:5px 0; color:var(--dsw-alias-label-secondary); font-size:12px; line-height:18px; overflow-wrap:anywhere }
+.knot-inspection-table small { display:block }
+.knot-share { display:flex; flex-direction:column; align-items:flex-end; gap:6px }
+.knot-inspection progress { height:4px; width:100%; border:0; border-radius:4px; background:var(--dsw-alias-border-l3); accent-color:var(--dsw-alias-state-business-primary) }
+.knot-inspection progress::-webkit-progress-bar { background:var(--dsw-alias-border-l3); border-radius:4px }
+.knot-inspection progress::-webkit-progress-value { background:var(--dsw-alias-state-business-primary); border-radius:4px }
+.knot-share progress { width:72px }
+.knot-data { margin:10px 0; border:1px solid var(--dsw-alias-border-l3); border-radius:var(--dsw-radius-md,8px); padding:8px 12px; overflow-wrap:anywhere }
+.knot-data>summary { cursor:pointer; color:var(--dsw-alias-label-secondary); font-size:13px }
+.knot-data[open]>summary { margin-bottom:10px }
+.knot-data>[role=tree] { max-height:420px; overflow:auto }
+.knot-event-list { border-left:1px solid var(--dsw-alias-border-l3); margin-left:30px }
+.knot-event { display:flex; gap:16px; padding:12px 0; margin-left:-30px; position:relative }
+.knot-event-mark { flex:0 0 48px; align-self:flex-start; color:var(--dsw-alias-label-caption); font:12px/22px ui-monospace,monospace; background:var(--dsw-alias-bg-base) }
+.knot-event-body { min-width:0; flex:1; padding-bottom:8px; border-bottom:1px solid var(--dsw-alias-border-l3) }
+.knot-event-body>header,.knot-context-message>header { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:12px }
+.knot-event-body time { color:var(--dsw-alias-label-tertiary); font-size:12px }
+.knot-event-preview { color:var(--dsw-alias-label-secondary); margin:6px 0; overflow-wrap:anywhere; white-space:pre-wrap }
+.knot-invoke-picker { display:flex; align-items:center; gap:12px; margin:12px 0 20px; color:var(--dsw-alias-label-secondary) }
+.knot-invoke-picker select { min-width:0; flex:1; max-width:720px; padding:8px 12px; border:1px solid var(--dsw-alias-border-l3); border-radius:8px; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base); font:inherit }
+.knot-context-breakdown { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:16px; margin:20px 0 }
+.knot-context-part { display:grid; grid-template-columns:1fr auto; gap:8px; padding:12px 14px; border:1px solid var(--dsw-alias-border-l3); border-radius:8px }
+.knot-context-part>span { color:var(--dsw-alias-label-secondary); font-size:13px }
+.knot-context-part progress,.knot-context-part small { grid-column:1/-1 }
+.knot-context-message { padding:12px 16px; margin:10px 0; border:1px solid var(--dsw-alias-border-l3); border-radius:8px; overflow-wrap:anywhere }
+.knot-message-text { font-family:inherit; font-size:14px; line-height:23px; white-space:pre-wrap; overflow-wrap:anywhere; max-height:360px; overflow:auto }
+.knot-context-message>summary { cursor:pointer; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap }
+.knot-context-message>summary>span { width:100%; color:var(--dsw-alias-label-tertiary); font-size:12px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis }
+.knot-plugin-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:16px }
+.knot-plugin-card { padding:16px 18px; border:1px solid var(--dsw-alias-border-l3); border-radius:12px; min-width:0; background:var(--dsw-alias-bg-base) }
+.knot-plugin-card>header { display:flex; align-items:center; gap:10px; flex-wrap:wrap }
+.knot-plugin-card h3 { margin:0; font-size:14px }
+.knot-plugin-order { color:var(--dsw-alias-label-tertiary); font:12px ui-monospace,monospace }
+.knot-plugin-purpose { color:var(--dsw-alias-label-secondary); font-size:13px; line-height:21px; min-height:42px }
+.knot-plugin-matches { color:var(--dsw-alias-label-tertiary); font-size:12px; margin:14px 0 }
+.knot-plugin-matches strong { color:var(--dsw-alias-label-primary); font-size:22px; font-weight:500; margin-right:6px }
+.knot-subscriptions>div { display:flex; justify-content:space-between; gap:12px; padding:5px 0; font-size:12px }
+.knot-subscriptions code { overflow-wrap:anywhere; min-width:0 }
+.knot-subscriptions strong { font-weight:500 }
+/* Native tab strip remains its owner; only permit overflow for the extra inspection entries. */
+[data-conversation-tabs] { overflow-x:auto; flex-shrink:0 }
+[data-conversation-tabs]>button { flex-shrink:0; white-space:nowrap }
+@media(max-width:720px) { .knot-inspection { padding:18px 16px } .knot-metrics { gap:16px } }

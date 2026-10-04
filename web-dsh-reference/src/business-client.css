@@ -2,18 +2,3 @@
 .knot-stats-inline>details { position:relative; cursor:pointer }
 .knot-stats-inline>details[open] { max-width:540px }
 .knot-goal-readonly button { display:none }
-.knot-inspection { height:100%; overflow:auto; padding:20px; color:var(--dsw-alias-label-primary); font-size:14px; line-height:22px }
-.knot-inspection header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px }
-.knot-inspection nav { display:flex; gap:4px; flex-wrap:wrap }
-.knot-inspection nav button { border:0; border-radius:8px; padding:8px 12px; font:inherit; color:var(--dsw-alias-label-secondary); background:transparent; cursor:pointer }
-.knot-inspection nav button[aria-pressed=true] { color:var(--dsw-alias-label-primary); background:var(--dsw-alias-settings-card-fill); outline:1px solid var(--dsw-alias-border-l3) }
-.knot-inspection select,.knot-inspection input { width:100%; max-width:900px; padding:8px; border:1px solid var(--dsw-alias-border-l3); border-radius:8px; color:inherit; background:var(--dsw-alias-settings-card-fill); font:inherit }
-.knot-inspection details,.knot-inspection article { border:1px solid var(--dsw-alias-border-l3); padding:10px 12px; border-radius:8px; margin:8px 0 }
-.knot-inspection summary { cursor:pointer; display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; overflow-wrap:anywhere }
-.knot-inspection summary span,.knot-inspection time { color:var(--dsw-alias-label-tertiary) }
-.knot-inspection pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; font-size:13px; line-height:20px }
-.knot-inspection-table { width:100%; border-collapse:collapse; margin:16px 0; font-size:13px }
-.knot-inspection-table th,.knot-inspection-table td { padding:8px 10px; border-bottom:1px solid var(--dsw-alias-border-l3); text-align:right; white-space:nowrap }
-.knot-inspection-table th:first-child,.knot-inspection-table td:first-child { text-align:left; white-space:normal; overflow-wrap:anywhere }
-.knot-inspection-table button { border:0; background:transparent; color:var(--dsw-alias-label-primary); cursor:pointer; font:inherit; text-decoration:underline }
-.knot-inspection-note { color:var(--dsw-alias-label-tertiary); font-size:13px }

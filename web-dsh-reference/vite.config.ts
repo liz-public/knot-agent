@@ -69,6 +69,13 @@ function dshClientFixture(): Plugin {
 
   const unordered: ClientEntry[] = []
   const readOnly = process.env['VITE_KNOT_DSH_MODE'] === 'workbench'
+  const localClients = [
+    { name: 'configuration', inject: ['@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-primitives'] },
+    { name: 'business', inject: ['@deepseek-ai/dsh-client-ui-chat', '@deepseek-ai/dsh-client-ui-tool', '@deepseek-ai/dsh-client-ui-goal'] },
+    ...['journal', 'tools', 'context', 'plugins'].map(name => ({ name,
+      inject: ['@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-primitives'] })),
+  ]
+  const localStyles = ['configuration', 'business', 'inspection']
   // UI-only capability owners are hidden until their Knot operations are connected.
   const unconnectedUi = new Set(['ui-model-selection', 'ui-agent-preset', 'ui-permission-presets',
     'ui-plan', 'ui-jobs', 'ui-plugin-manager', 'ui-cordis', 'ui-attachment',
@@ -108,12 +115,10 @@ function dshClientFixture(): Plugin {
   })
   if (readOnly) plugins.push({ id: '@knot-agent/client-readonly', url: '/dsh-plugins/readonly.js', rev: REVISION,
     bundlePath: '', inject: ['@deepseek-ai/dsh-api-session-controller', '@deepseek-ai/dsh-client-ui-conversation'] })
-  if (readOnly) plugins.push({ id: '@knot-agent/client-configuration', url: '/dsh-plugins/configuration.js', rev: REVISION,
-    bundlePath: '', inject: ['@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-primitives'],
-    external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] })
-  if (readOnly) plugins.push({ id: '@knot-agent/client-business', url: '/dsh-plugins/business.js', rev: REVISION,
-    bundlePath: '', inject: ['@deepseek-ai/dsh-client-ui-chat', '@deepseek-ai/dsh-client-ui-tool', '@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-goal'],
-    external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives', '@deepseek-ai/dsh-client-ui-goal/client'] })
+  if (readOnly) for (const client of localClients) plugins.push({ id: `@knot-agent/client-${client.name}`,
+    url: `/dsh-plugins/${client.name}.js`, rev: REVISION, bundlePath: '', inject: client.inject,
+    external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives',
+      ...(client.name === 'business' ? ['@deepseek-ai/dsh-client-ui-goal/client'] : [])] })
   const bootstrapEntries = plugins.filter(entry => entry.id === BOOTSTRAP_ID)
   const applicationEntries = plugins.filter(entry => entry.id !== BOOTSTRAP_ID)
   const graph = {
@@ -148,8 +153,8 @@ function dshClientFixture(): Plugin {
   }
   for (const entry of plugins) {
     let source: string
-    if (entry.id === '@knot-agent/client-configuration') source = clientSource('configuration', entry.id)
-    else if (entry.id === '@knot-agent/client-business') source = clientSource('business', entry.id)
+    const local = localClients.find(client => entry.id === `@knot-agent/client-${client.name}`)
+    if (local) source = clientSource(local.name, entry.id)
     else source = entry.bundlePath === ''
       ? `window.__ModuleLoader__.load({id:'@knot-agent/client-readonly',factory:${readonlyClientFactory.toString()}})`
       : readFileSync(entry.bundlePath, 'utf8')
@@ -160,8 +165,7 @@ function dshClientFixture(): Plugin {
     }
     sources.set(entry.url, source)
   }
-  if (readOnly) sources.set('/knot-configuration.css', readFileSync(join(import.meta.dirname, 'src/configuration-client.css')))
-  if (readOnly) sources.set('/knot-business.css', readFileSync(join(import.meta.dirname, 'src/business-client.css')))
+  if (readOnly) for (const name of localStyles) sources.set(`/knot-${name}.css`, readFileSync(join(import.meta.dirname, `src/${name}-client.css`)))
   sources.set('/dsh-plugins/bootstrap.js', bootstrapEntries
     .map(entry => String(sources.get(entry.url) ?? ''))
     .join('\n;\n'))
@@ -182,14 +186,13 @@ function dshClientFixture(): Plugin {
   return {
     name: 'knot-dsh-client-fixture',
     buildStart() {
-      if (readOnly) for (const name of ['configuration', 'business']) for (const ext of ['tsx', 'css']) this.addWatchFile(join(import.meta.dirname, 'src', `${name}-client.${ext}`))
+      if (readOnly) for (const name of readdirSync(join(import.meta.dirname, 'src')).filter(name => /\.(tsx?|css)$/.test(name)))
+        this.addWatchFile(join(import.meta.dirname, 'src', name))
     },
     handleHotUpdate(context) {
-      if (readOnly && /\/(configuration|business)-client\.(tsx|css)$/.test(context.file)) {
-        for (const name of ['configuration', 'business']) {
-          sources.set(`/dsh-plugins/${name}.js`, clientSource(name, `@knot-agent/client-${name}`))
-          sources.set(`/knot-${name}.css`, readFileSync(join(import.meta.dirname, `src/${name}-client.css`)))
-        }
+      if (readOnly && context.file.startsWith(join(import.meta.dirname, 'src') + '/') && /\.(tsx?|css)$/.test(context.file)) {
+        for (const { name } of localClients) sources.set(`/dsh-plugins/${name}.js`, clientSource(name, `@knot-agent/client-${name}`))
+        for (const name of localStyles) sources.set(`/knot-${name}.css`, readFileSync(join(import.meta.dirname, `src/${name}-client.css`)))
         sources.set('/dsh-plugins/application.js', applicationEntries.map(entry => String(sources.get(entry.url) ?? '')).join('\n;\n'))
         context.server.ws.send({ type: 'full-reload' })
         return []
@@ -214,7 +217,7 @@ function dshClientFixture(): Plugin {
         moduleLoaderFacade: facade.text,
         bootstrapUrl: '/dsh-plugins/bootstrap.js',
         shellScriptUrl: `/dsh-shell/${shellScript}`,
-        shellStyleUrls: [...shellStyles.map(path => `/dsh-shell/${path}`), ...(readOnly ? ['/knot-configuration.css', '/knot-business.css'] : [])],
+        shellStyleUrls: [...shellStyles.map(path => `/dsh-shell/${path}`), ...(readOnly ? localStyles.map(name => `/knot-${name}.css`) : [])],
       })}`
     },
     configureServer(server) {

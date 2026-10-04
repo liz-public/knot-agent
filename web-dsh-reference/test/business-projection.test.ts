@@ -35,25 +35,42 @@ test('B5 keeps total usage with partial cache, counts compression, and labels en
   assert.equal(unknown.calls, 3); assert.equal(unknown.knownCalls, 2); assert.deepEqual(unknown.latest, {})
 })
 
-test('B5 inspection uses Host metadata and lazy Context endpoints without executing the Session', async () => {
+test('inspection Clients use independent read endpoints without fetching redundant child lists', async () => {
   const paths: string[] = []
   const session = { id: 's', assembly: 'case2' }
   const assembly = { id: 'case2', plugins: [{ id: 'real-plugin' }], protocols: ['user.message'] }
   const remote = createWorkbenchRemote((async (url: string, init: any) => {
     assert.equal(init.method, undefined); paths.push(url)
-    if (url.endsWith('/studio')) return Response.json({ projects: [{ assembly }] })
-    if (url.endsWith('/sessions')) return Response.json({ sessions: [session, { id: 'child', parentSessionId: 's' }] })
+    if (url.includes('/analytics/plugins')) return Response.json({ assembly, plugins: [] })
     if (url.includes('/context')) return Response.json({ requestId: 'r', messages: [{ role: 'system', content: 'Actual prompt' }] })
     if (url.includes('/analytics/tools')) return Response.json({ tools: [{ name: 'read', calls: 1 }] })
     return Response.json({ session, events: [{ type: 'llm.invoke', data: { requestId: 'r' } }] })
   }) as typeof fetch)
   const call = async (endpoint: string, input: any) => remote.call('$knot', endpoint, { args: [input] }, new AbortController().signal) as Promise<any>
-  const inspection = (await call('knot/inspection', { sessionId: 's' })).value
-  assert.deepEqual(inspection.assembly, assembly); assert.equal(inspection.children[0].id, 'child')
+  const inspection = (await call('knot/journal', { sessionId: 's' })).value
+  assert.equal(inspection.session.id, 's'); assert.equal('children' in inspection, false)
+  assert.deepEqual((await call('knot/plugins', { sessionId: 's' })).value.assembly, assembly)
   assert.equal((await call('knot/context', { sessionId: 's', requestId: 'r' })).value.messages[0].content, 'Actual prompt')
   assert.equal(paths.at(-1), '/api/workbench/sessions/s/context?requestId=r')
   assert.equal((await call('knot/tools', { sessionId: 's' })).value.tools[0].calls, 1)
   assert.equal(paths.at(-1), '/api/workbench/sessions/s/analytics/tools')
+  assert.equal(paths.some(path => path === '/api/workbench/sessions' || path === '/api/workbench/studio'), false)
+})
+
+test('four inspection Clients register independent native sibling tabs, with no nested or child tab', () => {
+  const entries: any[] = []
+  for (const name of ['journal', 'tools', 'context', 'plugins']) {
+    const source = buildSync({ entryPoints: [new URL(`../src/${name}-client.tsx`, import.meta.url).pathname],
+      bundle: true, write: false, format: 'cjs', jsx: 'automatic',
+      external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] }).outputFiles[0].text
+    const module = { exports: {} as any }
+    new Function('require', 'module', 'exports', source)(() => ({}), module, module.exports)
+    module.exports.apply({ slots: { inject: (_: string, setup: any) => setup(), register: (options: any, component: any) => entries.push({ options, component }) } })
+  }
+  assert.deepEqual(entries.map(entry => entry.options.id), ['knot-inspection', 'knot-tools', 'knot-context', 'knot-plugins'])
+  assert.deepEqual(entries.map(entry => entry.options.order), [20, 30, 40, 50])
+  assert.ok(entries.every(entry => entry.options.name === 'conversation.view'))
+  assert.ok(entries.every(entry => Object.keys(entry.options.inject('s')).join() === 'sessionId'))
 })
 
 test('B5 native contributions install even when the original Client activates later', async () => {

@@ -146,14 +146,12 @@ were modified by that Session. These are smoke measurements, not performance cla
   Native per-tool views receive presentation-only aliases for `todo.write`,
   `goal.write`, `spawn_agent` and `ask`; Journal/Context names remain unchanged.
   Native per-tool history/diff semantics are not fully equivalent to Knot's.
-- **Knot Inspector** is a conversation tab alongside the unchanged native Chat
-  and Trajectory. Context selects an actual `llm.invoke` and reads the existing
-  Host `/context` projection. Journal filters raw events, initially shows the
-  latest 100 and lazily expands their payloads. Plugin/protocol/tool metadata
-  comes from `/studio`; it describes **current code**, not a historical code snapshot.
-  Child Sessions come from the real parent relation and open in the native workspace.
-- Inspector data is read-only. New carrier methods only call existing Host
-  endpoints; no backend, Journal kernel, business plugin or dependency was added.
+- Inspection contributions use native conversation tabs alongside unchanged Chat
+  and Trajectory. Journal and historical Context come from the Host; plugin metadata
+  is the current executable Assembly declaration, not a historical code snapshot.
+  Child Sessions open only through native child navigation, using the real parent relation.
+- Inspection data is read-only; pure Host projections own analysis and the carrier
+  forwards DTOs. Journal kernel, business plugins and dependencies are unchanged.
 
 Verified against the real 1,134-event coding Session: 204 agent calls, 5 displayed
 turns (Steering shares its active turn), 25,731,858 cumulative request tokens,
@@ -275,6 +273,36 @@ Read-only inspection of the real 1,134-event Session yields 207 calls/returns, t
 failures and no unfinished calls. Input composition adds exactly to the canonical input length.
 Model/approval menus and the original native search card were checked against an isolated,
 model-free Host. Both JSON exports were downloaded and parsed; no real tools or API calls ran.
+
+### Inspection follow-up: four independent Client contributions
+
+- **Knot Inspector** only tracks raw Journal facts. It keeps event filtering, the latest
+  100 facts and lazy native `JsonTree` payload expansion; no nested analysis tabs or
+  duplicate child-session list remain.
+- **工具统计** includes the Session's complete `tool.registry` history: descriptions,
+  unused tools and tools no longer listed in the latest registry. Unregistered calls
+  remain visible. Call share uses all calls; explicit-result success rate uses only
+  successful/failed returns, excluding unknown and unfinished outcomes. Coverage uses
+  registered tools only. Zero calls do not mean a tool is broken or should have been used.
+- **上下文分析** retains historical `llm.invoke` selection, canonical input composition,
+  bounded source references and JSON export. Long messages mount only when expanded.
+- **插件与协议** uses the existing current Assembly declarations and recorded event types
+  via `GET /api/workbench/sessions/:id/analytics/plugins`. Counts are input/subscription
+  matches, **not handler executions**. Wildcards match all facts; overlapping declarations
+  count a fact once per plugin. Outputs are declarations only and never attributed.
+  Missing Assembly metadata is explicitly unavailable, not a guessed roster.
+
+Each tab is a separate Client plugin registered into native `conversation.view`; they
+share only small read/display helpers and DSH primitives/theme tokens. They do not depend
+on one another's implementations. Tool links use the native `openView` contract to focus
+Journal calls and results. The native composer remains shared across tabs; its visibility
+and resize behavior are unchanged. No additional metadata, registry or i18n system is added.
+
+Verification: root **145** tests and Client **30** tests pass; Workbench and fixture builds
+pass. Read-only browser verification of `B2 configuration smoke` (288 facts) shows 9
+registered tools, 69 calls and 7 unused tools; Bash call share is 66.67%, explicit-result
+success rate 97.83%. All 11 current plugin declarations and 17 observed/declared protocol
+types are displayed. No Session facts, tools or model calls were changed by this inspection.
 
 ## Boundary
 

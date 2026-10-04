@@ -3,6 +3,8 @@ import test from 'node:test'
 import { projectToolAnalytics } from '../src/workbench/tool-analytics.js'
 import { projectModelContext } from '../src/workbench/context-projection.js'
 import type { ReadEvent } from '../src/workbench/read-journal.js'
+import { projectPluginAnalytics } from '../src/workbench/plugin-analytics.js'
+import type { StudioAssemblyDto } from '../src/workbench/studio.js'
 
 test('S4 tool counters distinguish failure, unknown and pending; parallel batch time is counted once per tool', () => {
   const events: ReadEvent[] = [
@@ -18,12 +20,48 @@ test('S4 tool counters distinguish failure, unknown and pending; parallel batch 
   ]
   const before = JSON.stringify(events), result = projectToolAnalytics(events)
   assert.equal(JSON.stringify(events), before)
-  assert.deepEqual(result.tools[0], { name: 'bash', calls: 2, returned: 2, succeeded: 1, failed: 1, unknown: 0,
+  assert.deepEqual(result.tools[0], { name: 'bash', registered: false, available: false, callShare: 2 / 5, successRate: .5,
+    calls: 2, returned: 2, succeeded: 1, failed: 1, unknown: 0,
     unfinished: 0, timedBatches: 1, totalBatchWaitMs: 2000 })
   assert.equal(result.tools[1]?.unknown, 1); assert.equal(result.tools[1]?.failed, 1)
   assert.equal(result.tools[1]?.timedBatches, 1) // Missing timestamps are unknown, not zero.
   assert.equal(result.tools[2]?.unfinished, 1); assert.equal(result.tools[2]?.failed, 0)
   assert.deepEqual(projectToolAnalytics([]).tools, [])
+})
+
+test('tool roster keeps zero-call and removed registrations, descriptions and unregistered calls without Assembly guesses', () => {
+  const registry = (names: string[]) => ({ type: 'tool.registry', data: { schemas: names.map(name => ({ function: { name, description: `${name} capability` } })) } })
+  const events = [registry(['read', 'ask']),
+    { type: 'tool.call', data: { calls: [{ callId: 'c', name: 'read' }, { callId: 'd', name: 'external' }] } },
+    { type: 'tool.result', data: { results: [{ callId: 'c', content: '{"ok":true}' }, { callId: 'd', content: 'Unknown' }] } },
+    registry(['read', 'edit']),
+  ].map((event, position) => ({ ...event, position }))
+  const result = projectToolAnalytics(events)
+  assert.equal(result.totalCalls, 2); assert.equal(result.registeredTools, 3); assert.equal(result.usedRegisteredTools, 1)
+  const ask = result.tools.find(row => row.name === 'ask')!
+  assert.equal(ask.calls, 0); assert.equal(ask.description, 'ask capability'); assert.equal(ask.registered, true)
+  assert.equal(ask.available, false); assert.equal(ask.callShare, 0); assert.equal(ask.successRate, undefined)
+  assert.equal(result.tools.find(row => row.name === 'read')!.successRate, 1)
+  assert.equal(result.tools.find(row => row.name === 'external')!.registered, false)
+  assert.equal(result.tools.find(row => row.name === 'external')!.successRate, undefined)
+  assert.equal(result.tools.reduce((n, row) => n + (row.callShare ?? 0), 0), 1)
+  const empty = projectToolAnalytics([registry(['ask'])].map((event, position) => ({ ...event, position })))
+  assert.equal(empty.tools[0]!.callShare, undefined); assert.equal(empty.tools[0]!.successRate, undefined)
+})
+
+test('plugin subscription analytics matches only inputs, deduplicates overlapping wildcard and never attributes outputs', () => {
+  const plugin = (id: string, listens: string[], emits: string[]) => ({ id, name: id, category: 'flow' as const,
+    responsibility: 'test', source: 'test.ts', listens, emits })
+  const assembly: StudioAssemblyDto = { id: 'test', title: 'Test', systemPrompt: '', tools: [], protocols: ['user.message', 'unused'], plugins: [
+    plugin('flow', ['user.message', 'user.message'], ['assistant.message']), plugin('all', ['*', 'user.message'], []), plugin('none', [], ['user.message'])] }
+  const events = [{ type: 'user.message', data: {} }, { type: 'assistant.message', data: {} }, { type: 'user.message', data: {} }]
+  const result = projectPluginAnalytics(events, assembly)
+  assert.deepEqual(result.plugins.map(plugin => plugin.matchedEvents), [2, 3, 0])
+  assert.deepEqual(result.plugins[0]!.subscriptions, [{ type: 'user.message', count: 2 }])
+  assert.deepEqual(result.protocols.find(row => row.type === 'assistant.message')!.subscribers, ['all'])
+  assert.equal(result.protocols.find(row => row.type === 'unused')!.events, 0)
+  assert.deepEqual(projectPluginAnalytics(events).plugins, [])
+  assert.equal(projectPluginAnalytics(events).assembly, undefined)
 })
 
 test('S4 context character accounting uses actual projected input, with bounded source references', () => {

@@ -10,6 +10,7 @@ import { createSessionRegistry, type SessionRegistry } from './session-registry.
 import type { StudioController } from './studio.js'
 import { projectModelContext } from './context-projection.js'
 import { projectToolAnalytics } from './tool-analytics.js'
+import { projectPluginAnalytics } from './plugin-analytics.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
@@ -339,6 +340,19 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           return
         }
         sendJson(response, 200, projectToolAnalytics((await session.snapshot()).events))
+        return
+      }
+
+      const pluginsId = pathMatch(url.pathname, '/analytics/plugins')
+      if (request.method === 'GET' && pluginsId !== undefined) {
+        const session = registry.get(pluginsId)
+        if (session === undefined) {
+          sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
+          return
+        }
+        const snapshot = await session.snapshot()
+        const assembly = (await options.studio?.snapshot())?.projects.find(project => project.assembly.id === snapshot.session.assembly)?.assembly
+        sendJson(response, 200, projectPluginAnalytics(snapshot.events, assembly))
         return
       }
 
