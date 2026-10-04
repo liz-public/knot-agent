@@ -5,6 +5,7 @@ import type { SessionCoverDto } from '../../src/workbench/session-cover.js'
 import { Metric, percent, useRead, type ViewProps } from './inspection-view.tsx'
 import { extendNativeSlot } from './native-slot.ts'
 import { queryAnchor } from './cover-navigation.ts'
+import { CoverHero } from './cover-hero.tsx'
 
 const states: Record<string, string> = { idle: '空闲', running: '运行中', paused: '已暂停', completed: '已结束', failed: '运行失败' }
 const time = (value?: string) => value ? new Date(value).toLocaleString() : '时间未知'
@@ -22,7 +23,6 @@ function CoverArt({ sessionId }: { sessionId: string }) {
 
 function Cover({ sessionId, useProjection, openView }: ViewProps) {
   const count = useProjection('knotEventCount')
-  const completedRounds = useProjection('sessionStats')?.turns ?? 0
   const subagentCount = useProjection('subagentCatalog')?.length ?? 0
   const [state, setState] = useState('')
   const { value, error, refresh } = useRead<SessionCoverDto>('knot/cover', { sessionId }, `${count}:${state}`)
@@ -42,18 +42,18 @@ function Cover({ sessionId, useProjection, openView }: ViewProps) {
   const queries = value.queries.filter(query => query.content.toLowerCase().includes(filter.toLowerCase()))
   const inference = recordedConfiguration.inference
   return <section className="knot-cover">
-    <header className="knot-cover-hero"><CoverArt sessionId={sessionId} /><div className="knot-cover-title">
+    <CoverHero key={sessionId} sessionId={sessionId}><CoverArt sessionId={sessionId} /><div className="knot-cover-title">
       <small>JOURNAL · 结绳记事</small><h1>{session.title}</h1><div className="knot-cover-tags"><Pill>{states[session.runState] ?? session.runState}</Pill>
         <Pill>{session.assembly}</Pill>{!session.writable && <Pill>只读记录</Pill>}</div>
       <p>{value.queries.length ? '从记录了解这段会话，再继续它。' : '会话已准备好。在下方输入你的第一个请求。'}</p>
       <Button variant="primary" onClick={() => openView('chat', 'latest')}>{session.writable ? '进入对话 / 继续任务' : '查看对话'} <span aria-hidden="true">→</span></Button>
-    </div></header>
+    </div></CoverHero>
     {error && <p role="alert">{error}</p>}
-    <div className="knot-cover-meta"><span><small>工作目录</small><code>{session.workspace ?? '未记录'}</code></span>
+    <div className="knot-cover-meta"><span><small>工作目录</small><code title={session.workspace}>{session.workspace ?? '未记录'}</code></span>
       <span><small>首次记录</small>{time(value.firstObservedAt)}</span><span><small>最近记录</small>{time(value.lastObservedAt)}</span>
       <span><small>已生效模型</small>{inference?.model ?? '未记录'} · 推理 {inference?.reasoningEffort ?? '默认'} · 审批 {recordedConfiguration.approvalMode ?? '未记录'}</span>
     </div>
-    {value.queries.length > 0 && <div className="knot-metrics"><Metric label="用户输入">{value.queries.length}</Metric><Metric label="完成轮数">{completedRounds}</Metric><Metric label="Journal 事件">{value.eventCount.toLocaleString()}</Metric>
+    {value.queries.length > 0 && <div className="knot-metrics"><Metric label="用户输入">{value.queries.length}</Metric><Metric label="Journal 事件">{value.eventCount.toLocaleString()}</Metric>
       <Metric label="模型返回">{usage.calls}</Metric><Metric label="工具调用">{value.toolCalls}</Metric>
       <Metric label="子智能体">{subagentCount}</Metric><Metric label="历史压缩">{value.compactionCount}</Metric>
       <Metric label={`累计 Tokens${usage.knownCalls < usage.calls ? '（部分）' : ''}`}>{usage.knownCalls ? usage.totalTokens.toLocaleString() : '未知'}</Metric>
