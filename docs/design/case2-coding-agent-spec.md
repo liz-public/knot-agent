@@ -4,6 +4,12 @@
 >
 > 唯一架构目标：不修改 `src/journal.ts`，通过替换和增加领域插件，把 CASE1 的生成—工具闭环演进为真实 Coding Agent。
 
+> 阅读提示（2026-10-04）：下文是 CASE2.0～2.4 的增量设计记录，不是当前源码契约。
+> 之后已增加持久 Subagent、Goal/Todo Guard、共享 `src/agent/`、分页 read、搜索和配置事实。
+> 当前首轮是 `user.message → context.fixed → llm.request`，已删除 content 中转；
+> 工作区指令固定投影，不每轮生成 `context.dynamic`。当前职责/流程见
+> [README 的 CASE2](../../README.md#case2coding-agent) 与 [Workbench 产品模型](../product/workbench-product-model.md)。
+
 ## 1. 实施原则
 
 1. 每个阶段只增加一种真实产品行为；

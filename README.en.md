@@ -6,9 +6,11 @@
 
 Humans, models, tools, and software plugins tie facts into one append-only Journal. A plugin reacts to facts that already happened and either appends another fact or stays silent. Their assembly becomes the agent, instead of concentrating every concern in a growing AgentLoop.
 
-> Knot is alpha software. CASE1, CASE2, and Web Run are executable today. The Assembly authoring API, Studio, Case/Eval, and export formats are still being validated and are not frozen public contracts.
+> Knot is alpha software. CASE1, CASE2, and Web Run using the official DSH shell are executable today. Assembly authoring, Case/Eval, and export formats are not frozen public contracts. Real use takes priority over full DSH feature parity.
 
 ![Knot Workbench showing a CASE2 conversation and its Journal inspector](docs/assets/knot-workbench.png)
+
+This image is retained as evidence of the earlier custom Web. See [Workbench](#workbench) and the [integration guide](web-dsh-reference/README.md) for the current DSH shell.
 
 ## One model
 
@@ -79,7 +81,7 @@ CASE1 and CASE2 use the same kernel without business-specific privileges. See [C
 
 ## How an agent emerges
 
-One typical tool trajectory is:
+A typical CASE1 tool trajectory is shown below. CASE2 requests the LLM directly, without content-source arbitration:
 
 ```text
 user.message
@@ -129,10 +131,9 @@ The main plugins each retain one responsibility:
 
 | Plugin | Subscribes → produces | Responsibility |
 |---|---|---|
-| `AppMatch` / `ToolIntentMatch` | `user.message` → `context.contribution` | match only applications and tool instructions relevant to this turn |
-| `RuntimeContext` | `user.message` → `context.dynamic` | combine turn contributions with still-active device state |
+| `RuntimeContext` | `user.message` → `context.dynamic` | combine application/tool-intent matching as ordinary ContextSource functions; no `context.contribution` relay events |
 | `AgentFlow` | `context.dynamic` / `tool.result` → `content.request` / `llm.request` | advance generation without executing a model or tool |
-| `ContentSources` | `content.request` → content / `llm.request` | let shortcuts, rules, or the LLM compete for the same result in assembly order |
+| `Content` + sources | `content.request` → reply / `llm.request` | one plugin selects the first matching ordinary source in assembly order |
 | `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | project model input and produce one complete decision |
 | `Tools` | `tool.call` → `tool.result` | execute the single Bash function, then route its CLI through Parser, Dispatcher, and a focused handler |
 | `CompressHistory` / `Output` | generation / reply → checkpoint / presentation | create history checkpoints and publish final output without entering orchestration |
@@ -149,7 +150,6 @@ sequenceDiagram
 
   U->>J: user.message
   J->>C: match app + tool intent
-  C->>J: context.contribution × N
   C->>J: context.dynamic
   J->>F: context.dynamic
   F->>J: content.request
@@ -228,10 +228,10 @@ committed summary.
 
 | Plugin | Subscribes → produces | Responsibility |
 |---|---|---|
-| `WorkspaceContext` | `user.message` → `context.dynamic` | provide the workspace and `AGENTS.md` / `CLAUDE.md` project constraints |
-| `CodingFlow` | user / tool / generation events → next request or reply | advance the task and apply guards before committing completion |
+| `WorkspaceContext` | first `user.message` → `context.fixed` | fix the workspace and root `AGENTS.md` / `CLAUDE.md` in context; reuse existing facts on restore, without automatic file-change tracking |
+| `CodingFlow` | user / fixed-context / tool / generation events → next request or reply | wait for initial fixed context, advance the task, and apply guards before committing completion |
 | `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | project Journal facts into model input and invoke the model |
-| `Tools` | `tool.call` → `tool.result` | run read/write/edit/bash/ask/todo/goal/spawn_agent behind the configured approval policy |
+| `Tools` | `tool.call` → `tool.result` | run read/write/edit/bash/ask/todo/goal/spawn_agent; the Host assembles search from a configured DeepSeek search source; tool policy reads committed Journal configuration |
 | `CompressHistory` | `llm.generated` → checkpoint events | create a semantic checkpoint only when the context threshold is reached |
 | `JSONL` / `Output` / `ControlledBoundary` | facts → storage / UI / pause | assemble platform behavior as plugins or Host ports |
 
@@ -247,10 +247,10 @@ sequenceDiagram
 
   U->>J: user.message
   J->>W: load workspace constraints
-  W->>J: context.dynamic
-  J->>F: user.message
-  F->>J: content.request
-  J->>L: llm.request → projected messages + tool schemas
+  W->>J: context.fixed (only when absent)
+  J->>F: context.fixed ready / subsequent user.message
+  F->>J: llm.request
+  J->>L: llm.invoke → projected messages + tool schemas
   L->>J: reasoning + content + tool.call
   J->>T: read / edit / bash / ask / todo / goal
   T->>J: tool.result
@@ -290,11 +290,13 @@ can share the same event model. It also shows that CASE2 should next optimize
 model-visible context, tool-result budgets, and reasoning cost rather than add
 more Journal-kernel behavior.
 
-#### CASE2 and Pi code-size snapshot
+#### CASE2 and Pi historical code-size snapshot
 
 These counts come from local repository snapshots. Pi's loop, harness, session,
 and product layers are different boundaries, so the table reports each instead
-of presenting any single count as the definitive comparison.
+of presenting any single count as the definitive comparison. The UI counts describe
+the earlier custom Web, before DSH integration, not the current total frontend size.
+Current adapter counts are listed under [Workbench](#workbench).
 
 | Scope | Knot | Pi baseline | Observation |
 |---|---:|---:|---|
@@ -317,39 +319,66 @@ export KNOT_API_KEY="..." # when required by the service
 npm run case2 -- "inspect this workspace and run its tests"
 ```
 
-CASE2 can inspect, modify, and verify files in a real workspace. Its CLI uses an OpenAI-compatible provider; the mock provider is used by tests and reproducible Case assemblies. Real Workbench providers are configured through the Host environment.
+CASE2 can inspect, modify, and verify files in a real workspace. Its CLI uses an OpenAI-compatible provider; the mock provider is used by tests and reproducible Case assemblies. Workbench providers can be managed in the UI or loaded from the Host environment.
 
 ## Workbench
 
+Two frontends currently use the same Knot Host: **the official DSH shell is the current Run integration**, while the earlier custom Web retains the minimal Studio Case/Run surface. They have separate browser UI preferences but can access the same persistent Sessions.
+
+### DSH shell: current Run
+
+Install once:
+
 ```bash
-npm run workbench
+npm install
+npm --prefix web-dsh-reference install
 ```
 
-Open `http://127.0.0.1:4317/`.
+Start in separate terminals:
 
-### Run
+```bash
+# Terminal 1: Knot Host API
+npm run workbench:api
+
+# Terminal 2: DSH frontend with real Knot data
+VITE_KNOT_DSH_MODE=workbench npm run dsh-reference:dev -- --port 4178 --strictPort
+```
+
+Open `http://127.0.0.1:4178/`. Without `VITE_KNOT_DSH_MODE=workbench`, this frontend runs an isolated Fixture, not your real Agent.
 
 - create, select, and restore Sessions;
 - stream content, reasoning, tool calls, and tool output;
-- handle approval, ask, Todo, Goal, and Subagent interactions;
-- inspect the real Journal and Trace; Context and plugin read models are still being connected to the executable Assembly;
-- select Host-configured model, reasoning effort, and approval policy.
-
-### Studio
-
-Studio targets this loop:
+- use native approval, Ask, Todo and child navigation, with read-only native Goal presentation;
+- change the next submitted model, reasoning effort and approval policy while idle;
+- use native Chat / Trajectory beside Journal, tool analytics, context analysis and plugin/protocol tabs;
+- inspect a read-only Session cover with configuration, Usage, Todo/Goal and original queries that link back to Chat.
 
 ```text
-Compose → Run → Inspect → Evaluate → Export
+DSH Web / Client Cordis → presentation and RPC/SSE adapter → Knot Host
+                                                               ↓
+                                                  Assembly → plugins → Journal
 ```
 
-The first real CASE2 vertical slice is implemented: inspect Assembly, prompt, tools, and plugin order; run Mock or real Cases; persist declaration fingerprints, Generation identities, and run evidence. A Generation does not yet preserve an executable code artifact. Plugin editing, Dataset Eval, comparison, and export remain under development.
+Client Cordis runs the DSH presentation layer, not Knot business plugins. No DSH Host, AgentLoop or tool execution backend is activated. B1–B5 and S1–S5 add about **2,279 lines** of owned production integration and **1,220 lines** of tests/smoke scripts (physical lines including comments/blanks, `2b7c94c` → `91f2200`; excluding official code, fixtures, lockfile and docs). Aggregate npm packages still install backend dependencies transitively; installation does not mean execution.
+
+Graceful pause does not abort a process, and auto approval is not a sandbox. Unconnected attachment, fork and dynamic-plugin operations are hidden or explicitly refused. Missing usage is not zero, output rate is not decode TPS, and subscription matches are not handler executions. See the [integration and deviation guide](web-dsh-reference/README.md).
+
+### Earlier Web and Studio
+
+```bash
+npm --prefix web install
+npm run workbench
+```
+
+Open `http://127.0.0.1:4317/`. Stop a Host already running in terminal 1 before using this command, to avoid a port conflict.
+
+Studio retains real Assembly descriptions, Projects/Cases, Mock/real Runs, basic event assertions and observed Flow lists. Generation/Publish/Validation have been removed. There is no executable source snapshot, visual plugin editor, Dataset Eval or experiment comparison. The DSH shell has no Studio editor; further visual-composition expansion is paused.
 
 ## Model configuration
 
 Workbench currently uses Host-side Provider Profiles. Credentials are never returned to the browser or written to the Journal.
 
-OpenAI-compatible and DeepSeek profiles can be added through **Project settings → Add local Provider profile**. They are stored locally in `.knot/providers.json` with `0600` permissions. The API key is sent to the localhost Host only when the profile is created; later APIs return a redacted summary. Environment-backed profiles remain supported.
+In the DSH shell, **Settings → 模型 Provider** supports adding, editing, testing, deleting and setting a default profile. Environment profiles are read-only. Testing requires confirmation and makes a real model request. Profiles default to local `.knot/providers.json` with `0600` permissions; Host environment can override its location. Keys are sent only when created/updated and never returned, journaled or stored in browser storage.
 
 Official DeepSeek example:
 
@@ -358,7 +387,7 @@ export DEEPSEEK_API_KEY="..."
 export KNOT_DEEPSEEK_MODEL="deepseek-flash"       # optional
 export KNOT_DEEPSEEK_THINKING="enabled"           # optional
 export KNOT_DEEPSEEK_REASONING_EFFORT="high"      # optional
-npm run workbench
+npm run workbench:api
 ```
 
 Generic OpenAI-compatible CASE1/CLI example:
@@ -370,32 +399,30 @@ export KNOT_MODEL="model-name"
 npm run case1
 ```
 
-The Web UI can add and select local profiles. Editing, deletion, and operating-system keychain integration are not implemented yet.
+An empty Session has no precommitted model/approval facts. UI changes remain pending until the next `submit()` appends changed `inference.configured` / `approval.policy.configured` facts; unchanged values are not repeated. Restore uses the latest Journal configuration, or Host defaults when absent, not old descriptor configuration fields. OS keychain integration and remote multi-user deployment remain unimplemented.
 
 ## Concept relationships
 
 ```text
 Project
 ├── Assembly / Agent definition
-│   ├── plugins, tools, prompt, policies
-│   └── immutable Generations
+│   └── plugins, tools, prompt, policies
 ├── Cases
 │   ├── input, fixture, assertions, eval settings
 │   └── Runs
 └── Sessions
-    ├── pinned Assembly generation
+    ├── Assembly identity (not a code snapshot)
     ├── Journal
     └── parent / child relationship
 ```
 
 - **Project:** the durable development, validation, and export boundary.
 - **Assembly:** an executable agent definition.
-- **Generation:** an immutable Assembly version.
 - **Case:** a reproducible test or experiment, not the agent itself.
 - **Session:** one Assembly execution and its Journal.
 - **Run:** the Session and evaluation evidence produced by executing a Case.
 
-These terms are still being validated by CASE1–CASE3. See [Core concepts](docs/concepts.md).
+Generation was an explored publishing concept, not a current feature. A Session records Assembly identity, which does not restore historical source code or replay external effects. See [Core concepts](docs/concepts.md).
 
 ## Plugins and ecosystem
 
@@ -407,7 +434,7 @@ type Plugin = (journal: Journal) => void
 
 Installation is one function call. A plugin may keep private mechanical state in a closure, while business facts belong in the Journal and external state belongs to its real external owner.
 
-Knot has no marketplace and has not frozen `definePlugin` / `defineAssembly` as public APIs. CASE2 now uses an internal `PluginNode = { plugin, metadata }` shape so executable registration order and Studio presentation come from the same definitions. This solves a concrete single-source problem; it is not yet an ecosystem API commitment.
+Knot has no marketplace. Thin internal `definePlugin` / `defineAssembly` helpers keep CASE1/CASE2 executable declarations, registration order and inspection metadata single-sourced. They are not frozen public ecosystem APIs. DSH Client plugins are presentation extensions, not Journal plugins.
 
 The expected minimum shareable unit is:
 
@@ -462,6 +489,9 @@ Read [`AGENTS.md`](AGENTS.md) first. Start from an end-to-end trajectory, clear 
 
 - [Core concepts and relationships](docs/concepts.md)
 - [Plugin design and practices](docs/plugin-best-practices.md)
+- [DSH integration and current boundaries](web-dsh-reference/README.md)
+- [Current Workbench product model](docs/product/workbench-product-model.md)
+- [Workbench capability ledger](docs/product/workbench-user-stories.md)
 - [Accepted CASE1 boundaries](docs/design/case1-active-boundaries.md)
 - [CASE2 coding agent design](docs/design/case2-coding-agent-spec.md)
 - [Minimal-kernel review response](docs/reviews/minimal-kernel-review-response.md)

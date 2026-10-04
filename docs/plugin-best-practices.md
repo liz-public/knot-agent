@@ -2,6 +2,9 @@
 
 本文总结 CASE1、CASE2、JSONL、Trace 和 Workbench 平台接线已经验证出的插件设计原则。它描述当前实践，不提前承诺插件 Marketplace 或冻结的 `definePlugin` API。
 
+现状校准：`91f2200`，2026-10-04。DSH Client Cordis 插件是展示扩展，不是这里的 Journal
+Plugin；两者不能因为名称相同而混用生命周期或事件通道。
+
 ## 1. 最小契约
 
 ```ts
@@ -131,9 +134,10 @@ Plugin A imports Plugin B → calls B.handle()
 
 维护四份顺序。
 
-下一阶段的目标是让同一组 Assembly 节点同时提供实际安装行为和可序列化元数据，Host/Studio 只消费派生的只读描述。
-
-CASE2 已经使用一个内部 `PluginNode = { plugin, metadata }` 形状验证了这个方向。它没有改变 `Plugin = (journal) => void`，也没有引入生命周期或依赖容器；在更多 Assembly 验证前，它仍是内部形状而非冻结接口。
+CASE1/CASE2 已通过内部 `PluginDefinition = { metadata, create, inspect? }` 和
+`PluginNode = { plugin, metadata }` 让执行装配与只读描述同源。薄 `definePlugin` /
+`defineAssembly` 已存在，但没有改变 `Plugin = (journal) => void`，也没有引入生命周期或
+依赖容器；它们仍是内部接口，不是冻结的生态契约。
 
 ## 9. 有序策略不是多个 Journal 插件
 
@@ -202,9 +206,11 @@ my-plugin/
 - 源码入口；
 - 聚焦测试或 Case。
 
-`definePlugin(...)` 可以成为承载这些信息的薄辅助函数，但只有在它能同时驱动实际安装和 Studio 元数据、且不改变最小 Plugin 执行契约时才值得引入。
+内部 `definePlugin(...)` 已承担类型绑定；上面列出的版本、作者、配置 schema 等字段还没有
+全部实现，不应因本文存在就逐项补齐。只有真实分享场景需要时，才扩展声明。
 
-同样，`defineAssembly(...)` 只有在解决实际的单一来源问题时才成立。它不应演变成工作流 DSL、依赖求解器或新的 Runtime。
+内部 `defineAssembly(...)` 已解决当前单一来源问题。它不应演变成工作流 DSL、依赖求解器
+或新的 Runtime，也不能用声明元数据冒充历史执行代码制品。
 
 ## 13. 提交插件前的检查表
 

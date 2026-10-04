@@ -1,6 +1,7 @@
 # Knot 核心概念
 
-本文只定义 Knot 当前用来交流、设计和检查实现的概念模型。它不是公共数据格式，也不会因为某个名词存在就要求内核新增实体。
+本文定义当前实现使用的概念模型（代码基线 `91f2200`，2026-10-04）。它不是公共数据格式，
+也不会因为某个名词存在就要求内核新增实体。历史产品规划不代表当前功能。
 
 ## 1. 一条主线
 
@@ -12,7 +13,10 @@ Journal → Projection → Reaction → Effect → Journal
 
 一个 Session 内权威的追加式业务事实序列。事件只有 `type` 和 `data`；内核不解释事件含义。
 
-Journal 记录已经发生的事实，例如用户输入、模型完成一次生成、工具执行结果和压缩检查点。它不保存可以随时从事实重算的完整模型 messages，也不承担 UI 的逐 Token 流式状态。
+Journal 记录已经发生的事实，例如用户输入、模型生成、工具结果和压缩检查点，也记录影响
+Session 的已生效控制配置：`inference.configured` 和 `approval.policy.configured`。
+并非每条事实都必须进入模型上下文，零订阅者也合法。Journal 不保存可重算的完整模型
+messages，不承担 UI 的逐 Token 流式状态；观测时间放在 JSONL envelope 元数据中。
 
 ### Projection
 
@@ -84,18 +88,20 @@ Assembly 包括：
 
 Prompt、工具 Schema 和 Protocol 必须从被装配插件的同一声明/配置派生，不能在 Assembly 元数据中复制维护。注册顺序具有语义，因此必须只有一个来源。CASE1/CASE2 已分别导出完整 AssemblyDefinition；Catalog 只负责注册，Studio 描述从对应定义投影。
 
-`defineAssembly` 可以成为薄的单一声明边界；`definePlugin` 如果引入，也只提供类型推导、元数据/配置/实现绑定，不增加新的运行时层。字段仍需通过真实 Case 验证后再冻结。
+内部已有薄 `defineAssembly` / `definePlugin`。前者派生描述并检查重复身份，后者保留定义
+的类型绑定；都没有新增运行时层。它们仍是内部接口，不是已经冻结的插件包协议。
 
 ### Generation
 
-目标语义是 Assembly 的不可变版本：新 Session 可以选择新的 Generation，已有 Session 继续绑定创建时的 Generation。当前 Studio 保存声明指纹、声明 snapshot 和 Generation 身份，并用 `restorable` 表示当前代码是否能解析它；尚未封存可执行代码制品，因此还不能声称完成了严格的历史运行时复现。
+Generation 是此前探索的不可变版本概念。由于声明指纹不能封存和恢复可执行源码，当前
+已删除 Generation、Publish 与独立 Validation。它不属于现有 Session 运行契约。
+需要源码版本时仍使用 Git；如未来重新引入运行制品版本，先讨论真实场景和恢复条件。
 
 ## 4. Project、Case、Session 与 Run
 
 ```text
 Project
-├── Assembly Draft
-│   └── Generations
+├── Assembly identity → 当前代码定义
 ├── Cases
 │   └── Runs
 └── Sessions
@@ -104,7 +110,10 @@ Project
 
 ### Project
 
-长期维护一个 Agent 产品的工程边界，包含一个 Assembly Draft、多个 Generations、Cases、本地组件、数据和运行证据。`projectRoot` 是工程文件位置，`runtimeWorkspace` 是某次 Session 操作的目标目录，两者不能混为同一个 workspace。当前 Subagent 使用同一个 Assembly；不同插件拓扑的专家 Agent 应先作为另一个 Project，而不是提前扩展成多 Assembly Project。
+长期维护一个 Agent 的工程边界。当前 Project 保存标题、工程根目录和一个已注册 Assembly
+的身份，关联 Cases 和 Runs；不等于前端可编辑的 Assembly 工程。`projectRoot` 是工程位置，
+Session 的 workspace 是其操作目录，两者不能混为一谈。当前 Subagent 使用同一个 Assembly。
+本地组件库、工程文件编辑和多 Assembly Project 尚未形成产品契约。
 
 ### Case
 
@@ -112,11 +121,19 @@ Project
 
 ### Session
 
-Assembly 的一次持久运行实例。一个 Session 拥有一个 Journal，并记录创建时选择的 Assembly Generation；在可执行制品能够被封存前，这个绑定仍只是声明身份而非完整代码快照。Subagent 是独立 Session，可以记录 `parentSessionId`，但拥有自己的 Journal 和上下文。
+Assembly 的一次持久运行实例。一个 Session 拥有一个 Journal，descriptor 记录身份、标题、
+Assembly、工作目录、Journal 路径与父子关系，不记录模型或审批配置。Assembly 身份不是
+历史代码快照。Subagent 是独立持久 Session，拥有自己的 Journal 和上下文。
+
+页面配置先成为 pending；下一次 submit 才提交变化的配置事实。恢复时从 Journal 读取已
+生效配置；缺失时采用 Host 默认值，不在加载或创建时补写，也不回退到旧 descriptor 配置。
 
 ### Run
 
 执行某个 Case 所产生的一次 Session、Journal、断言结果和指标。用户自由对话创建的 Session 不一定来自 Case。
+
+输入重建不等于执行重放：历史 `llm.invoke` 可以按封闭 manifest 重建当时的规范输入，
+但不能据此声称恢复了旧 Provider、旧源码或外部设备/文件系统状态。
 
 ## 5. 三层边界
 
@@ -130,7 +147,9 @@ Web / Host 产品层
 
 ### Web / Host 产品层
 
-负责 Project/Session 管理、HTTP/SSE、模型配置、流式展示、审批交互、Studio 和导出入口。它不调度 CASE2 的业务事件。
+负责 Project/Session 管理、HTTP/SSE、待提交配置、流式展示、审批和 Ask 端口、只读检视。
+DSH Web / Client Cordis 只处于这一层，不执行 Knot Journal 插件。早期 Web 保留 Studio
+Case/Run；DSH 壳没有 Studio 编辑入口。导出运行制品仍是未实现的方向。
 
 ### 插件运行与 Journal 层
 
@@ -150,8 +169,10 @@ Web / Host 产品层
 | Assembly 单一来源 | 已完成内部最小实现；外部格式未冻结 |
 | Plugin metadata | 设计方向已明确，字段未冻结 |
 | Case/Eval 格式 | Studio 已有最小持久化 Run 闭环，格式未冻结 |
-| Project | 一个 Project/一个 Assembly Draft 的 Host 持久模型已运行，格式未冻结 |
-| Generation 导出格式 | 声明 snapshot 已有；可执行制品尚未实现 |
+| Project | 一个 Project 关联一个已注册 Assembly 的持久模型；不支持页面编辑装配 |
+| Generation / 运行制品 | 原 Generation 功能已删除；可执行制品未实现 |
 | CASE3 多 Journal 关系 | 待真实 Case 验证 |
 
 冻结顺序遵循同一原则：先让真实 Case 暴露边界，再把已经反复出现且稳定的形状命名为公共契约。
+
+当前 Workbench 能力和原生壳偏差见 [DSH 接线说明](../web-dsh-reference/README.md)。

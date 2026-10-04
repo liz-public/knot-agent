@@ -6,9 +6,11 @@
 
 人类、模型、工具和软件插件围绕同一个追加式 Journal 共同“结绳记事”。插件响应已经发生的事实，选择追加新事实或保持沉默；它们经过装配后形成智能体，而不是把所有业务塞进一个不断膨胀的 AgentLoop。
 
-> Knot 正处于 Alpha 阶段。CASE1、CASE2 和 Web Run 已可运行；Assembly 开发接口、Studio、Case/Eval 与导出格式仍在验证，尚未冻结为公共 API。
+> Knot 正处于 Alpha 阶段。CASE1、CASE2 与接入 DSH 官方前端壳的 Web Run 已可运行；Assembly 开发接口、Case/Eval 与导出格式尚未冻结。当前优先完善真实使用，不追求与 DSH 全部产品能力对等。
 
 ![Knot Workbench 展示 CASE2 对话和 Journal Inspector](docs/assets/knot-workbench.png)
+
+上图保留为早期自有 Web 的验证记录。当前 DSH 壳的启动方式与能力边界见下方 [Workbench](#workbench) 和[接线说明](web-dsh-reference/README.md)。
 
 ## 一个核心模型
 
@@ -79,7 +81,7 @@ CASE1 和 CASE2 使用同一个内核，没有为各自业务增加内核特权�
 
 ## Agent 如何形成
 
-下面是一条典型工具调用轨迹：
+下面是一条 CASE1 的典型工具调用轨迹；CASE2 直接进入 `llm.request`，没有内容来源仲裁环节：
 
 ```text
 user.message
@@ -123,10 +125,9 @@ Handler；候选列表等未完成状态留在工具域内，下一轮继续通�
 
 | 插件 | 订阅 → 产出 | 职责 |
 |---|---|---|
-| `AppMatch` / `ToolIntentMatch` | `user.message` → `context.contribution` | 只匹配本轮相关应用和工具说明 |
-| `RuntimeContext` | `user.message` → `context.dynamic` | 汇总本轮贡献与仍有效的设备状态 |
+| `RuntimeContext` | `user.message` → `context.dynamic` | 组合应用匹配、工具意图匹配等普通 ContextSource，并提供本轮上下文；不再产生 `context.contribution` 中转事件 |
 | `AgentFlow` | `context.dynamic` / `tool.result` → `content.request` / `llm.request` | 推进一次内容生成，不执行模型或工具 |
-| `ContentSources` | `content.request` → content / `llm.request` | 让 Shortcut、规则或 LLM 按装配顺序竞争同一种结果 |
+| `Content` + sources | `content.request` → reply / `llm.request` | 一个插件按装配顺序选择首个命中的普通来源函数 |
 | `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | 投影模型输入并产生一次完整决策 |
 | `Tools` | `tool.call` → `tool.result` | 执行唯一的 Bash Function；CLI 内部再经 Parser、Dispatcher 到具体 Handler |
 | `CompressHistory` / `Output` | generation / reply → checkpoint / presentation | 历史检查点与最终输出，各自不进入业务编排 |
@@ -143,7 +144,6 @@ sequenceDiagram
 
   U->>J: user.message
   J->>C: match app + tool intent
-  C->>J: context.contribution × N
   C->>J: context.dynamic
   J->>F: context.dynamic
   F->>J: content.request
@@ -210,10 +210,10 @@ Session，父 Agent 只接收它最终返回的摘要。
 
 | 插件 | 订阅 → 产出 | 职责 |
 |---|---|---|
-| `WorkspaceContext` | `user.message` → `context.dynamic` | 提供工作目录及 `AGENTS.md` / `CLAUDE.md` 项目约束 |
-| `CodingFlow` | user / tool / generation events → next request or reply | 推进任务，并在提交最终回复前执行 Guard |
+| `WorkspaceContext` | 首次 `user.message` → `context.fixed` | 固定投影工作目录及根目录 `AGENTS.md` / `CLAUDE.md`，恢复时复用已有事实；不自动追踪文件变化 |
+| `CodingFlow` | user / fixed-context / tool / generation events → next request or reply | 首轮等待固定上下文就绪，随后推进任务，并在提交最终回复前执行 Guard |
 | `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | 从 Journal 投影上下文并调用模型 |
-| `Tools` | `tool.call` → `tool.result` | 运行 read/write/edit/bash/ask/todo/goal/spawn_agent，并在外层执行审批策略 |
+| `Tools` | `tool.call` → `tool.result` | 运行 read/write/edit/bash/ask/todo/goal/spawn_agent；搜索由 Host 按已配置的 DeepSeek 搜索来源装配；工具策略读取 Journal 中已生效的审批配置 |
 | `CompressHistory` | `llm.generated` → checkpoint events | 只在达到窗口阈值时生成语义检查点 |
 | `JSONL` / `Output` / `ControlledBoundary` | facts → storage / UI / pause | 平台能力仍以普通插件或 Host 端口装配 |
 
@@ -229,10 +229,10 @@ sequenceDiagram
 
   U->>J: user.message
   J->>W: load workspace constraints
-  W->>J: context.dynamic
-  J->>F: user.message
-  F->>J: content.request
-  J->>L: llm.request → projected messages + tool schemas
+  W->>J: context.fixed (only when absent)
+  J->>F: context.fixed ready / subsequent user.message
+  F->>J: llm.request
+  J->>L: llm.invoke → projected messages + tool schemas
   L->>J: reasoning + content + tool.call
   J->>T: read / edit / bash / ask / todo / goal
   T->>J: tool.result
@@ -268,10 +268,11 @@ Parent 的累计输出 usage 为 94,073 tokens，其中包含 DeepSeek 的长 re
 同一事件模型上工作，另一方面也暴露出 CASE2 当前真正需要优化的是模型可见上下文、工具
 结果预算和推理成本，而不是继续扩充 Journal 内核。
 
-#### CASE2 与 Pi 的代码量快照
+#### CASE2 与 Pi 的历史代码量快照
 
 以下口径来自本地仓库快照；Pi 的 loop、harness、session 与产品层是不同边界，因此同时
-列出而不把其中任意一个数字包装成唯一结论。
+列出而不把其中任意一个数字包装成唯一结论。以下 UI 数字属于接入 DSH 壳之前的自有 Web，
+不是当前集成前端的总规模；当前适配体量另见 [Workbench](#workbench)。
 
 | 对比边界 | Knot | Pi 基线 | 观察 |
 |---|---:|---:|---|
@@ -293,39 +294,79 @@ npm run case2 -- "检查当前工程并运行测试"
 ```
 
 CASE2 可以在真实工作目录中读取、修改和验证文件。CLI 使用 OpenAI-compatible Provider；
-Mock Provider 用于测试和可复现 Case 装配。Workbench 的真实 Provider 由 Host 环境配置。
+Mock Provider 用于测试和可复现 Case 装配。Workbench 的真实 Provider 可以通过页面管理，
+也可以从 Host 环境变量加载。
 
 ## Workbench
 
+当前保留两个前端，使用同一 Knot Host：**DSH 官方壳是当前 Run 接线方向**，早期自有 Web
+仍提供 Studio 的最小 Case/Run 界面。二者不共用浏览器 UI 偏好，但可访问同一批持久 Session。
+
+### DSH 壳：当前 Run
+
+首次安装：
+
 ```bash
-npm run workbench
+npm install
+npm --prefix web-dsh-reference install
 ```
 
-浏览器打开 `http://127.0.0.1:4317/`。
+分别在两个终端启动：
 
-### Run
+```bash
+# 终端 1：Knot Host API
+npm run workbench:api
+
+# 终端 2：接入真实 Knot 数据的 DSH 前端
+VITE_KNOT_DSH_MODE=workbench npm run dsh-reference:dev -- --port 4178 --strictPort
+```
+
+浏览器打开 `http://127.0.0.1:4178/`。不设置 `VITE_KNOT_DSH_MODE=workbench` 时，
+该前端运行的是独立 Fixture，不是你的真实 Agent。
 
 - 创建、选择和恢复 Session；
 - 流式展示 content、reasoning、工具调用与工具输出；
-- 处理审批、ask、Todo、Goal 和 Subagent；
-- 检查真实 Journal 与 Trace；Context 和插件读模型仍在逐步接入真实 Assembly；
-- 选择 Host 已配置的模型、推理强度和审批策略。
-
-### Studio
-
-Studio 的目标流程是：
+- 使用原生审批、Ask、Todo 与子会话导航；Goal 为原生只读适配；
+- 在空闲边界调整下一次提交的模型、推理强度和审批策略；
+- 使用原生 Chat / Trajectory，以及平级的 Journal、工具统计、上下文分析、插件与协议页签；
+- 从只读 Session 封面查看配置、Usage、Todo/Goal、原始 Query 目录并定位到对话。
 
 ```text
-Compose → Run → Inspect → Evaluate → Export
+DSH Web / Client Cordis → 展示投影与 RPC/SSE 适配 → Knot Host
+                                                    ↓
+                                          Assembly → 插件 → Journal
 ```
 
-当前已完成 CASE2 的第一个真实纵向闭环：展示 Assembly、Prompt、工具和插件顺序，执行 Mock/真实 Case，保存声明指纹、Generation 身份和运行证据。当前 Generation 还没有封存可执行代码制品；插件编辑、Dataset Eval、对比和导出仍在建设。
+Client Cordis 是 DSH 展示层运行时，不是 Knot 的业务插件运行时。没有启用 DSH Host、
+AgentLoop 或工具执行面。B1–B5、S1–S5 的自有生产适配约 **2,279 行**，另有约 **1,220 行**
+测试与冒烟脚本（物理行数，含注释/空行，基线 `2b7c94c` → `91f2200`；不含官方代码、
+Fixture、锁文件和文档）。聚合 npm 包仍会间接安装 DSH 后端依赖，这不等于启用了后端。
+
+边界仍明确：优雅暂停不是中断进程，自动批准不是沙箱；未接的附件、Fork、动态插件等能力
+隐藏或明确拒绝。统计不把未知 Usage 记为零，输出速率不冒充 decode TPS，插件订阅匹配
+不冒充 handler 执行次数。详见[DSH 接线、验证与偏差](web-dsh-reference/README.md)。
+
+### 早期 Web 与 Studio
+
+```bash
+npm --prefix web install
+npm run workbench
+```
+
+浏览器打开 `http://127.0.0.1:4317/`。如果 Host 已在终端 1 运行，先停下它，避免端口冲突。
+
+Studio 保留真实 Assembly 描述、Project/Case、Mock/真实 Run、基本事件断言与观测 Flow 列表。
+Generation/Publish/Validation 已从当前实现移除；没有源码版本封存、可视化插件编辑、
+Dataset Eval 或实验对比。DSH 壳暂不提供 Studio 编辑入口。当前不继续扩展可视化编排平台。
 
 ## 模型配置
 
 Workbench 当前支持 Host 侧 Provider Profile。凭据不会返回浏览器，也不会写入 Journal。
 
-可在 **Project settings → Add local Provider profile** 中添加 OpenAI-compatible 或 DeepSeek 配置。配置保存在本机 `.knot/providers.json`，文件权限为 `0600`；API Key 只会在创建时从浏览器发送到本地 Host，后续接口只返回脱敏摘要。环境变量 Profile 继续受支持。
+DSH 壳中打开 **Settings → 模型 Provider**，可新增、编辑、测试、删除和设置默认 Profile；
+环境变量 Profile 只读。测试会真实调用模型，并先要求确认。配置默认保存在本机
+`.knot/providers.json`（可通过 Host 环境指定存储位置），文件权限为 `0600`；API Key 只在
+新增或更新时发送给本地 Host，后续接口仅返回脱敏摘要，不写入 Journal 或浏览器存储。
 
 官方 DeepSeek 示例：
 
@@ -334,7 +375,7 @@ export DEEPSEEK_API_KEY="..."
 export KNOT_DEEPSEEK_MODEL="deepseek-flash"       # 可选
 export KNOT_DEEPSEEK_THINKING="enabled"           # 可选
 export KNOT_DEEPSEEK_REASONING_EFFORT="high"      # 可选
-npm run workbench
+npm run workbench:api
 ```
 
 通用 OpenAI-compatible CASE1/CLI 示例：
@@ -346,32 +387,34 @@ export KNOT_MODEL="model-name"
 npm run case1
 ```
 
-当前 Web 支持新增和选择本地 Profile；编辑、删除和系统密钥链集成尚未实现。
+空白 Session 不会预先追加模型或审批配置。页面选择先成为待提交配置，下一次 `submit()`
+才追加变化的 `inference.configured` / `approval.policy.configured`，相同配置不重复写入。
+恢复时读取 Journal 最新配置；没有配置事实时使用 Host 默认值，不回退到旧 descriptor
+配置字段。系统密钥链和远程多用户部署尚未实现。
 
 ## 概念关系
 
 ```text
 Project
 ├── Assembly / Agent definition
-│   ├── plugins, tools, prompt, policies
-│   └── immutable Generations
+│   └── plugins, tools, prompt, policies
 ├── Cases
 │   ├── input, fixture, assertions, eval settings
 │   └── Runs
 └── Sessions
-    ├── pinned Assembly generation
+    ├── Assembly identity (not a code snapshot)
     ├── Journal
     └── parent / child relationship
 ```
 
 - **Project**：长期开发、验证和导出的工程边界。
 - **Assembly**：一个智能体的可执行定义。
-- **Generation**：Assembly 的不可变版本。
 - **Case**：可复现的测试或实验场景，不是智能体本身。
 - **Session**：Assembly 的一次运行实例及其 Journal。
 - **Run**：执行某个 Case 后产生的 Session 和评估证据。
 
-这些词汇正在由 CASE1–CASE3 验证；详见[核心概念](docs/concepts.md)。
+Generation 是曾探索过的版本发布概念，不是当前功能。现有 Session 记录 Assembly 身份，
+不能据此恢复历史源码或重放外部副作用。详见[核心概念](docs/concepts.md)。
 
 ## 插件与生态
 
@@ -383,7 +426,9 @@ type Plugin = (journal: Journal) => void
 
 安装插件就是调用一次函数。插件可以用闭包保存私有机械状态，但业务事实应进入 Journal，外部状态应由真实所有者持有。
 
-Knot 暂时没有插件 Marketplace，也没有冻结 `definePlugin` / `defineAssembly` 公共 API。CASE2 当前使用内部 `PluginNode = { plugin, metadata }` 让实际安装顺序和 Studio 展示来自同一组定义；这只是解决单一来源的内部形状，还不是承诺给生态的公共 API。
+Knot 暂时没有插件 Marketplace。内部已有薄 `definePlugin` / `defineAssembly`，让 CASE1/CASE2
+的执行声明、注册顺序和可检查元数据保持单一来源；它们不是已冻结的生态公共 API。
+DSH Client 插件只负责展示，不与这些 Journal 插件混用。
 
 未来一个可分享插件的最小单位预计是：
 
@@ -438,6 +483,9 @@ npm test
 
 - [核心概念与关系](docs/concepts.md)
 - [插件设计与最佳实践](docs/plugin-best-practices.md)
+- [DSH 前端接线与当前边界](web-dsh-reference/README.md)
+- [Workbench 当前产品模型](docs/product/workbench-product-model.md)
+- [Workbench 功能清单](docs/product/workbench-user-stories.md)
 - [CASE1 已确认边界](docs/design/case1-active-boundaries.md)
 - [CASE2 Coding Agent 设计](docs/design/case2-coding-agent-spec.md)
 - [最小内核评审回应](docs/reviews/minimal-kernel-review-response.md)

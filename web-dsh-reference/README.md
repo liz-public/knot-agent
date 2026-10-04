@@ -1,327 +1,250 @@
-# DSH reference fixture
+# Knot Run — official DSH frontend integration
 
-This isolated page boots the published DeepSeek Harness `0.2.0-rc.1` browser
-shell and its real client plugin graph. The default entry uses deterministic
-fixture data; Workbench mode replaces the carrier with Knot HTTP data.
-It does not execute Knot cases, Journal plugins, or a DSH Host in the browser.
+Status: B1–B5 and S1–S5 are connected; code baseline **`91f2200`**, reviewed 2026-10-04.
+This is an Alpha integration, not a full DSH feature clone or the default root start command.
+
+We load the published **DeepSeek Harness `0.2.0-rc.1` Web shell and Client plugins**.
+Client Cordis **`4.0.4`** is their presentation runtime. Knot remains the only Agent execution
+backend. No DSH Host, AgentLoop, sandbox or tool execution service is activated.
+
+The directory/package names still say `reference-fixture`; they are historical names,
+not a statement that Workbench mode uses fake data.
+
+## 1. Start the correct mode
+
+Run these commands from the repository root. Node must support `--experimental-strip-types`
+for the Client tests; Node 25 was used for the current verification.
 
 ```sh
 npm install
-npm run dev
+npm --prefix web-dsh-reference install
+
+# Terminal 1 — Knot Host, port 4317
+npm run workbench:api
+
+# Terminal 2 — real Knot Sessions in the official shell
+VITE_KNOT_DSH_MODE=workbench npm run dsh-reference:dev -- --port 4178 --strictPort
 ```
 
-Open <http://127.0.0.1:4175/>. The fixture includes multiple Sessions, a long
-conversation, tool presentations, an Ask card, images, usage records, and the
-original DSH trajectory view.
+Open <http://127.0.0.1:4178/>. In **Settings → 模型 Provider**, configure a local
+OpenAI-compatible or DeepSeek profile, then create a Session in **新建 Session**.
+The native sidebar New action uses Host defaults. A first visit without saved selection
+can also create a blank default Session; it does not start a model request or precommit
+inference/approval facts. Creating a writable Session requires a configured Provider.
 
-## B1–B5: real Knot history, configuration, interaction and execution
-
-Start the existing Knot Workbench Host on port 4317, then run:
+To change the API development proxy target:
 
 ```sh
-VITE_KNOT_DSH_MODE=workbench npm run dev -- --port 4178 --strictPort
+VITE_KNOT_DSH_MODE=workbench KNOT_WORKBENCH_URL=http://127.0.0.1:4320 \
+  npm run dsh-reference:dev -- --port 4178 --strictPort
 ```
 
-Open <http://127.0.0.1:4178/> and choose an existing Session in the sidebar.
-`KNOT_WORKBENCH_URL` can override the development proxy target.
-Chat, official Trajectory, child navigation and basic statistics share the same
-snapshot projection. Text sending and live execution are connected. Unconnected actions explicitly refuse requests.
+The Vite proxy is a development configuration, **not** a production deployment proxy.
+A static build requires its own same-origin `/api/workbench` routing. It is not packaged
+as an Electron app, and the DSH shell is not served by `npm run workbench` yet.
 
-The first visit without a saved selection can cause the official Client to create
-a blank Session with Host defaults. Missing historical usage/timing is not filled with defaults.
-
-### B2 controls
-
-- **Settings → 模型 Provider**: existing Host list, add/edit/test/delete/default operations.
-  Testing is an explicit, confirmed real LLM request. Environment profiles are read-only.
-  API keys are write-only to the Host and are never read back or saved to browser storage.
-- **Settings → 新建 Session**: choose a Host-provided Assembly, workspace, Provider,
-  reasoning effort and approval policy before creation. Native sidebar New uses Host defaults.
-- **Composer model/approval chips**: read and update the selected Session's pending configuration.
-  Saving does not append Journal events; the existing Host commits them at the next submit boundary.
-  Read-only/running Sessions cannot be reconfigured. Auto means automatic approval without a sandbox,
-  not DSH's automated approval review.
-
-The published Settings shell, primitives and theme are reused. A small Knot Client contribution
-owns these configuration surfaces because Knot's Provider profiles and immutable Session Assembly
-are not DSH's settings schemas, credential store, agent preset switching or permission presets.
-Pending selections are read from the Host summary, not fabricated as sequenced history projections.
-Only acknowledged local creation mutations notify the Client catalog in B2; cross-client
-catalog updates outside the followed Session are not connected yet.
-
-### Accepted presentation differences (B2)
-
-Workbench mode disables the original DSH model-selection, permission-preset and
-model-settings Client plugins and installs the Knot configuration contribution.
-This is an accepted intermediate integration, **not a 1:1 DSH interaction replica**.
-
-- Composer controls open a combined model/approval modal with native selects,
-  rather than the original DSH dropdown menus.
-- Provider management and New Session are custom Settings sections; their forms,
-  layout and creation entry point differ from the original surfaces.
-
-The data/semantic differences explain separate capability owners, but do not
-require these presentation differences. After wiring, review whether the Knot
-contribution can reuse more original menu/form interactions without inventing
-DSH settings, permission-review or preset-switching backend semantics.
-
-### B3 interaction ports
-
-The original DSH approval and user-question Client plugins remain enabled.
-For followed writable Sessions, the carrier subscribes to the existing Knot SSE
-endpoint and translates `interaction.request` into a scoped `$events` waterfall.
-The reply posts the exact interaction id to the existing Host `/interactions`
-route. The Host broker, not this projection, owns waiting and execution.
-
-- Concurrent approvals use the original single-card pending UI (DSH selects the
-  displayed pending item; this integration does not impose FIFO).
-- Approval arguments remain visible. Only `allowed-once` / `rejected` map to
-  Knot `allow` / `deny`; no persistent permission grant is invented.
-- Ask maps to one question with optional choices and free-text input. An answer
-  must match that question; unknown choices, empty/skipped answers and multi-select
-  do not resolve the broker.
-- Pending requests replay when a Session stream reconnects. Duplicate deliveries
-  are suppressed; stale/duplicate decisions and HTTP failures are not accepted.
-  Session disposal withdraws presentation, never grants approval or answers Ask.
-- Native Ask **close/skip are not Host cancellation operations**. S2 rejects
-  unsupported actions before the native carrier settles: the original question
-  card displays the error, stays answerable and leaves the Host waiting.
-  Cross-client settlement synchronization is not part of B3; this batch validates a single Client.
-
-Browser smoke uses an isolated Host with the real HTTP server and broker, but no
-model, tools or persistent data:
+### Fixture mode — explicitly separate
 
 ```sh
-# Root build is required by the controlled Host fixture.
-npm --prefix .. run build
-node test/interaction-host.mjs
-# In another terminal; type approvals / ask / free / status into the Host terminal.
-VITE_KNOT_DSH_MODE=workbench KNOT_WORKBENCH_URL=http://127.0.0.1:4320 npm run dev -- --port 4179 --strictPort
+npm run dsh-reference:dev -- --port 4175 --strictPort
 ```
 
-### B4 online execution
+Open <http://127.0.0.1:4175/>. Without the Workbench mode variable, `RemoteMock` supplies
+captured DSH fixture responses. This mode is useful for native UI comparison, not for
+running Knot tools. Fixture images and other demonstrations do not imply Knot supports them.
 
-- The native composer submits text through the existing Host `/messages` route.
-  Pending model/approval configuration is committed by the Host's existing submit boundary.
-  While running, Cmd/Ctrl+Enter uses Steering with the default DSH input preference.
-  Queue requests are refused rather than silently converted to Steering; attachments remain unconnected.
-- One followed Session's existing SSE supplies Journal invalidations, reasoning,
-  content and tool-argument deltas. These become disposable DSH display events and
-  dense assistant-stream frames, never new Knot Journal facts.
-- The exact persisted assistant message settles its stream before the Step closes.
-  HTTP snapshot refreshes append only unseen display records. Local prompt receipt
-  identities retire native optimistic echoes, without altering persisted user messages.
-- The native Stop button maps to **graceful pause**, not abort. S1 reuses that same
-  InputBar primary button for Resume while paused; no second runtime control is shown.
-- Bash stdout/stderr are expandable in a temporary live-output dock while the
-  command runs. After close, the native tool row owns the persisted result.
-  S2 maps known output/exit fields to the native terminal card for display only;
-  the persisted result and Inspector remain Knot JSON.
-- Runtime errors reach the native Session error surface and the dock. Switching
-  Sessions closes the old SSE and discards transient presentation. Reopening/refreshing
-  reads the complete Journal; missing live prefixes are not invented. An in-progress
-  generation opened before this browser followed it appears in full after commitment.
-- SSE reconnect refreshes durable history. It cannot reconstruct lost deltas from
-  the Host (which retains no stream prefix); final commitment repairs the display.
-  Reload/switch also drops the temporary live Bash console, not the underlying command.
+The earlier Knot Web remains available through `npm --prefix web install` followed by
+`npm run workbench`, at port 4317. Do not start a second Host on an occupied port.
 
-Verified with a real DeepSeek CASE2 Session in an isolated temporary workspace:
-read → approved Bash → Ask free-text reply → final, followed by a second Bash
-with content + reasoning + tool call, graceful pause and resume. The final snapshot
-has 2 turns, 5 model calls, 34 Journal facts and 8,727 request tokens (73.4% input-cache
-hit). Refresh reconstructs the same persisted conversation. No repository files
-were modified by that Session. These are smoke measurements, not performance claims.
+## 2. Architecture and ownership
 
-### B5 business facts and inspection
-
-- The original DSH statistics component still renders turns/steps. A public Client
-  slot wrapper appends the Journal event count to its counts label, e.g.
-  **2 turns 5 steps 34 events**, without copying the component or mutating its DOM.
-- Total request tokens include all recorded model usage (including compaction).
-  Older calls with unknown cache counts do not hide known token totals. Partial
-  totals/cache coverage are explicitly labelled; unknown is not zero. The latest
-  input-cache ratio and **end-to-end** output rate remain distinct from native decode TPS.
-- Todo/Goal are derived only from `tool.result.state`, never guessed from a call
-  or a denied operation. S1 connects the native Todo panel and read-only GoalBar.
-  Native per-tool views receive presentation-only aliases for `todo.write`,
-  `goal.write`, `spawn_agent` and `ask`; Journal/Context names remain unchanged.
-  Native per-tool history/diff semantics are not fully equivalent to Knot's.
-- Inspection contributions use native conversation tabs alongside unchanged Chat
-  and Trajectory. Journal and historical Context come from the Host; plugin metadata
-  is the current executable Assembly declaration, not a historical code snapshot.
-  Child Sessions open only through native child navigation, using the real parent relation.
-- Inspection data is read-only; pure Host projections own analysis and the carrier
-  forwards DTOs. Journal kernel, business plugins and dependencies are unchanged.
-
-Verified against the real 1,134-event coding Session: 204 agent calls, 5 displayed
-turns (Steering shares its active turn), 25,731,858 cumulative request tokens,
-99.89% latest input-cache hit and Todo 7/7. Its 49-event child opens with the parent
-breadcrumb. This Session has no Goal fact: Goal projection has controlled tests,
-but a real online Goal interaction still needs user acceptance.
-
-Remaining differences are intentional review items, not claims of DSH parity:
-live-output layout flashes, refresh/stream scheduling,
-custom configuration interactions, cross-client synchronization,
-native specialized tool-result semantics and partial custom i18n. Historical
-TTFT/decode timing, old cache counts and lost transient prefixes cannot be fabricated.
-
-```text
-DSH published Client → workbench-remote → existing Knot HTTP API
-                           ↓
-                temporary history projection
+```mermaid
+flowchart TB
+  UI[Official DSH Web / Client Cordis]
+  CP[Knot Client presentation contributions]
+  R[Workbench Remote: RPC / SSE carrier]
+  H[Knot Host: existing HTTP / SSE ports]
+  A[Assembly and CASE plugins]
+  J[(Journal / JSONL)]
+  Q[Read-only Host projections]
+  UI <--> CP
+  UI <--> R
+  CP <--> R
+  R <--> H
+  H --> A
+  A <--> J
+  J --> Q
+  Q --> H
 ```
 
-`fixture-remote.ts` and captured DSH JSON are not used by this mode. Workbench
-types are imported as types only; the backend has no dependency on DSH UI types.
-The Vite proxy is for development, not a production deployment configuration.
+| Module | Sole ownership | Does not own |
+|---|---|---|
+| `vite.config.ts` | Derive the official browser plugin graph from package manifests; load/copy official artifacts and local contributions | Agent assembly or DSH Host execution |
+| `workbench-remote.ts` | Map DSH RPCs to Knot HTTP; follow SSE; reconcile snapshots; ephemeral receipts/interaction ids | Tool execution, approval policy, another persistent Session store |
+| `knot-journal-projection.ts` | Translate recorded facts to native turns, steps and projections | Rewriting JSONL or attributing unobserved handler effects |
+| `generation-projection.ts` / `interaction-projection.ts` | Disposable stream frames and approval/Ask presentation | Persisting token deltas or inventing cancellation |
+| `tool-presentation.ts` | Translate native card fields and display aliases | Changing actual tool names, arguments, results or model context |
+| `*-client.tsx` / `readonly-client.ts` | Register native slots/views and narrowly wrap original components | Calling CASE plugins or creating business facts directly |
+| Host inspection projections | Reconstruct input; count recorded tools/subscription matches; project Session cover | Model calls, tool effects or parallel business state |
+
+No official UI component source is forked into this directory. Official built artifacts
+are copied into build output; the source carrier for Fixture mode is adapted from the MIT
+assembled-client test seam. See [NOTICE](NOTICE.md) and [license](DSH-LICENSE.txt).
+
+Dependencies point toward the presentation adapter: the Knot Host has no DSH UI dependency,
+and CASE/Journal code has not changed for this integration. Browser imports of Host DTOs
+are type-only, except a shared pure `session-facts.ts` projection with no Node dependencies.
+
+This is **version-coupled**, not dependency-free. Slot wrappers retain original injection,
+hooks and styles, but depend on rc.1 props, projection keys and public navigation contracts.
+Some seams use `any`; upgrading DSH requires regression tests, not just changing versions.
+
+### Installed packages versus executed backend
+
+There are 9 direct production dependencies. The current lockfile contains 266 DeepSeek
+package entries: aggregate `dsh-base` / `dsh-web-app` dependencies also install backend
+packages. The loader selects Web Client declarations only. Thus **execution isolation is
+achieved; installation slimming is not**. Workbench-mode build checks found no captured
+Fixture strings or Mock-carrier marker; static source imports should not be mistaken for
+an active Fixture backend.
+
+## 3. Connected behavior and intentional limits
+
+### Sessions and configuration
+
+- Native Chat, Trajectory, sidebar activity and parent/child navigation use Knot snapshots.
+  Activity comes from recorded/Host timestamps, not browser refresh time.
+- Settings provides Provider list/add/edit/test/delete/default and Session creation.
+  Environment profiles are read-only. Keys are sent only to the Host, never returned,
+  saved in browser storage or copied into the Journal. Testing is a confirmed real request.
+- Separate anchored native `Menu` controls select model/effort and approval. Their
+  capability owner is Knot, not DSH settings/credential/model-directory services.
+- Idle configuration changes remain pending. The next submit commits changed
+  `inference.configured` / `approval.policy.configured`; unchanged values are not repeated.
+  A Session's Assembly is not switched by these controls.
+- Read-only Sessions remain read-only. Unconnected writes return `knot/unconnected`.
+  Global discovery of Sessions created elsewhere still needs Refresh.
+
+### Online execution and user interaction
+
+- Native composer sends to the existing Host messages route. Running input uses Steering
+  through the native shortcut/input preference; queued follow-up requests are refused.
+- Reasoning, content and tool arguments stream without becoming Journal delta events.
+  Final recorded content reconciles optimistic echoes and settles the display once.
+- Native Stop means **graceful pause after the current event**, not process abort. The
+  same primary button resumes a paused run while preserving the unsent draft.
+- Native approval and Ask keep Host broker ownership. Allow/reject means one decision,
+  not a persistent permission grant. Auto approval is neither review nor a sandbox.
+- Ask supports one question, optional choices and free text. Unsupported close/skip or
+  multi-select outcomes return errors and leave the question answerable.
+- Pending interactions replay on reconnect; Host settlement events retire answered cards.
+  Disposing the UI never grants approval or answers a question.
+- Journal invalidations are coalesced: one queued/in-flight read plus at most one trailing
+  reconciliation. Stream frames stay ordered. The controlled 1,200-event test receives
+  101 invalidations during a read and performs two reads, retaining all 100 deltas.
+- Lost transient prefixes cannot be reconstructed: refresh repairs committed history,
+  not missing live tokens/stdout. Switching away does not cancel the underlying command.
+
+### Native cards and business projections
+
+- Read/write/edit/Bash/search and alias tool cards reuse original native views. Read uses
+  actual page line numbers; known Bash output/exits feed the native terminal. CASE1 CLI
+  results and unknown exits retain generic fallback, never an inferred zero exit code.
+- Runtime Bash stdout/stderr still use a small transient dock: the native running
+  terminal does not accept this delta port. Captured stdout plus stderr does not claim
+  their chronological interleaving.
+- Write previews describe intended input. No applied full-file edit diff or historical
+  Todo diff is fabricated. Raw Journal, Context and tool names remain unchanged.
+- Search keeps provider source order. `truncated: false` means Knot imposed no list cap,
+  not that upstream search is exhaustive. No absent dates/generated answers are invented.
+- `todos` feeds the native Todo panel. Goal uses the unchanged native `GoalBar` as a
+  read-only view, with mutations hidden/inert; DSH GoalService is not activated.
+- Native turn/step statistics append the Journal event count. Usage includes recorded
+  compaction calls; unknown/partial counts stay labelled. Output rate is invoke→generated
+  **end-to-end** rate, not native decode TPS.
+
+### S4–S5: independent read-only views
+
+These are sibling native `conversation.view` contributions, not nested dashboards:
+
+| View | Data and limits |
+|---|---|
+| Knot Inspector | Raw facts, filter, latest-100 pagination and lazy native JsonTree |
+| Tool analytics | Full registry history including zero-call/removed tools; call share and explicit-result success rate; unknown/unfinished separate |
+| Context analysis | Selected historical `llm.invoke`, canonical messages/tools, manifest and bounded sources; composition in UTF-16 characters, not invented segment tokens |
+| Plugins / protocols | Current executable Assembly metadata; declared input/subscription matches, not handler executions or recorded output attribution |
+| Session cover | Deterministic SVG identity, workspace/configuration, timestamps, Usage, Todo/Goal, original latest-reply excerpt and searchable Query directory |
+
+Cover queries include Steering, so they are not equivalent to completed native turns.
+It reuses native per-Session view preferences: sending enters Chat; selecting a query uses
+the native semantic scroll port. No model-generated summary, cover image request, new
+Journal event, child-usage rollup or second metadata store is introduced. Composer remains
+shared across tabs, including inspection/cover; its resize/visibility behavior is native.
+
+Host read routes are under `/api/workbench/sessions/:id/`: `context`, `cover`,
+`analytics/tools`, and `analytics/plugins`. Carrier `knot/*` methods forward their DTOs.
+Tool links focus call/result facts; Context and tool views can export local JSON.
+
+## 4. Remaining deviation ledger
+
+| Root cause | Current difference | Treatment |
+|---|---|---|
+| Product semantics | Graceful pause, auto approval, one-question Ask, independent persistent children, read-only Goal | Keep explicit; only expand with an agreed CASE requirement |
+| Presentation/wiring | Custom Provider/New Session forms; live Bash dock; native component wrappers | Prefer native primitives/slots; do not create a second business service |
+| Knot extension | Inspection and cover layout, partial custom i18n | Small usage-driven iteration; no claim of 1:1 DSH styling |
+| Missing facts | Historical TTFT/decode, old cache counts, applied edit diffs, lost stream prefixes | Unknown/unavailable, never fabricated |
+| Unconnected capabilities | Attachments, fork/rename/archive, Jobs, Plan, dynamic Cordis, sandbox presets | Hidden or explicitly refused; Fixture mode is not evidence of support |
+| Needs measurement | Reported approval-layout flashes and stream smoothness | Reproduce/profile before optimizing; tests do not prove rendering speed |
+| Maintenance | Aggregate dependency weight; historical names; two frontend entry points | Separate bounded cleanup; no kernel/CASE redesign |
+
+S1–S5 complete the agreed integration batches, **not** the whole proposed inspection roadmap,
+DSH four-mode parity, Studio editor, plugin ecosystem or production deployment.
+
+## 5. Verification and owned code footprint
+
+At `91f2200`: root **147 tests**, Client **32 tests**, and Workbench-mode build pass.
+These validate contracts/reconciliation, not every pixel or browser performance.
 
 ```sh
 npm test
-VITE_KNOT_DSH_MODE=workbench npm run build
+npm --prefix web-dsh-reference test
+VITE_KNOT_DSH_MODE=workbench npm run dsh-reference:build
+# Optional separate Fixture build
+npm run dsh-reference:build
 ```
 
-### S1 native presentation convergence
+Disposable, model-free browser smoke Hosts:
 
-- `todos` feeds the original collapsible Todo panel. The custom Todo/Goal dock is removed.
-- `goal` exposes only the observed objective, success criteria and phase. The published
-  GoalBar renders active goals and hides completed ones. Its mutation controls are hidden
-  and inert, with refusing callbacks; the original GoalService plugin is **not** activated.
-  A view-only loader facade exports the unchanged component factory, not DSH backend RPC.
-- The native InputBar's public component seat is wrapped once at assembly time, keeping
-  its injected hooks, child-slot ownership and layout. Stop means graceful Pause;
-  the same button means Resume when paused, preserving the unsent draft.
-  The wrapper restores the original component on disposal. It does not copy native code.
-- `knotRunState` initializes the view on load. Subsequent pause/resume transitions use
-  the existing transient `knot/live` port: no new Journal fact or fake sequence is created.
-  This matters because native durable projections reject equal-sequence updates.
-- Sidebar activity uses the snapshot's actual last activity timestamp, never refresh time.
-  Text-only shortcut replies count completed rounds, with zero model steps and no fabricated usage.
-
-### S2 first batch: Ask and native tool fields
-
-- Ask's native composer seat keeps its layout, injected services and draft ownership.
-  A view of the pending question rejects cancel/skip before settlement; valid single-choice
-  and free-text answers still resolve through the existing broker. Unsupported waterfall
-  outcomes also return an RPC error instead of pretending cancellation succeeded.
-  These errors are UI feedback, not a made-up tool failure delivered to the model.
-- Native read/write/edit/Bash cards receive translated argument fields. Read's actual page
-  becomes line-number metadata; Bash's actual stdout/stderr and known exit code become the
-  native terminal display. A non-zero exit is presented as failure by that native terminal.
-  Unknown exits and structured execution failures retain generic fallback; no success code
-  is inferred. Captured stdout then stderr is not a claim of chronological interleaving.
-- Alias cards receive the native name inside the call block as well as its selector prop.
-  Ask's recorded answer is displayed as free text because Knot does not retain whether it
-  came from a choice or custom input. Subagent completion is not disguised as a background-start receipt.
-- Raw Journal/Context/Trajectory data is unchanged. Partial streaming arguments stay on
-  the native generic/preparing path. No applied full-file edit diff or Todo history diff is
-  invented when those facts are absent. Native write previews describe intended input,
-  not a measured diff against the previous file.
-- This first batch does not change the live Bash dock, configuration menus or custom i18n.
-  No Host, business plugin, Journal kernel or dependency changes.
-
-### S2 completion and S3 lifecycle shrink
-
-- Search uses the original native web card: one query becomes `queries`, returned sources
-  stay in provider order. Knot's tool does not cap the source list, so tool-side `truncated`
-  is false; this is not a claim of complete upstream search coverage. No generated answer,
-  publication date or other absent source facts are fabricated.
-- Model/effort and approval have separate anchored DSH `Menu` controls. Each submits a
-  complete pending selection to Host; the carrier no longer reloads Provider defaults or
-  revalidates Host policy. Auto approval still explicitly warns that it is not a sandbox.
-- Journal invalidations coalesce into one queued/in-flight read and, if necessary, one
-  trailing reconciliation. Generation boundaries still reconcile in order. In the controlled
-  1,200-event test, 101 invalidations during a read cause two reads, not 101; all 100 stream
-  deltas remain ordered and the final message settles once. This measures refresh count,
-  not a claim that all browser rendering latency has been eliminated.
-- Identical prompts get distinct optimistic receipts; delivered receipts are retired, failed
-  submissions are removed. No prompt content is accumulated for the Client's lifetime.
-- Existing Host SSE now carries interaction settlement and a reconnect pending baseline.
-  The broker remains the authority, without new Journal facts, approval logic or a sync service.
-  Restart Host after this batch. Global new-session discovery still uses Refresh.
-- Live Bash output remains in the small transient dock (the native running terminal does
-  not accept stdout deltas). i18n, sandbox parity and missing historical diff/TTFT stay deferred.
-
-Verification through S3: root 140 tests and Client 29 tests pass; both Workbench and fixture builds pass.
-The real 1,134-event Session displays its original Todo panel. An isolated model-free Host
-verifies active/completed Goal, Todo expansion, live Pause/Resume, draft preservation and
-sidebar activity. No user Session facts, business plugins or Journal core changed.
-For the isolated smoke above, select `s1-native` and use stdin `goal`, `todo`, `running`,
-`pause`, `complete`; the native Resume button calls the real Host route.
-
-### S4 minimal Knot inspection
-
-- Keep one existing Inspector, not a new dashboard framework. Context, Journal, Assembly
-  metadata and child navigation remain; add actual input composition and tool fact counters.
-- Context reuses `projectMessages` / `projectTools` for the selected historical invocation.
-  The breakdown counts UTF-16 characters in that canonical input: text, projected reasoning,
-  tool arguments/results, schemas and JSON envelope. It does not count duplicate Journal
-  payloads twice or claim provider-level per-segment tokens. Bounded Journal source references
-  accompany the manifest; they are display positions, never new persisted identifiers.
-- Tool analytics is a pure read projection exposed by
-  `GET /api/workbench/sessions/:id/analytics/tools`. It distinguishes explicit success/failure,
-  unknown status and missing returns. Batch waiting includes parallel siblings and approvals;
-  it is not per-handler execution time. No child Session rollup or invented plugin invocations.
-- Click a tool name to filter both calls and linked results in Journal. Export either the
-  selected reconstructed input with its analysis or tool counters as local JSON. Historical
-  Assembly information remains explicitly labeled as current code metadata, not a code snapshot.
-- No business plugin, kernel, persistence protocol, dependency or model request changes.
-  The two small Host pure functions own analysis; the carrier forwards DTOs; UI only displays
-  and exports. i18n and S5 expansion remain deferred.
-
-Verification: root 143 tests and Client 29 tests pass. Both frontend build modes pass.
-Read-only inspection of the real 1,134-event Session yields 207 calls/returns, two explicit
-failures and no unfinished calls. Input composition adds exactly to the canonical input length.
-Model/approval menus and the original native search card were checked against an isolated,
-model-free Host. Both JSON exports were downloaded and parsed; no real tools or API calls ran.
-
-### Inspection follow-up: four independent Client contributions
-
-- **Knot Inspector** only tracks raw Journal facts. It keeps event filtering, the latest
-  100 facts and lazy native `JsonTree` payload expansion; no nested analysis tabs or
-  duplicate child-session list remain.
-- **工具统计** includes the Session's complete `tool.registry` history: descriptions,
-  unused tools and tools no longer listed in the latest registry. Unregistered calls
-  remain visible. Call share uses all calls; explicit-result success rate uses only
-  successful/failed returns, excluding unknown and unfinished outcomes. Coverage uses
-  registered tools only. Zero calls do not mean a tool is broken or should have been used.
-- **上下文分析** retains historical `llm.invoke` selection, canonical input composition,
-  bounded source references and JSON export. Long messages mount only when expanded.
-- **插件与协议** uses the existing current Assembly declarations and recorded event types
-  via `GET /api/workbench/sessions/:id/analytics/plugins`. Counts are input/subscription
-  matches, **not handler executions**. Wildcards match all facts; overlapping declarations
-  count a fact once per plugin. Outputs are declarations only and never attributed.
-  Missing Assembly metadata is explicitly unavailable, not a guessed roster.
-
-Each tab is a separate Client plugin registered into native `conversation.view`; they
-share only small read/display helpers and DSH primitives/theme tokens. They do not depend
-on one another's implementations. Tool links use the native `openView` contract to focus
-Journal calls and results. The native composer remains shared across tabs; its visibility
-and resize behavior are unchanged. No additional metadata, registry or i18n system is added.
-
-Verification: root **145** tests and Client **30** tests pass; Workbench and fixture builds
-pass. Read-only browser verification of `B2 configuration smoke` (288 facts) shows 9
-registered tools, 69 calls and 7 unused tools; Bash call share is 66.67%, explicit-result
-success rate 97.83%. All 11 current plugin declarations and 17 observed/declared protocol
-types are displayed. No Session facts, tools or model calls were changed by this inspection.
-
-## Boundary
-
-```text
-DSH published Web shell + client plugins
-                  |
-             RemoteMock
-                  |
-       assembled fixture JSON
+```sh
+npm run build
+node web-dsh-reference/test/interaction-host.mjs
+# Or, separately:
+node web-dsh-reference/test/cover-host.mjs
 ```
 
-`vite.config.ts` derives the browser plugin roster from the published
-`dsh-base` and `dsh-web-app` manifests, serves their built `client.js`
-artifacts, and copies the published frontend dist during production builds.
-No DSH UI source is copied into this directory. `src/fixture-remote.ts` is an
-adaptation of DSH's MIT-licensed assembled-client test carrier.
+Each script prints its address/instructions. Use `KNOT_WORKBENCH_URL` to connect the frontend.
+These exercise real HTTP/UI ports without real model requests or user Session mutations.
 
-This is a reference integration, not yet the default Knot product frontend.
-The planned B1–B5 integration is connected, not every DSH product capability.
-Further child control and native specialized tool presentation require separate review.
-Native unsupported affordances (for example fork,
-rename and feedback) still refuse writes; this is not yet a full DSH feature clone.
+Historical acceptance evidence, not repeatedly rerun benchmarks:
+
+- B4 isolated real DeepSeek Session: 2 turns, 5 model calls, 34 facts, 8,727 request tokens,
+  73.4% input-cache hit; read → approval → Ask → final → pause/resume; no repository changes.
+- B5/S4 saved coding Session: 1,134 facts; 207 tool calls/returns, two explicit failures,
+  no unfinished calls. Its persisted child opens with the parent breadcrumb.
+- Inspection follow-up: saved `B2 configuration smoke`, 288 facts; 9 registered tools,
+  69 calls, 7 unused tools, Bash share 66.67%, explicit-result success 97.83%.
+- S5: model-free cover/HTTP/native-navigation tests and browser smoke; no new real LLM call.
+
+Physical lines, including comments/blanks; baseline `2b7c94c` → `91f2200`:
+
+| Owned scope | Lines |
+|---|---:|
+| Production Client/carrier/projections/styles | 1,730 |
+| Build wiring | 261 |
+| Host net addition | 288 |
+| **Production total** | **2,279** |
+| New tests and smoke scripts | 1,220 |
+| Separate Fixture carrier / captured JSON | 490 / 5,778 |
+
+Official dependency code, lockfile, docs and earlier Knot Web are excluded. These are
+maintenance-scope counts, not the size of an independently implemented complete frontend.
