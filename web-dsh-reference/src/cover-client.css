@@ -8,29 +8,48 @@
 .knot-cover h1 { font-size:26px; line-height:34px; margin:10px 0 14px; overflow-wrap:anywhere }
 .knot-cover h2 { font-size:16px; line-height:24px; margin:0 0 12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap }
 .knot-cover small,.knot-cover-note { color:var(--dsw-alias-label-tertiary); font-size:12px; font-weight:400 }
-.knot-cover-tags,.knot-cover-links { display:flex; flex-wrap:wrap; gap:8px }
-.knot-cover-meta { display:flex; flex-direction:column; gap:6px; margin:20px 0; font-size:12px; color:var(--dsw-alias-label-secondary); overflow-wrap:anywhere }
+.knot-cover-tags { display:flex; flex-wrap:wrap; gap:8px }
+.knot-cover-meta { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin:20px 0; font-size:12px; color:var(--dsw-alias-label-secondary); overflow-wrap:anywhere }
+.knot-cover-meta>span { display:flex; flex-direction:column; gap:4px }
 .knot-cover-note { line-height:20px }
-.knot-cover-work { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:16px; margin:24px 0 }
-.knot-cover-work article,.knot-cover-reply { border:1px solid var(--dsw-alias-border-l3); border-radius:12px; padding:18px; background:var(--dsw-alias-bg-base) }
+.knot-cover-columns { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:16px; margin:20px 0 }
+.knot-cover-work { display:flex; flex-direction:column; gap:16px; min-width:0 }
+.knot-cover-work>article { flex-shrink:0 }
+.knot-cover-work>.knot-cover-reply { flex:1 }
+.knot-cover-query-panel { display:flex; flex-direction:column; contain:size; min-height:240px }
+.knot-cover-query-panel>header,.knot-cover-query-panel>button { flex-shrink:0 }
+.knot-cover-work article,.knot-cover-query-panel,.knot-cover-models { border:1px solid var(--dsw-alias-border-l3); border-radius:12px; padding:16px; background:var(--dsw-alias-bg-base); min-width:0 }
 .knot-cover-todos { list-style:none; margin:0; padding:0 }
-.knot-cover-todos li { display:flex; gap:10px; padding:5px 0 }
-.knot-cover-reply { margin:24px 0 }
+.knot-cover-todos li { display:flex; gap:10px; padding:5px 0; overflow-wrap:anywhere }
+.knot-cover-todos li>span { flex-shrink:0 }
+.knot-cover-todos { max-height:180px; overflow:auto }
+.knot-cover-reply p { white-space:pre-wrap; overflow-wrap:anywhere }
+.knot-cover-reply>p { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; overflow:hidden; margin:8px 0 }
 .knot-cover summary { cursor:pointer; overflow-wrap:anywhere; white-space:pre-wrap }
 .knot-cover pre { font:inherit; white-space:pre-wrap; overflow-wrap:anywhere; max-height:320px; overflow:auto; color:var(--dsw-alias-label-secondary) }
-.knot-cover-directory { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:28px 0 12px }
+.knot-cover-directory { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:0 0 12px }
 .knot-cover-directory h2 { margin:0 }
 .knot-cover-directory>span { width:240px; max-width:100% }
-.knot-cover-queries { list-style:none; padding:0; margin:0 0 20px }
-.knot-cover-queries>li { padding:4px 0; border-bottom:1px solid var(--dsw-alias-border-l3) }
-.knot-cover-query { display:flex; align-items:center; justify-content:space-between; gap:20px; width:100%; padding:16px 12px; border:0; border-radius:10px; background:transparent; color:inherit; text-align:left; font:inherit; cursor:pointer }
+.knot-cover-queries { list-style:none; padding:0; margin:0; flex:1; min-height:0; overflow:auto }
+.knot-cover-queries>li { border-bottom:1px solid var(--dsw-alias-border-l3) }
+.knot-cover-query { display:flex; align-items:center; gap:10px; width:100%; padding:9px 6px; border:0; border-radius:6px; background:transparent; color:inherit; text-align:left; font:inherit; cursor:pointer }
 .knot-cover-query:hover { background:var(--dsw-alias-interactive-bg-hover) }
 .knot-cover-query:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary); outline-offset:2px }
 .knot-cover-query:disabled { cursor:default; opacity:.65 }
-.knot-cover-query>span:first-child { min-width:0; flex:1 }
-.knot-cover-query>span:last-child { color:var(--dsw-alias-label-tertiary); flex-shrink:0 }
-.knot-cover-query-text { display:block; margin-top:5px; line-height:24px; overflow-wrap:anywhere; white-space:pre-wrap }
-.knot-cover-queries details { margin:0 12px 12px }
-.knot-cover-queries summary { font-size:12px; color:var(--dsw-alias-label-tertiary) }
-.knot-cover-links { margin-top:24px }
-@media(max-width:720px) { .knot-cover { padding:18px 16px } .knot-cover-title { max-width:100%; padding:20px } .knot-cover-queries>li { gap:10px; flex-wrap:wrap } .knot-cover-art { width:100% } }
+.knot-cover-query>small { width:42px; flex-shrink:0 }
+.knot-cover-query>time { color:var(--dsw-alias-label-tertiary); flex-shrink:0; font-size:12px }
+.knot-cover-query-text { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.knot-cover-table-scroll { overflow:auto }
+.knot-cover-models table { border-collapse:collapse; width:100%; font-size:13px; white-space:nowrap }
+.knot-cover-models th,.knot-cover-models td { text-align:right; padding:9px 12px; border-bottom:1px solid var(--dsw-alias-border-l3) }
+.knot-cover-models th { color:var(--dsw-alias-label-tertiary); font-weight:400 }
+.knot-cover-models th:first-child,.knot-cover-models td:first-child { text-align:left; padding-left:0 }
+.knot-cover-models td:first-child small { display:block }
+.knot-cover-share { display:flex; align-items:center; justify-content:flex-end; gap:8px }
+.knot-cover-share progress { width:70px; height:5px; accent-color:var(--dsw-alias-state-business-primary) }
+.knot-cover-share span { min-width:56px }
+@media(max-width:720px) { .knot-cover { padding:18px 16px } .knot-cover-title { max-width:100%; padding:20px } .knot-cover-columns { grid-template-columns:1fr } .knot-cover-art { width:100% }
+  .knot-cover-meta { grid-template-columns:repeat(2,minmax(0,1fr)) }
+  .knot-cover-query-panel { contain:none; min-height:0 }
+  .knot-cover-queries { flex:none; max-height:480px }
+}

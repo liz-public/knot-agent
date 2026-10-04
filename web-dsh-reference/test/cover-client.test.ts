@@ -49,3 +49,44 @@ test('cover wraps only native preference/reader ports and preserves original com
   original.props.chatScroll.save(null); assert.deepEqual(saved, [null]); assert.equal(original.props.chatScroll.read(), null)
   cleanups.forEach(fn => fn()); assert.equal(session.component, Original); assert.equal(chat.component, Original)
 })
+
+test('cover shows model composition and compact query navigation, not next-turn configuration', () => {
+  const source = buildSync({ entryPoints: [new URL('../src/cover-client.tsx', import.meta.url).pathname], bundle: true,
+    write: false, format: 'cjs', jsx: 'automatic', external: ['react', 'react/jsx-runtime',
+      '@deepseek-ai/dsh-client-ui-primitives', './inspection-view.tsx'] }).outputFiles[0].text
+  const value = { session: { title: 'Cover', assembly: 'case2', runState: 'idle', writable: true, model: 'pending' },
+    recordedConfiguration: { inference: { model: 'recorded' } }, queries: [{ position: 3, turnId: 'a', content: 'Full\noriginal query' }],
+    latestReply: { content: 'Latest reply' }, todos: [{ id: '1', content: 'Verify', status: 'completed' }], eventCount: 12,
+    usage: { calls: 1, knownCalls: 1, totalTokens: 120, cacheKnownCalls: 1 }, toolCalls: 1,
+    compactionCount: 2, runDurationMs: 3000, runDurationPartial: false, modelUsage: [{ model: 'recorded', reasoningEffort: 'high', provider: 'deepseek',
+      calls: 1, outputKnownCalls: 1, outputTokens: 20, outputShare: 1, outputRate: 10, timedCalls: 1 }] }
+  const module = { exports: {} as any }
+  new Function('require', 'module', 'exports', source)((name: string) => name === 'react/jsx-runtime'
+    ? { jsx: (type: any, props: any) => ({ type, props }), jsxs: (type: any, props: any) => ({ type, props }) }
+    : name === 'react' ? { useEffect: () => {}, useState: (initial: any) => [initial, () => {}] }
+    : name.endsWith('inspection-view.tsx') ? { Metric: 'Metric', percent: (v: number) => `${v * 100}%`, useRead: () => ({ value, error: '' }) }
+    : { Button: 'Button', Input: 'Input', Pill: 'Pill' }, module, module.exports)
+  let Cover: any
+  module.exports.apply({ on: () => {}, effect: () => {}, slots: { entries: () => [], inject: (_: any, setup: any) => setup(),
+    register: (options: any, component: any) => { if (options.id === 'knot-cover') Cover = component } } })
+  const opened: unknown[] = []
+  const tree = Cover({ sessionId: 's', useProjection: (key: string) => key === 'sessionStats' ? { turns: 3 }
+    : key === 'subagentCatalog' ? [{ id: 'child' }] : 12, openView: (...args: unknown[]) => opened.push(args) })
+  const all = (node: any): any[] => Array.isArray(node) ? node.flatMap(all) : node && typeof node === 'object'
+    ? [node, ...all(node.props?.children)] : [node]
+  const nodes = all(tree), text = nodes.filter(node => typeof node === 'string').join(' ')
+  assert.ok(!text.includes('下一轮配置')); assert.ok(!text.includes('pending'))
+  assert.ok(text.includes('10.0 tok/s')); assert.ok(text.includes('100%'))
+  assert.ok(nodes.some(node => node?.props?.className === 'knot-cover-columns'))
+  const metrics = nodes.filter(node => node?.type === 'Metric')
+  assert.equal(metrics.find(node => node.props.label === '完成轮数').props.children, 3)
+  assert.equal(metrics.find(node => node.props.label === '子智能体').props.children, 1)
+  assert.equal(metrics.find(node => node.props.label === '历史压缩').props.children, 2)
+  assert.ok(!text.includes('用户输入包含轮内追加请求'))
+  assert.ok(!text.includes('生成量含厂商计入的推理'))
+  assert.ok(!nodes.some(node => node?.type === 'footer'))
+  const query = nodes.find(node => node?.props?.className === 'knot-cover-query')
+  assert.equal(query.props.title, 'Full\noriginal query'); query.props.onClick()
+  assert.deepEqual(opened, [['chat', 'user:a']])
+  assert.ok(!nodes.some(node => node?.type === 'summary' && node.props.children === '展开完整请求'))
+})

@@ -100,7 +100,7 @@ test('B5 native contributions install even when the original Client activates la
   assert.equal(stats.length, 2); assert.equal(stats[1].options.inject, inject); assert.equal(stats[1].options.locale, locale)
   const wrapped = stats[1].component({ useProjection: (key: string) => key === 'knotEventCount' ? 34 : undefined, t: () => '2 turns 5 steps' })
   // The original component still owns the layout; only its counts label is extended.
-  const original = wrapped.props.children[0]
+  const original = wrapped
   globalThis.document = { documentElement: { lang: 'en' } } as any
   try { assert.equal(original.type, Stats); assert.equal(original.props.t('stats.counts', {}), '2 turns 5 steps 34 events') }
   finally { delete (globalThis as any).document }

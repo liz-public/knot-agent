@@ -1,4 +1,1 @@
-.knot-stats-inline { display:flex; align-items:center; flex-wrap:wrap; gap:12px; color:var(--dsw-alias-label-secondary); font-size:12px; line-height:20px; padding:0 8px }
-.knot-stats-inline>details { position:relative; cursor:pointer }
-.knot-stats-inline>details[open] { max-width:540px }
 .knot-goal-readonly button { display:none }

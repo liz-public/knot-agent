@@ -8,6 +8,8 @@ import { queryAnchor } from './cover-navigation.ts'
 
 const states: Record<string, string> = { idle: '空闲', running: '运行中', paused: '已暂停', completed: '已结束', failed: '运行失败' }
 const time = (value?: string) => value ? new Date(value).toLocaleString() : '时间未知'
+const duration = (ms?: number) => ms === undefined ? '未知' :
+  `${Math.floor(ms / 3600000) ? Math.floor(ms / 3600000) + ' 小时 ' : ''}${Math.floor(ms / 60000) % 60} 分 ${Math.floor(ms / 1000) % 60} 秒`
 
 function CoverArt({ sessionId }: { sessionId: string }) {
   const hue = [...sessionId].reduce((n, char) => (n * 31 + char.charCodeAt(0)) % 360, 0)
@@ -20,6 +22,8 @@ function CoverArt({ sessionId }: { sessionId: string }) {
 
 function Cover({ sessionId, useProjection, openView }: ViewProps) {
   const count = useProjection('knotEventCount')
+  const completedRounds = useProjection('sessionStats')?.turns ?? 0
+  const subagentCount = useProjection('subagentCatalog')?.length ?? 0
   const [state, setState] = useState('')
   const { value, error, refresh } = useRead<SessionCoverDto>('knot/cover', { sessionId }, `${count}:${state}`)
   const [filter, setFilter] = useState(''), [limit, setLimit] = useState(50)
@@ -45,38 +49,43 @@ function Cover({ sessionId, useProjection, openView }: ViewProps) {
       <Button variant="primary" onClick={() => openView('chat', 'latest')}>{session.writable ? '进入对话 / 继续任务' : '查看对话'} <span aria-hidden="true">→</span></Button>
     </div></header>
     {error && <p role="alert">{error}</p>}
-    <div className="knot-cover-meta"><span>工作目录 <code>{session.workspace ?? '未记录'}</code></span>
-      <span>首次记录 {time(value.firstObservedAt)}</span><span>最近记录 {time(value.lastObservedAt)}</span>
-      <span>已生效模型 {inference?.model ?? '未记录'} · 推理 {inference?.reasoningEffort ?? '默认'} · 审批 {recordedConfiguration.approvalMode ?? '未记录'}</span>
-      {session.writable && <span>下一轮配置 {session.model ?? '默认'} · 推理 {session.reasoningEffort ?? '默认'} · 审批 {session.approvalMode ?? '默认'}（输入栏可调整）</span>}
+    <div className="knot-cover-meta"><span><small>工作目录</small><code>{session.workspace ?? '未记录'}</code></span>
+      <span><small>首次记录</small>{time(value.firstObservedAt)}</span><span><small>最近记录</small>{time(value.lastObservedAt)}</span>
+      <span><small>已生效模型</small>{inference?.model ?? '未记录'} · 推理 {inference?.reasoningEffort ?? '默认'} · 审批 {recordedConfiguration.approvalMode ?? '未记录'}</span>
     </div>
-    {value.queries.length > 0 && <><div className="knot-metrics"><Metric label="用户输入">{value.queries.length}</Metric><Metric label="Journal 事件">{value.eventCount.toLocaleString()}</Metric>
+    {value.queries.length > 0 && <div className="knot-metrics"><Metric label="用户输入">{value.queries.length}</Metric><Metric label="完成轮数">{completedRounds}</Metric><Metric label="Journal 事件">{value.eventCount.toLocaleString()}</Metric>
       <Metric label="模型返回">{usage.calls}</Metric><Metric label="工具调用">{value.toolCalls}</Metric>
+      <Metric label="子智能体">{subagentCount}</Metric><Metric label="历史压缩">{value.compactionCount}</Metric>
       <Metric label={`累计 Tokens${usage.knownCalls < usage.calls ? '（部分）' : ''}`}>{usage.knownCalls ? usage.totalTokens.toLocaleString() : '未知'}</Metric>
-      <Metric label="已知调用加权缓存率">{percent(usage.knownCacheHitRate)}</Metric></div>
-    <p className="knot-cover-note">用户输入包含轮内追加请求，不等于完成轮数。Usage {usage.knownCalls}/{usage.calls} 次 · 缓存计数 {usage.cacheKnownCalls}/{usage.calls} 次；包含压缩调用，不把缺失计数当作零。
-      {value.unfinishedToolCalls > 0 && ` ${value.unfinishedToolCalls} 次调用尚无结果（不等于失败）。`}</p></>}
-    {(goal || todos?.length) ? <div className="knot-cover-work">
+      <Metric label={`累计运行时长${value.runDurationPartial ? '（已记录）' : ''}`}>{duration(value.runDurationMs)}</Metric></div>
+    }
+    {value.modelUsage.length > 0 && <article className="knot-cover-models"><h2>模型生成构成 <small>按调用前生效的配置统计</small></h2>
+      <div className="knot-cover-table-scroll"><table><thead><tr><th>模型 / 推理强度</th><th>调用</th><th>生成 Tokens</th><th>生成占比</th><th>平均吞吐率</th></tr></thead>
+        <tbody>{value.modelUsage.map((row, i) => <tr key={i}><td><strong>{row.model ?? '未记录模型'}</strong><small>{row.provider ?? '未记录来源'} · {row.model === undefined ? '未记录强度' : row.reasoningEffort ?? '默认强度'}</small></td>
+          <td>{row.calls}</td><td>{row.outputKnownCalls ? row.outputTokens.toLocaleString() : '未知'}{row.outputKnownCalls < row.calls && row.outputKnownCalls > 0 ? '（部分）' : ''}</td>
+          <td><div className="knot-cover-share"><progress max={1} value={row.outputShare ?? 0} aria-label={`${row.model ?? '未知模型'}生成占比`} /><span>{percent(row.outputShare)}</span></div></td>
+          <td title={`有 Token 与耗时记录的 ${row.timedCalls}/${row.calls} 次调用`}>{row.outputRate === undefined ? '—' : `${row.outputRate.toFixed(1)} tok/s`}</td></tr>)}</tbody></table></div>
+    </article>}
+    <div className="knot-cover-columns"><article className="knot-cover-query-panel">
+      <header className="knot-cover-directory"><h2>Query 目录 <small>{value.queries.length} 条原始输入</small></h2>
+        <Input aria-label="搜索用户输入" placeholder="搜索原始请求" value={filter} onChange={e => { setFilter(e.target.value); setLimit(50) }} /></header>
+      {!queries.length && <p className="knot-cover-note">{filter ? '没有匹配的请求。' : '尚无用户输入。'}</p>}
+      <ol className="knot-cover-queries">{queries.slice(0, limit).map(query => <li key={query.position}>
+        <button className="knot-cover-query" title={query.content} disabled={!query.turnId} onClick={() => openView('chat', `user:${query.turnId}`)}>
+          <small>#{query.position}</small><span className="knot-cover-query-text">{query.content}</span><time dateTime={query.observedAt} title={time(query.observedAt)}>{query.observedAt ? new Date(query.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</time>
+        </button>
+      </li>)}</ol>
+      {queries.length > limit && <Button onClick={() => setLimit(n => n + 50)}>显示更多请求</Button>}
+    </article><aside className="knot-cover-work">
+      <article><h2>待办 <Pill>{todos?.filter(item => item.status === 'completed').length ?? 0}/{todos?.length ?? 0}</Pill></h2>
+        {todos?.length ? <ul className="knot-cover-todos">{todos.map(item => <li key={item.id}><span>{item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '◉' : '○'}</span>{item.content}</li>)}</ul>
+          : <p className="knot-cover-note">尚未记录待办。</p>}</article>
       {goal && <article><h2>目标 <Pill>{goal.status === 'completed' ? '已完成' : '进行中'}</Pill></h2><p>{goal.objective}</p>
         {goal.successCriteria?.length > 0 && <details><summary>完成条件</summary><ul>{goal.successCriteria.map((item, i) => <li key={i}>{item}</li>)}</ul></details>}</article>}
-      {todos?.length ? <article><h2>待办 <Pill>{todos.filter(item => item.status === 'completed').length}/{todos.length}</Pill></h2>
-        <ul className="knot-cover-todos">{todos.map(item => <li key={item.id}><span>{item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '◉' : '○'}</span>{item.content}</li>)}</ul></article> : null}
-    </div> : null}
-    {value.latestReply && <article className="knot-cover-reply"><h2>最近一次回复 <small>原文摘录，不是生成摘要</small></h2>
-      <details><summary>{value.latestReply.content.slice(0, 240)}{value.latestReply.content.length > 240 ? '…' : ''}</summary><pre>{value.latestReply.content}</pre></details></article>}
-    {value.queries.length > 0 && <><header className="knot-cover-directory"><h2>Query 目录 <small>{value.queries.length} 条原始输入</small></h2>
-      <Input aria-label="搜索用户输入" placeholder="搜索原始请求" value={filter} onChange={e => { setFilter(e.target.value); setLimit(50) }} /></header>
-    {!queries.length && <p className="knot-cover-note">{filter ? '没有匹配的请求。' : '尚无用户输入。'}</p>}
-    <ol className="knot-cover-queries">{queries.slice(0, limit).map(query => <li key={query.position}>
-      <button className="knot-cover-query" disabled={!query.turnId} onClick={() => openView('chat', `user:${query.turnId}`)}>
-        <span><small>#{query.position} · {time(query.observedAt)}</small><span className="knot-cover-query-text">{query.content.slice(0, 180)}{query.content.length > 180 ? '…' : ''}</span></span>
-        <span aria-hidden="true">→</span>
-      </button>
-      {query.content.length > 180 && <details><summary>展开完整请求</summary><pre>{query.content}</pre></details>}
-    </li>)}</ol>
-    {queries.length > limit && <Button onClick={() => setLimit(n => n + 50)}>显示更多请求</Button>}</>}
-    <footer className="knot-cover-links"><Button onClick={() => openView('knot-tools', '')}>工具统计</Button><Button onClick={() => openView('knot-context', '')}>上下文分析</Button>
-      <Button onClick={() => openView('knot-plugins', '')}>插件与协议</Button></footer>
+      <article className="knot-cover-reply"><h2>最近一次回复 <small>原文摘录</small></h2>
+        {value.latestReply ? <><p>{value.latestReply.content.slice(0, 240)}{value.latestReply.content.length > 240 ? '…' : ''}</p>
+          <details><summary>查看完整回复</summary><pre>{value.latestReply.content}</pre></details></> : <p className="knot-cover-note">尚未记录回复。</p>}</article>
+    </aside></div>
   </section>
 }
 

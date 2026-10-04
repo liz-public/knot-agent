@@ -6,8 +6,6 @@ import { answerableQuestion } from './interaction-projection.ts'
 import { nativeToolProps } from './tool-presentation.ts'
 import { wireNativeTiming } from './native-timing.ts'
 
-const percent = (value: number) => (value * 100).toFixed(2) + '%'
-
 const readonlyGoalAction = async () => ({ ok: false as const, error: { code: 'knot/read-only', message: 'Goal is read-only', details: {} } })
 function ReadonlyGoal({ useProjection }: any) {
   const goal = useProjection('goal')?.goal
@@ -30,20 +28,8 @@ export function apply(ctx: any) {
     const Original = native.component
     function Stats(props: any) {
       const events = props.useProjection('knotEventCount')
-      const usage = props.useProjection('knotUsage')
-      const nativeUsage = props.useProjection('tokenUsage')
-      const stats = props.useProjection('sessionStats')
-      return <div className="knot-stats-inline">
-        <Original {...props} t={(key: string, params: any) => key === 'stats.counts' && typeof events === 'number'
+      return <Original {...props} t={(key: string, params: any) => key === 'stats.counts' && typeof events === 'number'
           ? props.t(key, params) + (document.documentElement.lang.startsWith('zh') ? ` ${events} 事件` : ` ${events} events`) : props.t(key, params)} />
-        {stats?.turns > 0 && stats.steps === 0 && !nativeUsage && <span>
-          {props.t('stats.counts', { turns: stats.turns, steps: 0 })}{typeof events === 'number' ? ` · ${events} ${document.documentElement.lang.startsWith('zh') ? '事件' : 'events'}` : ''}
-        </span>}
-        {usage?.knownCalls > 0 && !nativeUsage && <details><summary>{usage.totalTokens.toLocaleString()} tok{usage.knownCalls < usage.calls ? '（部分）' : ''}</summary>
-          <p>输入 {usage.inputTokens.toLocaleString()} · 输出 {usage.outputTokens.toLocaleString()} · Usage {usage.knownCalls}/{usage.calls} 次</p>
-          <p>历史缓存计数 {usage.cacheKnownCalls}/{usage.calls} 次；{usage.knownCacheHitRate === undefined ? '缓存未知' : '已知调用加权缓存率 ' + percent(usage.knownCacheHitRate)}</p></details>}
-        {typeof usage?.latest.cacheHitRate === 'number' && !nativeUsage && <span>本次缓存 {percent(usage.latest.cacheHitRate)}</span>}
-      </div>
     }
     ctx.slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0, priority: -10,
       locale: native.locale, inject: native.inject }, Stats)

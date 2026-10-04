@@ -7,6 +7,19 @@ import type { SessionSnapshotDto } from '../src/workbench/session.js'
 const session: SessionSnapshotDto['session'] = { id: 's', title: 'Cover', assembly: 'case2', runState: 'idle',
   eventCount: 0, writable: true, model: 'pending-model', approvalMode: 'auto' }
 
+test('cover counts completed compactions, not compression requests or model responses', () => {
+  const events = [
+    { type: 'history.compress.request', data: {} },
+    { type: 'llm.generated', data: { request: { purpose: 'history.compress' } } },
+    { type: 'history.checkpoint', data: {} },
+    { type: 'history.compress.request', data: {} },
+    { type: 'history.checkpoint', data: {} },
+    { type: 'history.compress.request', data: {} },
+  ].map((event, position) => ({ ...event, position }))
+  assert.equal(projectSessionCover({ session, events }).compactionCount, 2)
+  assert.equal(projectSessionCover({ session, events: [] }).compactionCount, 0)
+})
+
 test('cover is a read-only directory: separates pending configuration, keeps steering and original text, never synthesizes dates', () => {
   const events = [
     { type: 'session.start', data: {}, observedAt: 'not-a-time' },
@@ -50,4 +63,51 @@ test('cover shares exact counters and Todo/Goal folding with the native dock; un
   for (const runState of ['paused', 'running', 'failed', 'completed'] as const) {
     assert.equal(projectSessionCover({ session: { ...session, runState, writable: false }, events }).session.runState, runState)
   }
+})
+
+test('cover groups generation Tokens by the configuration at invocation, with weighted rates and unknown history', () => {
+  const config = (model: string, reasoningEffort: string) => ({ type: 'inference.configured',
+    data: { model, reasoningEffort, provider: 'deepseek', providerProfileId: 'p' } })
+  const invoke = (requestId: string) => ({ type: 'llm.invoke', data: { requestId } })
+  const generated = (requestId: string, outputTokens?: number, durationMs?: number) => ({ type: 'llm.generated',
+    data: { requestId, request: { purpose: 'agent' }, usage: { outputTokens }, timing: { durationMs } } })
+  const events = [invoke('old'), generated('old', 10, 500), config('m', 'low'), invoke('a'),
+    config('m', 'high'), generated('a', 20, 1000), invoke('b'), generated('b', 60, 3000),
+    invoke('unknown-usage'), generated('unknown-usage'), config('m', 'low'), invoke('c'), generated('c', 10, 1000),
+  ].map((event, position) => ({ ...event, position }))
+  const input = { session, events }, before = JSON.stringify(input)
+  const result = projectSessionCover(input)
+  assert.equal(JSON.stringify(input), before)
+  assert.deepEqual(result.modelUsage.map(row => [row.model, row.reasoningEffort, row.outputTokens, row.outputShare, row.outputRate]),
+    [['m', 'high', 60, .6, 20], ['m', 'low', 30, .3, 15], [undefined, undefined, 10, .1, 20]])
+  assert.equal(result.modelUsage[0]!.calls, 2); assert.equal(result.modelUsage[0]!.outputKnownCalls, 1)
+  assert.equal(result.runDurationMs, undefined)
+  const zero = projectSessionCover({ session, events: [invoke('zero'), generated('zero', 0, 1000)]
+    .map((event, position) => ({ ...event, position })) }).modelUsage[0]!
+  assert.equal(zero.outputKnownCalls, 1); assert.equal(zero.outputTokens, 0); assert.equal(zero.outputRate, 0)
+  assert.equal(zero.outputShare, undefined) // A zero denominator is not 0% known composition.
+  const sameModel = projectSessionCover({ session, events: [config('m', 'low'), invoke('a'), generated('a', 20, 1000),
+    { type: 'inference.configured', data: { ...config('m', 'low').data, providerProfileId: 'other-profile' } }, invoke('b'), generated('b', 10, 1000)]
+    .map((event, position) => ({ ...event, position })) }).modelUsage
+  assert.equal(sameModel.length, 1); assert.equal(sameModel[0]!.outputTokens, 30)
+})
+
+test('cover running time excludes gaps between queries, merges steering, and uses recorded endpoints only', () => {
+  const events = [
+    { type: 'user.message', data: { content: 'Start' }, observedAt: '2026-10-04T00:00:00Z' },
+    { type: 'user.message', data: { content: 'Steer' }, observedAt: '2026-10-04T00:00:02Z' },
+    { type: 'assistant.message', data: { content: 'Done' }, observedAt: '2026-10-04T00:00:04Z' },
+    { type: 'user.message', data: { content: 'Next' }, observedAt: '2026-10-04T00:00:20Z' },
+    { type: 'llm.invoke', data: { requestId: 'r' }, observedAt: '2026-10-04T00:00:20Z' },
+    { type: 'llm.generated', data: { requestId: 'r', usage: { outputTokens: 20 } }, observedAt: '2026-10-04T00:00:22Z' },
+    { type: 'assistant.message', data: { content: 'Done again' }, observedAt: '2026-10-04T00:00:22Z' },
+  ].map((event, position) => ({ ...event, position }))
+  const result = projectSessionCover({ session, events })
+  assert.equal(result.runDurationMs, 6000); assert.equal(result.runDurationPartial, false)
+  assert.equal(result.modelUsage[0]!.outputRate, 10) // Old logs can use invoke/generated timestamps.
+  const inFlight = projectSessionCover({ session, events: events.slice(0, -1) })
+  assert.equal(inFlight.runDurationMs, 6000); assert.equal(inFlight.runDurationPartial, true)
+  const noTime = projectSessionCover({ session, events: events.map(({ observedAt, ...event }) => event) })
+  assert.equal(noTime.runDurationMs, undefined); assert.equal(noTime.runDurationPartial, true)
+  assert.equal(noTime.modelUsage[0]!.outputRate, undefined)
 })
