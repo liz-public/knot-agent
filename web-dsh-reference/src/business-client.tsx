@@ -166,7 +166,7 @@ export function apply(ctx: any) {
   })
   // Native card field adaptation only. Facts/Context/Trajectory keep Knot names.
   for (const [name, nativeName] of [['read', 'read'], ['write', 'write'], ['edit', 'edit'], ['bash', 'bash'],
-    ['todo.write', 'todo_write'], ['goal.write', 'update_goal'], ['spawn_agent', 'subagent'], ['ask', 'ask_user_question']]) {
+    ['todo.write', 'todo_write'], ['goal.write', 'update_goal'], ['spawn_agent', 'subagent'], ['ask', 'ask_user_question'], ['web_search', 'web_search']]) {
     extendNativeSlot(ctx, 'tool.call.toolview', entry => entry.options.key === nativeName, native => {
       const Original = native.component
       const Card = (props: any) => <Original {...nativeToolProps(props)} />

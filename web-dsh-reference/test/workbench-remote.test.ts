@@ -39,31 +39,33 @@ test('carrier reads Knot snapshots, exposes child history and refuses unconnecte
   await stream.return?.()
 })
 
-test('B2 changes pending configuration through Host, preserving unrelated choices', async () => {
+test('S3 carrier forwards complete pending configuration; Host owns validation', async () => {
   let session: any = { id: 's', title: 'test', assembly: 'case2', providerProfileId: 'one', model: 'm',
     reasoningEffort: 'low', approvalMode: 'ask', writable: true, runState: 'idle', eventCount: 2 }
   const profiles = [{ id: 'one', model: 'm', adapter: 'deepseek', configured: true },
     { id: 'two', model: 'm', adapter: 'deepseek', configured: true, defaultReasoningEffort: 'high' }]
   const writes: any[] = []
   const remote = createWorkbenchRemote((async (url: string, options?: RequestInit) => {
-    if (url.endsWith('/providers')) return Response.json({ providers: profiles })
+    if (!options?.method) throw new Error('Configuration must not re-read defaults or Provider validation')
     if (url.endsWith('/configuration')) {
-      writes.push(JSON.parse(options!.body as string)); session = { ...session, ...writes.at(-1) }
+      writes.push(JSON.parse(options!.body as string))
+      if (session.runState !== 'idle') return Response.json({ error: { message: 'Session is not idle' } }, { status: 400 })
+      session = { ...session, ...writes.at(-1) }
       return Response.json({ session })
     }
     return Response.json({ session, events: [] })
   }) as typeof fetch)
   const call = (input: unknown) => remote.call('$knot', 'knot/session/configure', { args: [input] })
-  assert.equal((await call({ sessionId: 's', approvalMode: 'auto' }) as any).ok, true)
+  assert.equal((await call({ sessionId: 's', providerProfileId: 'one', reasoningEffort: 'low', approvalMode: 'auto' }) as any).ok, true)
   assert.deepEqual(writes[0], { providerProfileId: 'one', reasoningEffort: 'low', approvalMode: 'auto' })
-  await call({ sessionId: 's', providerProfileId: 'two' })
+  await call({ sessionId: 's', providerProfileId: 'two', reasoningEffort: 'high', approvalMode: 'auto' })
   assert.deepEqual(writes[1], { providerProfileId: 'two', reasoningEffort: 'high', approvalMode: 'auto' })
-  await call({ sessionId: 's', reasoningEffort: '' })
+  await call({ sessionId: 's', providerProfileId: 'two', reasoningEffort: '', approvalMode: 'auto' })
   assert.deepEqual(writes[2], { providerProfileId: 'two', approvalMode: 'auto' })
   assert.equal(session.eventCount, 2)
   session.runState = 'running'
   assert.equal((await call({ sessionId: 's', approvalMode: 'ask' }) as any).ok, false)
-  assert.equal(writes.length, 3)
+  assert.equal(writes.length, 4) // Host rejected the forwarded request.
 })
 
 test('B2 catalog, provider management and explicit Assembly creation use existing HTTP routes', async () => {

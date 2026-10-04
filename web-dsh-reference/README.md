@@ -218,8 +218,30 @@ VITE_KNOT_DSH_MODE=workbench npm run build
   the native generic/preparing path. No applied full-file edit diff or Todo history diff is
   invented when those facts are absent. Native write previews describe intended input,
   not a measured diff against the previous file.
-- This batch does not yet change the live Bash dock, configuration menus or custom i18n.
+- This first batch does not change the live Bash dock, configuration menus or custom i18n.
   No Host, business plugin, Journal kernel or dependency changes.
+
+### S2 completion and S3 lifecycle shrink
+
+- Search uses the original native web card: one query becomes `queries`, returned sources
+  stay in provider order. Knot's tool does not cap the source list, so tool-side `truncated`
+  is false; this is not a claim of complete upstream search coverage. No generated answer,
+  publication date or other absent source facts are fabricated.
+- Model/effort and approval have separate anchored DSH `Menu` controls. Each submits a
+  complete pending selection to Host; the carrier no longer reloads Provider defaults or
+  revalidates Host policy. Auto approval still explicitly warns that it is not a sandbox.
+- Journal invalidations coalesce into one queued/in-flight read and, if necessary, one
+  trailing reconciliation. Generation boundaries still reconcile in order. In the controlled
+  1,200-event test, 101 invalidations during a read cause two reads, not 101; all 100 stream
+  deltas remain ordered and the final message settles once. This measures refresh count,
+  not a claim that all browser rendering latency has been eliminated.
+- Identical prompts get distinct optimistic receipts; delivered receipts are retired, failed
+  submissions are removed. No prompt content is accumulated for the Client's lifetime.
+- Existing Host SSE now carries interaction settlement and a reconnect pending baseline.
+  The broker remains the authority, without new Journal facts, approval logic or a sync service.
+  Restart Host after this batch. Global new-session discovery still uses Refresh.
+- Live Bash output remains in the small transient dock (the native running terminal does
+  not accept stdout deltas). i18n, sandbox parity and missing historical diff/TTFT stay deferred.
 
 Verification: root 140 tests and Client 20 tests pass; both Workbench and fixture builds pass.
 The real 1,134-event Session displays its original Todo panel. An isolated model-free Host

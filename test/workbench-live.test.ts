@@ -26,7 +26,9 @@ test('workbench ask interaction waits for and returns the matching browser answe
   assert.equal(request.interaction.kind, 'ask')
   assert.equal(broker.respond(request.interaction.id, 'b'), true)
   assert.deepEqual(await answer, { answer: 'b' })
+  assert.deepEqual(events[1], { kind: 'interaction.settled', id: request.interaction.id })
   assert.equal(broker.respond(request.interaction.id, 'a'), false)
+  assert.equal(events.length, 2)
 })
 
 test('workbench interaction broker exposes only unresolved requests for replay', async () => {
@@ -134,6 +136,7 @@ test('live CASE2 session streams generation, resolves approval, and persists aut
   assert.equal(interaction.kind === 'approval' ? interaction.toolName : '', 'write')
   const replayed: LiveSessionEvent[] = []
   const stopReplay = session.subscribe!(event => replayed.push(event))
+  assert.deepEqual(replayed[0], { kind: 'interaction.snapshot', interactions: [interaction] })
   assert.deepEqual(replayed.find(event => event.kind === 'interaction.request'), requestEvent)
   stopReplay()
   assert.equal(session.respond!(interaction.id, 'allow'), true)
@@ -145,6 +148,7 @@ test('live CASE2 session streams generation, resolves approval, and persists aut
   const snapshot = await session.snapshot()
   assert.equal(snapshot.session.runState, 'idle')
   assert.equal(snapshot.session.writable, true)
+  assert.ok(!snapshot.events.some(event => event.type.startsWith('interaction.')))
   assert.ok(snapshot.events.some(event => event.type === 'tool.registry'))
   assert.ok(snapshot.events.some(event => event.type === 'tool.result'))
   assert.ok(snapshot.events.every(event => event.observedAt !== undefined))

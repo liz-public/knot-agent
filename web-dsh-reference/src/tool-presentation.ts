@@ -19,6 +19,14 @@ export function nativeToolProps(props: any) {
   if (['read', 'write', 'edit'].includes(name)) mapped.file_path = args.path
   if (name === 'edit') { mapped.old_string = args.oldText; mapped.new_string = args.newText }
   if (name === 'spawn_agent') mapped.prompt = args.task
+  if (name === 'web_search') {
+    if (typeof args.query === 'string' && args.query.trim()) mapped.queries = [args.query]
+    if (result?.ok === true && Array.isArray(result.sources)) {
+      // Knot's search tool forwards every returned source; it has no result cap.
+      // This describes tool-side clipping, not upstream search completeness.
+      meta = { sources: result.sources, truncated: false }
+    }
+  }
   if (name === 'ask') {
     mapped = { questions: [{ id: block.callId, question: args.question,
       ...(Array.isArray(args.choices) ? { options: args.choices.map((label: string) => ({ label })) } : {}) }] }

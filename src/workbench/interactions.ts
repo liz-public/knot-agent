@@ -45,6 +45,7 @@ export function createInteractionBroker(
       const item = pending.get(id)
       if (item === undefined) return false
       pending.delete(id)
+      emit({ kind: 'interaction.settled', id })
       item.resolve(value)
       return true
     },

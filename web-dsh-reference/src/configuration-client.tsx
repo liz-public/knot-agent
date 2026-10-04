@@ -2,7 +2,7 @@
  * No Journal writes here: the carrier calls existing Host APIs, which own pending configuration.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Menu, Modal, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ProviderProfileSummary } from '../../src/workbench/provider-profile.js'
 import type { ProviderProfileDraft } from '../../src/workbench/provider-profile-store.js'
 import type { SessionSummaryDto } from '../../src/workbench/session.js'
@@ -46,56 +46,61 @@ function ApprovalField({ value, change }: { value: string; change: (value: 'ask'
 function SessionModel({ call, sessionId }: { call: Call; sessionId: string }) {
   const [session, setSession] = useState<SessionSummaryDto>()
   const [catalog, setCatalog] = useState<InferenceCatalog>()
-  const [open, setOpen] = useState(false)
-  const [profileId, setProfile] = useState('')
-  const [effort, setEffort] = useState('')
-  const [approval, setApproval] = useState<'ask' | 'auto'>('ask')
+  const [open, setOpen] = useState<'model' | 'approval'>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const load = async () => {
     const [next, options] = await Promise.all([call<SessionSummaryDto>('knot/session', { sessionId }), call<InferenceCatalog>('knot/providers')])
-    setSession(next); setCatalog(options); setProfile(next.providerProfileId ?? '')
-    setEffort(next.reasoningEffort ?? ''); setApproval(next.approvalMode ?? 'ask')
+    setSession(next); setCatalog(options)
   }
   useEffect(() => { let active = true
     void call<SessionSummaryDto>('knot/session', { sessionId }).then(value => { if (active) setSession(value) })
       .catch(value => { if (active) setError(String(value)) })
     return () => { active = false }
   }, [sessionId, call])
-  const show = async () => { setError(''); setOpen(true); setBusy(true)
+  const show = async (kind: 'model' | 'approval') => { setError(''); setOpen(kind); setBusy(true)
     try { await load() } catch (value) { setError(String(value)) } finally { setBusy(false) }
   }
-  const save = async () => {
-    if (approval === 'auto' && session?.approvalMode !== 'auto'
+  const save = async (selection: string) => {
+    if (!session) return
+    const providerProfileId = selection.startsWith('provider:') ? selection.slice(9) : session.providerProfileId
+    const reasoningEffort = selection.startsWith('provider:') ? ''
+      : selection.startsWith('effort:') ? selection.slice(7) : session.reasoningEffort ?? ''
+    const approvalMode = selection.startsWith('approval:') ? selection.slice(9) : session.approvalMode ?? 'ask'
+    if (approvalMode === 'auto' && session.approvalMode !== 'auto'
       && !window.confirm('自动批准将允许工具直接操作工作目录或设备，没有沙箱。确认启用？')) return
     setBusy(true); setError('')
     try {
       setSession(await call<SessionSummaryDto>('knot/session/configure', {
-        sessionId, providerProfileId: profileId, reasoningEffort: effort, approvalMode: approval,
-      })); setOpen(false)
+        sessionId, providerProfileId, reasoningEffort, approvalMode,
+      })); setOpen(undefined)
     } catch (value) { setError(String(value)) } finally { setBusy(false) }
   }
-  return <>
-    <span className="knot-config-controls">
-    <button className="knot-config-chip" onClick={() => void show()} title="Session 模型与审批 · 下一轮生效">
+  const disabled = busy || !session || !editable(session)
+  const profile = catalog?.providers.find(item => item.id === session?.providerProfileId)
+  const modelItems: MenuEntry[] = [
+    { type: 'label', id: 'models', text: '模型 · 下一轮生效' },
+    ...(catalog?.providers ?? []).map(item => ({ id: 'provider:' + item.id,
+      label: `${item.label} · ${item.model}`, disabled: disabled || !item.configured })),
+    { type: 'separator', id: 'separator' }, { type: 'label', id: 'efforts', text: '推理强度' },
+    { id: 'effort:', label: 'Provider 默认', disabled },
+    ...(profile?.reasoningEfforts ?? []).map(value => ({ id: 'effort:' + value, label: value, disabled })),
+  ]
+  return <span className="knot-config-controls">
+    <Menu open={open === 'model'} onClose={() => setOpen(undefined)} side="top" portal compact
+      items={modelItems} selectedIds={['provider:' + session?.providerProfileId, 'effort:' + (session?.reasoningEffort ?? '')]}
+      onSelect={id => void save(id)} anchor={<button className="knot-config-chip" onClick={() => void show('model')} title="Session 模型 · 下一轮生效">
       {session?.model ?? '模型配置'}{session?.reasoningEffort ? ` · ${session.reasoningEffort}` : ''} ▾
-    </button>
-    <button className="knot-config-chip" onClick={() => void show()} title="工具审批策略 · 下一轮生效">
+    </button>} />
+    <Menu open={open === 'approval'} onClose={() => setOpen(undefined)} side="top" portal compact
+      selectedId={'approval:' + (session?.approvalMode ?? 'ask')}
+      items={[{ id: 'approval:ask', label: '手动审批', disabled },
+        { id: 'approval:auto', label: '自动批准（无沙箱）', disabled }]}
+      onSelect={id => void save(id)} anchor={<button className="knot-config-chip" onClick={() => void show('approval')} title="工具审批策略 · 下一轮生效">
       {session?.approvalMode === 'auto' ? '自动批准' : '手动审批'} ▾
-    </button>
-    </span>
-    <Modal open={open} onClose={() => setOpen(false)} title="Session 模型与审批" closeLabel="关闭"
-      footer={<Button disabled={busy || !session || !editable(session) || !profileId} onClick={() => void save()}>保存 · 下一轮生效</Button>}>
-      <div className="knot-config">
-        <p>Assembly：{session?.assembly ?? '加载中…'}（创建后不变）</p>
-        <p className="knot-config-muted">修改的是待提交配置；下一次发送 query 才写入 Journal。</p>
-        {session && !editable(session) && <p>此 Session 当前只读或正在运行，不能修改配置。</p>}
-        {catalog && <InferenceFields catalog={catalog} profileId={profileId} effort={effort} onEffort={setEffort}
-          onProfile={id => { setProfile(id); setEffort('') }} />}
-        <ApprovalField value={approval} change={setApproval} /><ErrorText value={error} />
-      </div>
-    </Modal>
-  </>
+    </button>} />
+    <ErrorText value={error} />
+  </span>
 }
 
 function Providers({ call }: { call: Call }) {

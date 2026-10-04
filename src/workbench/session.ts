@@ -63,6 +63,8 @@ export type LiveSessionEvent =
     readonly kind: 'interaction.request'
     readonly interaction: InteractionRequestDto
   }
+  | { readonly kind: 'interaction.settled'; readonly id: string }
+  | { readonly kind: 'interaction.snapshot'; readonly interactions: readonly InteractionRequestDto[] }
   | { readonly kind: 'run.error'; readonly message: string }
 
 export type InteractionRequestDto =

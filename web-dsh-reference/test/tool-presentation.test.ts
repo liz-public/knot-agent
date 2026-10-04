@@ -62,3 +62,12 @@ test('S2 partial or malformed arguments remain generic; plain results still allo
   assert.equal(JSON.parse(nativeToolProps(plain).block.call.argsRaw).file_path, 'a')
   assert.deepEqual(nativeToolProps(plain).block.content, plain.block.content)
 })
+
+test('S2 search sources enter the native web card without inventing answer or publication data', () => {
+  const original = card('web_search', { query: 'current news' }, { ok: true, sources: [{ url: 'https://example.com', title: 'Source' }] })
+  const before = JSON.stringify(original), mapped = nativeToolProps(original)
+  assert.deepEqual(JSON.parse(mapped.block.call.argsRaw).queries, ['current news'])
+  assert.deepEqual(mapped.block.meta, { sources: [{ url: 'https://example.com', title: 'Source' }], truncated: false })
+  assert.equal(JSON.stringify(original), before)
+  assert.equal(nativeToolProps(card('web_search', { query: 'news' }, { ok: false, error: 'failed' })).block.meta, undefined)
+})

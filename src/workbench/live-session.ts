@@ -110,6 +110,7 @@ export async function createLiveSession(
     summary: async () => (await snapshot()).session,
     subscribe(listener) {
       const unsubscribe = hub.subscribe(listener)
+      listener({ kind: 'interaction.snapshot', interactions: interactions.pending() })
       for (const interaction of interactions.pending()) {
         listener({ kind: 'interaction.request', interaction })
       }

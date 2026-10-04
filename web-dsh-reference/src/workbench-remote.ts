@@ -61,16 +61,26 @@ export function createWorkbenchRemote(
   const project = async (id: string, signal?: AbortSignal) => {
     const [source, sessions] = await Promise.all([snapshot(id, signal), list(signal)])
     const projected = projectKnotSnapshot(source)
+    const claimed = new Set<string>()
     for (const prompt of prompts.get(id) ?? []) {
       const admitted = source.events.find(event => event.position >= prompt.after && event.type === 'user.message'
-        && object(event.data).content === prompt.content && (prompt.turnId === undefined || object(event.data).turnId === prompt.turnId))
+        && !claimed.has(object(event.data).turnId) && object(event.data).content === prompt.content
+        && (prompt.turnId === undefined || object(event.data).turnId === prompt.turnId))
       if (!admitted) continue
       prompt.turnId = object(admitted.data).turnId
+      claimed.add(prompt.turnId!)
       const record = projected.records.find(record => record.event.type === 'user/message' && object(record.event.data).id === 'knot-user-' + prompt.turnId)
       if (record) object(record.event.data).source.rpcId = prompt.id
     }
     projected.projections.values.subagentCatalog = children(sessions, id)
     return { ...projected, writable: source.session.writable, runState: source.session.runState }
+  }
+  const acknowledge = (id: string, records: ReturnType<typeof projectKnotSnapshot>['records']) => {
+    const delivered = new Set(records.filter(record => record.event.type === 'user/message')
+      .map(record => object(object(record.event.data).source).rpcId))
+    const remaining = (prompts.get(id) ?? []).filter(prompt => !delivered.has(prompt.id))
+    if (remaining.length) prompts.set(id, remaining)
+    else prompts.delete(id)
   }
   const row = (session: SessionSummaryDto) => ({
     sessionId: session.id, updatedAt: Date.parse(session.updatedAt ?? '') || 0,
@@ -109,8 +119,8 @@ export function createWorkbenchRemote(
             if (outcome.kind !== 'result') throw new Error('Interaction was not handled by this Client')
             const value = interactionAnswer(item.interaction, outcome.value)
             await http(`sessions/${encodeURIComponent(item.sessionId)}/interactions`, signal, 'POST', { id: item.interaction.id, value })
-            pending.delete(input.eventId)
-            publish('$events', { type: 'cancel', eventId: input.eventId })
+            // Host settlement clears every Client, including this one. Do not
+            // race queued duplicate requests with a second local cancellation.
             return ok(undefined)
           }
           case 'session/list': return ok({ items: (await list(signal)).map(row) })
@@ -127,7 +137,7 @@ export function createWorkbenchRemote(
             const receipt = { id: input.requestId, content, after: current.events.length }
             receipts.push(receipt); prompts.set(id, receipts)
             try { await http(`sessions/${encodeURIComponent(id)}/messages`, signal, 'POST', { content }) }
-            catch (error) { receipts.splice(receipts.indexOf(receipt), 1); throw error }
+            catch (error) { prompts.set(id, (prompts.get(id) ?? []).filter(item => item !== receipt)); throw error }
             return ok({ accepted: true })
           }
           case 'session/cancel': case 'knot/session/pause': case 'knot/session/resume': {
@@ -170,17 +180,10 @@ export function createWorkbenchRemote(
           case 'knot/context': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/context${input.requestId ? '?requestId=' + encodeURIComponent(input.requestId) : ''}`, signal))
           case 'knot/session/create': return ok(await created(input, signal))
           case 'knot/session/configure': {
-            const current = (await snapshot(input.sessionId, signal)).session
-            if (!current.writable || current.runState !== 'idle') throw new Error('Session is not idle and configurable')
-            const profiles = (await get<{ providers: ProviderProfileSummary[] }>('providers', signal)).providers
-            const profile = profiles.find(item => item.id === (input.providerProfileId ?? current.providerProfileId))
-            if (!profile?.configured) throw new Error('Choose a configured Provider')
-            const changed = profile.id !== current.providerProfileId
-            const effort = Object.hasOwn(input, 'reasoningEffort') ? input.reasoningEffort
-              : changed ? profile.defaultReasoningEffort : current.reasoningEffort
+            // UI submits a complete pending selection; Host alone validates it.
             const { session } = await http<{ session: SessionSummaryDto }>(`sessions/${encodeURIComponent(input.sessionId)}/configuration`, signal, 'PATCH', {
-              providerProfileId: profile.id, approvalMode: input.approvalMode ?? current.approvalMode ?? 'ask',
-              ...(effort === undefined || effort === '' ? {} : { reasoningEffort: effort }),
+              providerProfileId: input.providerProfileId, approvalMode: input.approvalMode,
+              ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
             })
             return ok(session)
           }
@@ -260,16 +263,20 @@ export function createWorkbenchRemote(
           const enqueue = (frame: unknown) => { if (!signal.aborted) { queue.push(frame); wake?.() } }
           let projected: Awaited<ReturnType<typeof project>>
           let cursor = -1
+          let dirty = false, refreshQueued = false
           const ready = new Promise<void>(resolve => { wake = resolve })
           const refresh = async () => {
+            dirty = false
             const next = await project(id, signal)
-            for (const record of next.records.slice(cursor + 1)) {
+            const added = next.records.slice(cursor + 1)
+            for (const record of added) {
               enqueue(record); cursor = record.event.seq
               if (record.event.type === 'assistant/message' && object(record.event.data).message?.id === 'knot-assistant-' + generation.active?.id) {
                 const end = generation.end(cursor)
                 if (end && input.assistantStream) enqueue(end)
               }
             }
+            acknowledge(id, added)
             projected = next
             if (next.updatedAt > 0) publish('$events', { type: 'emit', event: 'api-session/activity', args: [id, next.updatedAt] })
             publish('knot/live/' + id, { kind: 'projection', values: next.projections.values })
@@ -286,7 +293,21 @@ export function createWorkbenchRemote(
                 pending.set(frame.eventId, { sessionId: id, interaction: event.interaction })
                 publish('$events', frame); break
               }
-              case 'journal.changed': await refresh(); break
+              case 'interaction.settled':
+              case 'interaction.snapshot': {
+                const active = event.kind === 'interaction.snapshot'
+                  ? new Set(event.interactions.map(item => item.id)) : undefined
+                for (const [eventId, item] of pending) {
+                  if (item.sessionId !== id || (event.kind === 'interaction.snapshot'
+                    ? active!.has(item.interaction.id) : item.interaction.id !== event.id)) continue
+                  pending.delete(eventId)
+                  publish('$events', { type: 'cancel', eventId })
+                }
+                if (event.kind === 'interaction.snapshot') for (const interaction of event.interactions)
+                  await handle({ kind: 'interaction.request', interaction })
+                break
+              }
+              case 'journal.changed': if (dirty) await refresh(); break
               case 'generation.open': {
                 if (event.purpose !== 'agent') break
                 await refresh()
@@ -320,17 +341,30 @@ export function createWorkbenchRemote(
             }
           }
           const schedule = (event: LiveSessionEvent) => {
+            if (event.kind === 'journal.changed') {
+              dirty = true
+              if (refreshQueued) return
+              refreshQueued = true
+            }
             processing = processing.then(() => ready).then(() => handle(event)).catch(error => {
               if (signal.aborted) return
               const end = generation.end(); if (end) enqueue(end)
               publish('$events', { type: 'emit', event: 'api-session/error', args: [id, String(error)] })
               publish('knot/live/' + id, { kind: 'run.error', message: String(error) })
+            }).finally(() => {
+              if (event.kind === 'journal.changed') {
+                refreshQueued = false
+                // Changes during the read get one trailing refresh, after queued
+                // stream frames. Never queue one full read per Journal event.
+                if (dirty && !signal.aborted) schedule({ kind: 'journal.changed' })
+              }
             })
           }
           // Subscribe before the snapshot read; queued events cannot fall into a read/subscribe gap.
           unsubscribe = subscribe(id, schedule, () => schedule({ kind: 'journal.changed' }))
           projected = await project(id, signal)
           cursor = projected.records.length - 1
+          acknowledge(id, projected.records)
           const initialized = wake!; wake = undefined; initialized()
           if (!projected.writable) { unsubscribe(); unsubscribe = undefined }
           yield { type: 'snapshot', header: { version: 3, id, cwd: projected.cwd, createdAt: projected.createdAt, isSeeded: false },
