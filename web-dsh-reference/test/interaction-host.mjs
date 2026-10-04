@@ -1,7 +1,7 @@
 /** Isolated browser smoke fixture using Knot's real HTTP routes and interaction broker.
  * No model, tools, credentials or persisted Sessions. Build the root repository first.
  * Start this script, then run Vite with KNOT_WORKBENCH_URL=http://127.0.0.1:4320.
- * stdin: approvals | ask | free | goal | todo | complete | running | pause | status | exit
+ * stdin: approvals | ask | free | goal | todo | search | complete | running | pause | status | exit
  */
 import { createInterface } from 'node:readline'
 import { createWorkbenchServer } from '../../dist/src/workbench/http-server.js'
@@ -13,7 +13,7 @@ const sessions = ['b3-approvals', 'b3-questions', 's1-native'].map(id => {
   const broker = createInteractionBroker(event => { for (const listener of listeners) listener(event) })
   brokers.set(id, broker)
   const summary = { id, title: id, assembly: 'case2', workspace: '/tmp/knot-b3-smoke',
-    writable: true, runState: 'idle', eventCount: 2 }
+    writable: true, runState: 'idle', eventCount: 2, providerProfileId: 'test-one', model: 'test-model', approvalMode: 'ask' }
   const events = [
     { position: 0, type: 'user.message', data: { turnId: id, content: 'Controlled B3 interaction test — no tools will execute.' } },
     { position: 1, type: 'assistant.message', data: { turnId: id, content: 'Use the pending interaction below.' } },
@@ -23,6 +23,10 @@ const sessions = ['b3-approvals', 'b3-questions', 's1-native'].map(id => {
     for (const listener of listeners) listener({ kind: 'state.changed', runState })
   }
   return { id, summary: async () => summary, snapshot: async () => ({ session: summary, events }),
+    configure: async ({ inference, approvalMode }) => Object.assign(summary, {
+      providerProfileId: inference.providerProfileId, model: inference.model,
+      reasoningEffort: inference.reasoningEffort, approvalMode,
+    }),
     pause: () => changeState('paused'), resume: () => changeState('idle'), changeState,
     addState: (key, value) => {
       summary.updatedAt = new Date().toISOString()
@@ -30,14 +34,31 @@ const sessions = ['b3-approvals', 'b3-questions', 's1-native'].map(id => {
         data: { results: [{ state: { key, value } }] }, observedAt: summary.updatedAt })
       summary.eventCount = events.length
       for (const listener of listeners) listener({ kind: 'journal.changed' })
+    }, search: () => {
+      const turnId = 'search-' + events.length, requestId = turnId + '-invoke', callId = turnId + '-call'
+      const append = (type, data) => events.push({ position: events.length, type, data, observedAt: new Date().toISOString() })
+      append('user.message', { turnId, content: 'Controlled search preview' })
+      append('llm.invoke', { requestId, request: { turnId, purpose: 'agent' }, manifest: { kind: 'agent', dynamicTurnId: turnId } })
+      append('llm.generated', { requestId, request: { turnId, purpose: 'agent' }, generated: { content: 'Search preview', toolCalls: [{ id: callId, name: 'web_search', arguments: { query: 'controlled example' } }] } })
+      append('tool.call', { turnId, sourceRequestId: requestId, assistantContent: 'Search preview', calls: [{ callId, name: 'web_search', arguments: { query: 'controlled example' } }] })
+      append('tool.result', { turnId, results: [{ callId, content: JSON.stringify({ ok: true, sources: [{ url: 'https://example.com', title: 'Controlled example source', snippet: 'No external search was executed.' }] }) }] })
+      append('llm.invoke', { requestId: requestId + '-final', request: { turnId, purpose: 'agent' }, manifest: { kind: 'agent', dynamicTurnId: turnId } })
+      append('llm.generated', { requestId: requestId + '-final', request: { turnId, purpose: 'agent' }, generated: { content: 'Controlled fixture complete.', toolCalls: [] } })
+      append('assistant.message', { turnId, content: 'Controlled fixture complete.' })
+      summary.eventCount = events.length
+      for (const listener of listeners) listener({ kind: 'journal.changed' })
     }, subscribe(listener) {
     listeners.add(listener)
+    listener({ kind: 'interaction.snapshot', interactions: broker.pending() })
     for (const interaction of broker.pending()) listener({ kind: 'interaction.request', interaction })
     return () => listeners.delete(listener)
   }, respond: broker.respond }
 })
-const server = createWorkbenchServer({ sessions })
-server.listen(4320, '127.0.0.1', () => console.log('B3/S1 controlled Host on 4320; stdin: approvals | ask | free | goal | todo | complete | running | pause | status | exit'))
+const server = createWorkbenchServer({ sessions, providerProfiles: [
+  { id: 'test-one', label: 'Controlled One', model: 'test-model', adapter: 'deepseek', configured: true, reasoningEfforts: ['low', 'high'] },
+  { id: 'test-two', label: 'Controlled Two', model: 'test-model-two', adapter: 'deepseek', configured: true, reasoningEfforts: ['low', 'high'] },
+] })
+server.listen(4320, '127.0.0.1', () => console.log('Controlled Host on 4320; stdin: approvals | ask | free | goal | todo | search | complete | running | pause | status | exit'))
 const stdin = createInterface({ input: process.stdin })
 stdin.on('line', command => {
   const native = sessions.find(session => session.id === 's1-native')
@@ -49,6 +70,7 @@ stdin.on('line', command => {
     { id: '1', content: 'Verify native Todo expansion', status: 'completed' },
     { id: '2', content: 'Preserve the input draft through Pause and Resume', status: 'in_progress' },
   ])
+  if (command === 'search') native.search()
   if (command === 'running') native.changeState('running')
   if (command === 'pause') native.pause()
   if (command === 'approvals') for (const toolName of ['bash', 'write']) {

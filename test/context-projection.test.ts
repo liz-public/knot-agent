@@ -49,5 +49,9 @@ test('workbench exposes a selected model-input projection without adding Journal
   const projection = await response.json() as { requestId: string; messages: unknown[] }
   assert.equal(projection.requestId, 'request-1')
   assert.equal(projection.messages.length, 2)
+  const analytics = await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions/session-1/analytics/tools`)
+  assert.equal(analytics.status, 200)
+  assert.deepEqual((await analytics.json() as { tools: unknown[] }).tools, [])
+  assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/workbench/sessions/missing/analytics/tools`)).status, 404)
   assert.equal((await session.snapshot()).events.length, 3)
 })

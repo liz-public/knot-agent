@@ -8,10 +8,20 @@ import { nativeToolProps } from './tool-presentation.ts'
 import type { SessionSnapshotDto, SessionSummaryDto } from '../../src/workbench/session.js'
 import type { StudioAssemblyDto } from '../../src/workbench/studio.js'
 import type { ContextProjectionDto } from '../../src/workbench/context-projection.js'
+import type { ToolAnalyticsDto } from '../../src/workbench/tool-analytics.js'
 
 type Call = (endpoint: string, input: Record<string, unknown>, signal?: AbortSignal) => Promise<any>
 type Inspection = SessionSnapshotDto & { assembly?: StudioAssemblyDto; children: SessionSummaryDto[] }
 const percent = (value: number) => (value * 100).toFixed(2) + '%'
+const contextLabels: Record<string, string> = { system: 'System / 固定上下文 / 指令', user: '用户输入', dynamic: '动态上下文',
+  assistant: '模型文本', reasoning: '历史推理', tool_arguments: '工具参数', tool_results: '工具结果',
+  tool_schemas: '工具 Schema', history_bundle: '压缩任务的历史包', envelope: 'JSON 结构与转义' }
+function download(name: string, value: unknown) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }))
+  const link = document.createElement('a'); link.href = url; link.download = name
+  document.body.append(link); link.click(); link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
 const readonlyGoalAction = async () => ({ ok: false as const, error: { code: 'knot/read-only', message: 'Goal is read-only', details: {} } })
 function ReadonlyGoal({ useProjection }: any) {
@@ -51,9 +61,12 @@ function InspectionView({ call, sessionId, openChild, useProjection }: { call: C
   const [tab, setTab] = useState('context')
   const [requestId, setRequestId] = useState('')
   const [context, setContext] = useState<ContextProjectionDto>()
+  const [analytics, setAnalytics] = useState<ToolAnalyticsDto>()
+  const [toolFilter, setToolFilter] = useState('')
   const [filter, setFilter] = useState('')
   const [limit, setLimit] = useState(100)
   const [reload, setReload] = useState(0)
+  useEffect(() => { setSource(undefined); setRequestId(''); setAnalytics(undefined); setToolFilter(''); setFilter('') }, [sessionId])
   useEffect(() => {
     const abort = new AbortController()
     setError('')
@@ -70,9 +83,19 @@ function InspectionView({ call, sessionId, openChild, useProjection }: { call: C
       error => { if (!abort.signal.aborted) setError(String(error)) })
     return () => abort.abort()
   }, [call, sessionId, chosen, tab, reload])
-  const events = source?.events.filter(event => !filter || (event.type + ' ' + JSON.stringify(event.data)).toLowerCase().includes(filter.toLowerCase())) ?? []
+  useEffect(() => {
+    if (tab !== 'stats') return
+    const abort = new AbortController()
+    void call('knot/tools', { sessionId }, abort.signal).then(setAnalytics,
+      error => { if (!abort.signal.aborted) setError(String(error)) })
+    return () => abort.abort()
+  }, [call, sessionId, tab, count, reload])
+  const callIds = new Set(source?.events.flatMap(event => event.type === 'tool.call'
+    ? (event.data as any).calls.filter((call: any) => call.name === toolFilter).map((call: any) => call.callId) : []) ?? [])
+  const events = source?.events.filter(event => (!filter || (event.type + ' ' + JSON.stringify(event.data)).toLowerCase().includes(filter.toLowerCase()))
+    && (!toolFilter || ((event.data as any)?.calls ?? (event.data as any)?.results ?? []).some((item: any) => callIds.has(item.callId)))) ?? []
   return <section className="knot-inspection">
-    <header><nav>{[['context', 'Context'], ['journal', 'Journal'], ['assembly', '插件 / 协议'], ['children', '子会话']].map(([id, label]) =>
+    <header><nav>{[['context', 'Context'], ['stats', '工具统计'], ['journal', 'Journal'], ['assembly', '插件 / 协议'], ['children', '子会话']].map(([id, label]) =>
       <button key={id} aria-pressed={tab === id} onClick={() => { setTab(id); setError('') }}>{label}</button>)}</nav>
       <Button onClick={() => setReload(value => value + 1)}>刷新</Button></header>
     {error && <p role="alert">{error}</p>}
@@ -83,6 +106,16 @@ function InspectionView({ call, sessionId, openChild, useProjection }: { call: C
           <option key={item.requestId} value={item.requestId}>#{item.position} · {item.request.purpose} · {item.requestId}</option>)}</select>
         {!chosen ? <p>还没有 LLM 调用。</p> : !context ? <p>读取调用上下文…</p> : <>
           <p>输入 {context.usage?.inputTokens?.toLocaleString() ?? '未知'} tokens · Messages ~{context.estimatedMessageTokens.toLocaleString()} · Tools ~{context.estimatedToolTokens.toLocaleString()}</p>
+          <p>以下占比来自本次实际投影的规范输入，不累计 Journal 重复载荷。字符 ≠ 厂商 token；历史推理仅统计本次确实进入模型的部分。</p>
+          <Button onClick={() => download(`knot-context-${chosen}.json`, context)}>导出本次输入与分析</Button>
+          <table className="knot-inspection-table"><thead><tr><th>输入构成</th><th>字符</th><th>占比</th></tr></thead><tbody>
+            {context.inspection.breakdown.map(row => <tr key={row.key}><td>{contextLabels[row.key] ?? row.key}</td>
+              <td>{row.chars.toLocaleString()}</td><td>{percent(row.share)}</td></tr>)}
+          </tbody></table>
+          <details><summary>上下文来源 · Journal / manifest</summary>
+            {context.inspection.sources.map(item => <p key={item.type}><code>{item.type}</code> · {item.positions.length ? item.positions.map(position => '#' + position).join(', ') : '无'} {item.note}</p>)}
+            {context.inspection.limitations.map(note => <p key={note}>{note}</p>)}
+          </details>
           {context.messages.map((message, index) => <DataDetails key={chosen + ':' + index}
             title={`${index + 1}. ${message.role} · ~${message.estimatedTokens} tokens`} value={message}
             initiallyOpen={message.role === 'system' || index === context.messages.length - 1} />)}
@@ -90,7 +123,20 @@ function InspectionView({ call, sessionId, openChild, useProjection }: { call: C
           <DataDetails key={chosen + ':manifest'} title="本次 manifest" value={context.manifest} />
         </>}
       </>}
-      {tab === 'journal' && <><input aria-label="过滤 Journal" placeholder="过滤事件类型或内容" value={filter} onChange={e => { setFilter(e.target.value); setLimit(100) }} />
+      {tab === 'stats' && (!analytics ? <p>读取工具统计…</p> : <>
+        <p>统计当前 Session 已记录的工具事实，不包含子会话，不推断外部副作用成功或 handler 执行次数。</p>
+        <Button onClick={() => download(`knot-tools-${sessionId}.json`, analytics)}>导出工具统计</Button>
+        {!analytics.tools.length ? <p>尚无工具调用。</p> : <table className="knot-inspection-table"><thead><tr>
+          {['工具', '调用', '返回', '成功', '失败', '状态未知', '未返回', '批次平均等待'].map(label => <th key={label}>{label}</th>)}
+        </tr></thead><tbody>{analytics.tools.map(row => <tr key={row.name}>
+          <td><button onClick={() => { setTab('journal'); setToolFilter(row.name); setFilter(''); setLimit(100) }}>{row.name}</button></td>
+          {[row.calls, row.returned, row.succeeded, row.failed, row.unknown, row.unfinished].map((value, i) => <td key={i}>{value}</td>)}
+          <td>{row.timedBatches ? (row.totalBatchWaitMs / row.timedBatches / 1000).toFixed(2) + `s (${row.timedBatches} 批)` : '未知'}</td>
+        </tr>)}</tbody></table>}
+        {analytics.limitations.map(note => <p key={note} className="knot-inspection-note">{note}</p>)}
+      </>)}
+      {tab === 'journal' && <>{toolFilter && <p>关联工具：{toolFilter} <Button onClick={() => setToolFilter('')}>清除</Button></p>}
+        <input aria-label="过滤 Journal" placeholder="过滤事件类型或内容" value={filter} onChange={e => { setFilter(e.target.value); setLimit(100) }} />
         <p>{events.length} 个匹配事件；显示最近 {Math.min(limit, events.length)} 个。时间来自 JSONL 元数据，不进入内核。</p>
         {events.slice(-limit).map(event => <EventRow key={event.position} event={event} />)}
         {limit < events.length && <Button onClick={() => setLimit(value => value + 100)}>显示更早的 100 个</Button>}</>}

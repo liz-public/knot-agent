@@ -1,5 +1,6 @@
 import type { Event } from '../journal.js'
 import { projectMessages, projectTools } from '../agent/projection.js'
+import { inspectModelContext, type ContextInspection } from './context-inspection.js'
 import {
   LLM_GENERATED,
   LLM_INVOKE,
@@ -14,6 +15,7 @@ export interface ContextMessageDto extends ChatMessage {
 }
 
 export interface ContextProjectionDto {
+  readonly inspection: ContextInspection
   readonly requestId: string
   readonly purpose: LlmInvoke['request']['purpose']
   readonly manifest: LlmInvoke['manifest']
@@ -49,7 +51,8 @@ export function projectModelContext(
   if (invokeEvent === undefined || !isInvoke(invokeEvent.data)) return undefined
 
   const invoke = invokeEvent.data
-  const messages = projectMessages(events, invoke).map(message => ({
+  const inputMessages = projectMessages(events, invoke)
+  const messages = inputMessages.map(message => ({
     ...message,
     estimatedTokens: estimatedTokens(message),
   }))
@@ -61,6 +64,7 @@ export function projectModelContext(
     ?.data as LlmGenerated | undefined
 
   return {
+    inspection: inspectModelContext(events, invoke, inputMessages, tools),
     requestId: invoke.requestId,
     purpose: invoke.request.purpose,
     manifest: invoke.manifest,

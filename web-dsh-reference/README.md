@@ -243,12 +243,38 @@ VITE_KNOT_DSH_MODE=workbench npm run build
 - Live Bash output remains in the small transient dock (the native running terminal does
   not accept stdout deltas). i18n, sandbox parity and missing historical diff/TTFT stay deferred.
 
-Verification: root 140 tests and Client 20 tests pass; both Workbench and fixture builds pass.
+Verification through S3: root 140 tests and Client 29 tests pass; both Workbench and fixture builds pass.
 The real 1,134-event Session displays its original Todo panel. An isolated model-free Host
 verifies active/completed Goal, Todo expansion, live Pause/Resume, draft preservation and
-sidebar activity. No user Session facts, business plugins, Host APIs or Journal core changed.
+sidebar activity. No user Session facts, business plugins or Journal core changed.
 For the isolated smoke above, select `s1-native` and use stdin `goal`, `todo`, `running`,
 `pause`, `complete`; the native Resume button calls the real Host route.
+
+### S4 minimal Knot inspection
+
+- Keep one existing Inspector, not a new dashboard framework. Context, Journal, Assembly
+  metadata and child navigation remain; add actual input composition and tool fact counters.
+- Context reuses `projectMessages` / `projectTools` for the selected historical invocation.
+  The breakdown counts UTF-16 characters in that canonical input: text, projected reasoning,
+  tool arguments/results, schemas and JSON envelope. It does not count duplicate Journal
+  payloads twice or claim provider-level per-segment tokens. Bounded Journal source references
+  accompany the manifest; they are display positions, never new persisted identifiers.
+- Tool analytics is a pure read projection exposed by
+  `GET /api/workbench/sessions/:id/analytics/tools`. It distinguishes explicit success/failure,
+  unknown status and missing returns. Batch waiting includes parallel siblings and approvals;
+  it is not per-handler execution time. No child Session rollup or invented plugin invocations.
+- Click a tool name to filter both calls and linked results in Journal. Export either the
+  selected reconstructed input with its analysis or tool counters as local JSON. Historical
+  Assembly information remains explicitly labeled as current code metadata, not a code snapshot.
+- No business plugin, kernel, persistence protocol, dependency or model request changes.
+  The two small Host pure functions own analysis; the carrier forwards DTOs; UI only displays
+  and exports. i18n and S5 expansion remain deferred.
+
+Verification: root 143 tests and Client 29 tests pass. Both frontend build modes pass.
+Read-only inspection of the real 1,134-event Session yields 207 calls/returns, two explicit
+failures and no unfinished calls. Input composition adds exactly to the canonical input length.
+Model/approval menus and the original native search card were checked against an isolated,
+model-free Host. Both JSON exports were downloaded and parsed; no real tools or API calls ran.
 
 ## Boundary
 

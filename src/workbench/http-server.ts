@@ -9,6 +9,7 @@ import type { ApprovalMode, ReasoningEffort } from './session.js'
 import { createSessionRegistry, type SessionRegistry } from './session-registry.js'
 import type { StudioController } from './studio.js'
 import { projectModelContext } from './context-projection.js'
+import { projectToolAnalytics } from './tool-analytics.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
@@ -327,6 +328,17 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           return
         }
         sendJson(response, 200, await session.snapshot())
+        return
+      }
+
+      const analyticsId = pathMatch(url.pathname, '/analytics/tools')
+      if (request.method === 'GET' && analyticsId !== undefined) {
+        const session = registry.get(analyticsId)
+        if (session === undefined) {
+          sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
+          return
+        }
+        sendJson(response, 200, projectToolAnalytics((await session.snapshot()).events))
         return
       }
 

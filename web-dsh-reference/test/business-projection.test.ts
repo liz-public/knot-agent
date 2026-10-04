@@ -44,6 +44,7 @@ test('B5 inspection uses Host metadata and lazy Context endpoints without execut
     if (url.endsWith('/studio')) return Response.json({ projects: [{ assembly }] })
     if (url.endsWith('/sessions')) return Response.json({ sessions: [session, { id: 'child', parentSessionId: 's' }] })
     if (url.includes('/context')) return Response.json({ requestId: 'r', messages: [{ role: 'system', content: 'Actual prompt' }] })
+    if (url.includes('/analytics/tools')) return Response.json({ tools: [{ name: 'read', calls: 1 }] })
     return Response.json({ session, events: [{ type: 'llm.invoke', data: { requestId: 'r' } }] })
   }) as typeof fetch)
   const call = async (endpoint: string, input: any) => remote.call('$knot', endpoint, { args: [input] }, new AbortController().signal) as Promise<any>
@@ -51,6 +52,8 @@ test('B5 inspection uses Host metadata and lazy Context endpoints without execut
   assert.deepEqual(inspection.assembly, assembly); assert.equal(inspection.children[0].id, 'child')
   assert.equal((await call('knot/context', { sessionId: 's', requestId: 'r' })).value.messages[0].content, 'Actual prompt')
   assert.equal(paths.at(-1), '/api/workbench/sessions/s/context?requestId=r')
+  assert.equal((await call('knot/tools', { sessionId: 's' })).value.tools[0].calls, 1)
+  assert.equal(paths.at(-1), '/api/workbench/sessions/s/analytics/tools')
 })
 
 test('B5 native contributions install even when the original Client activates later', async () => {

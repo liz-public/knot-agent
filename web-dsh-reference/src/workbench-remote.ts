@@ -178,6 +178,7 @@ export function createWorkbenchRemote(
               children: sessions.filter(item => item.parentSessionId === source.session.id) })
           }
           case 'knot/context': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/context${input.requestId ? '?requestId=' + encodeURIComponent(input.requestId) : ''}`, signal))
+          case 'knot/tools': return ok(await get(`sessions/${encodeURIComponent(input.sessionId)}/analytics/tools`, signal))
           case 'knot/session/create': return ok(await created(input, signal))
           case 'knot/session/configure': {
             // UI submits a complete pending selection; Host alone validates it.
