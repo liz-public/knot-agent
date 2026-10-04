@@ -84,7 +84,7 @@ test('B5 native contributions install even when the original Client activates la
       : name === '@deepseek-ai/dsh-client-ui-goal/client' ? { GoalBar: 'NativeGoalBar' }
         : name === 'react' ? { useMemo: (fn: any) => fn() } : {}, module, module.exports)
   const entries: any[] = [], listeners: Array<(slot: string) => void> = [], cleanups: any[] = []
-  const ctx = { sessions: {}, uiWorkspace: {}, on: (_: string, handler: any) => listeners.push(handler),
+  const ctx = { sessions: {}, uiWorkspace: {}, uiConversation: { events: { entries: () => [], subscribe: () => () => {} } }, on: (_: string, handler: any) => listeners.push(handler),
     effect: (setup: any) => cleanups.push(setup()),
     slots: { entries: (slot: string) => entries.filter(entry => entry.options.name === slot), inject: (_: string, setup: any) => setup(),
       register: (options: any, component: any) => { entries.push({ options, component, inject: options.inject, locale: options.locale }); listeners.forEach(handler => handler(options.name)) } } }

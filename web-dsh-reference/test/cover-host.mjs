@@ -18,14 +18,19 @@ const sessions = ['s5-directory', 's5-blank', 's5-readonly'].map(id => {
     append('user.message', { turnId, content })
     append('llm.invoke', { requestId, request: { turnId, purpose: 'agent' }, manifest: { kind: 'agent' } })
     append('llm.generated', { requestId, request: { turnId, purpose: 'agent' }, generated: { content: 'Fixture response: ' + content, toolCalls: [] },
-      usage: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 90 } })
+      usage: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 90 }, timing: { durationMs: 1100, ttftMs: 100 } })
     append('assistant.message', { turnId, content: 'Fixture response: ' + content + '\n\n' + 'A recorded response, not an actual model call.\n\n'.repeat(3) })
   }
   if (id !== 's5-blank') {
     append('session.start', {})
     append('inference.configured', { providerProfileId: 'test-one', provider: 'deepseek', model: 'test-model' })
     append('approval.policy.configured', { mode: 'ask' })
-    for (let n = 1; n <= 60; n++) turn(`Query ${n}: verify Session directory and native navigation.`)
+    append('system.prompt', { content: 'You are a controlled browser smoke assistant.' })
+    append('context.fixed', { content: 'Workspace: /tmp/knot-cover-smoke. No real model or persistence.' })
+    append('tool.registry', { schemas: [{ type: 'function', function: { name: 'read', description: 'Read a fixture file', parameters: { type: 'object' } } }] })
+    for (let n = 1; n <= 60; n++) turn(`Query ${n}: verify Session directory and native navigation.` + (n === 60 ? ' Long request for disclosure verification.'.repeat(8) : ''))
+    append('history.compress.request', { requirementId: 'compress-smoke' })
+    append('history.checkpoint', { requirementId: 'compress-smoke', summary: 'Recorded fixture summary; earlier requests verified navigation.' })
     append('tool.result', { results: [{ state: { key: 'todo', value: [
       { id: 'a', content: 'Inspect the cover', status: 'completed' }, { id: 'b', content: 'Continue from the cover', status: 'in_progress' },
     ] } }, { state: { key: 'goal', value: { objective: 'Verify S5 without model calls', successCriteria: ['Locate a historical query'], status: 'active' } } }] })

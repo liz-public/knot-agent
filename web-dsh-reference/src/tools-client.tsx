@@ -1,6 +1,7 @@
 import { Button, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolAnalyticsDto } from '../../src/workbench/tool-analytics.js'
 import { download, Metric, Panel, percent, useRead, type ViewProps } from './inspection-view.tsx'
+import { descending } from './inspection-order.ts'
 
 function ToolsView({ sessionId, useProjection, openView }: ViewProps) {
   const { value, error, refresh } = useRead<ToolAnalyticsDto>('knot/tools', { sessionId }, useProjection('knotEventCount'))
@@ -13,7 +14,7 @@ function ToolsView({ sessionId, useProjection, openView }: ViewProps) {
       <p className="knot-inspection-note">调用占比 = 该工具 / 全部调用；明确结果成功率 = 成功 /（成功 + 失败）。未知与未返回不算失败。</p>
       {!value.tools.length ? <p>Journal 尚无注册或调用工具。</p> : <div className="knot-table-scroll"><table className="knot-inspection-table">
         <thead><tr>{['工具 / 能力', '调用', '调用占比', '明确结果成功率', '返回', '失败', '未知', '未返回', '批次平均等待'].map(text => <th key={text}>{text}</th>)}</tr></thead>
-        <tbody>{value.tools.map(row => <tr key={row.name} data-unused={row.calls === 0 || undefined}>
+        <tbody>{descending(value.tools, row => row.calls).map(row => <tr key={row.name} data-unused={row.calls === 0 || undefined}>
           <td><button onClick={() => openView('knot-inspection', 'tool:' + row.name)}>{row.name}</button>
             <p className="knot-tool-description">{row.description ?? 'Journal 中没有该工具的描述。'}</p>
             {!row.registered ? <Pill>未记录注册</Pill> : !row.available ? <Pill>历史注册 · 当前未列出</Pill> : row.calls === 0 ? <Pill>未调用</Pill> : null}</td>

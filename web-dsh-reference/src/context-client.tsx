@@ -3,6 +3,7 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionSnapshotDto } from '../../src/workbench/session.js'
 import type { ContextMessageDto, ContextProjectionDto } from '../../src/workbench/context-projection.js'
 import { download, JsonDetails, Metric, Panel, percent, useRead, type ViewProps } from './inspection-view.tsx'
+import { descending } from './inspection-order.ts'
 
 const labels: Record<string, string> = { system: 'System / 固定上下文 / 指令', user: '用户输入', dynamic: '动态上下文',
   assistant: '模型文本', reasoning: '历史推理', tool_arguments: '工具参数', tool_results: '工具结果',
@@ -39,7 +40,7 @@ function ContextView({ sessionId, useProjection }: ViewProps) {
         <Metric label="规范输入字符">{value.inspection.totalChars.toLocaleString()}</Metric><Metric label="消息数">{value.messages.length}</Metric>
         <Metric label="工具 Schema">{value.tools.length}</Metric></div>
       <p className="knot-inspection-note">以下占比按 UTF-16 字符计量，不是厂商 Token 分段计费。历史推理仅统计本次实际投影的内容。</p>
-      <div className="knot-context-breakdown">{value.inspection.breakdown.map(row => <div className="knot-context-part" key={row.key}>
+      <div className="knot-context-breakdown">{descending(value.inspection.breakdown, row => row.share).map(row => <div className="knot-context-part" key={row.key}>
         <span>{labels[row.key] ?? row.key}</span><strong>{percent(row.share)}</strong><progress max={1} value={row.share} />
         <small>{row.chars.toLocaleString()} 字符</small></div>)}</div>
       <details className="knot-data"><summary>上下文来源 / manifest</summary>{value.inspection.sources.map(item => <p key={item.type}>

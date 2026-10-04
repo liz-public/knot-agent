@@ -69,6 +69,10 @@ test('known cache usage aggregates without inventing stream timings', () => {
   assert.deepEqual(result.projections.values.tokenUsage, {
     uncachedInputTokens: 10, outputTokens: 20, cacheReadTokens: 90, cacheWriteTokens: 0,
   })
+  const native = result.records.find(record => record.event.type === 'assistant/message')!.event.data as any
+  assert.deepEqual(native.usage, { inputTokens: 10, outputTokens: 20, cacheReadTokens: 90 })
+  assert.equal(native.turn, 1)
+  assert.equal(native.step, 1)
   assert.equal(result.records.some(record => record.event.type === 'turn/end'), false)
 })
 
@@ -98,4 +102,49 @@ test('S1 text shortcuts count completed rounds without inventing LLM steps or us
   assert.equal(result.projections.values.tokenUsage, undefined)
   assert.equal(result.records.filter(record => record.event.type === 'turn/end').length, 2)
   assert.equal(result.projections.values.knotRunState, 'idle')
+})
+
+test('Provider measurements feed native timing totals, weighted throughput and durable read models', () => {
+  const result = projectKnotSnapshot(snapshot([
+    ['user.message', { turnId: 't1', content: 'Hi' }],
+    ['llm.invoke', { requestId: 'r1', request: request() }],
+    ['llm.generated', { requestId: 'r1', request: request(), generated: { content: 'Hi' },
+      usage: { inputTokens: 100, outputTokens: 60 }, timing: { durationMs: 3000, ttftMs: 1000 } }],
+    ['llm.invoke', { requestId: 'r2', request: request() }],
+    ['llm.generated', { requestId: 'r2', request: request(), generated: { content: 'Bye' },
+      usage: { inputTokens: 100, outputTokens: 40 }, timing: { durationMs: 5000, ttftMs: 1000 } }],
+  ]))
+  const stats = result.projections.values.sessionStats as any
+  assert.equal(stats.ttftMs / stats.ttftSteps, 1000)
+  assert.equal(stats.decodeTokens / (stats.decodeMs / 1000), 100 / 6)
+  assert.equal(stats.llmMs, 8000)
+  const generated = result.records.filter(record => record.event.type === 'assistant/message')
+  assert.deepEqual((generated[0]!.event.data as any).knotTiming, { durationMs: 3000, ttftMs: 1000 })
+  assert.deepEqual((generated[0]!.event.data as any).stream, [])
+})
+
+test('system, observed Context, request schemas and compaction enter the native ledger without inventing input history', () => {
+  const result = projectKnotSnapshot(snapshot([
+    ['system.prompt', { content: 'System' }],
+    ['tool.registry', { schemas: [{ function: { name: 'read', description: 'Read a file', parameters: { type: 'object' } } }] }],
+    ['user.message', { turnId: 't1', content: 'Hello' }],
+    ['context.fixed', { content: 'Workspace instructions' }],
+    ['context.dynamic', { turnId: 't1', content: 'Current query only' }],
+    ['llm.invoke', { requestId: 'r1', request: request() }],
+    ['history.compress.request', { requirementId: 'c1' }],
+    ['llm.invoke', { requestId: 'cr', request: { purpose: 'history.compress', requirementId: 'c1' } }],
+    ['llm.generated', { requestId: 'cr', request: { purpose: 'history.compress', requirementId: 'c1' }, usage: { inputTokens: 50, outputTokens: 10 } }],
+    ['history.checkpoint', { requirementId: 'c1', summary: 'Summary of recorded history' }],
+  ]))
+  const events = result.records.map(record => record.event)
+  assert.equal(events[0]!.type, 'system/message')
+  assert.deepEqual((events[0]!.data as any).message.content, [{ type: 'text', text: 'System' }])
+  assert.deepEqual(events.filter(event => event.type === 'developer/message').map(event => (event.data as any).message.source.kind), ['context.fixed', 'context.dynamic'])
+  const header = (events.find(event => event.type === 'request/header')!.data as any).header
+  assert.equal(header.tools[0].name, 'read')
+  assert.equal(events.filter(event => event.type === 'user/message').length, 1)
+  assert.equal(events.filter(event => event.type === 'compaction/start').length, 1)
+  assert.equal(events.filter(event => event.type === 'compaction/end').length, 1)
+  assert.equal((events.find(event => event.type === 'compaction/summary')!.data as any).summary[0].text, 'Summary of recorded history')
+  assert.equal(result.projections.values.knotEventCount, 10)
 })

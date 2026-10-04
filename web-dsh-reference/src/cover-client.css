@@ -22,9 +22,15 @@
 .knot-cover-directory h2 { margin:0 }
 .knot-cover-directory>span { width:240px; max-width:100% }
 .knot-cover-queries { list-style:none; padding:0; margin:0 0 20px }
-.knot-cover-queries>li { display:flex; align-items:flex-start; gap:20px; padding:16px 0; border-bottom:1px solid var(--dsw-alias-border-l3) }
-.knot-cover-queries>li>div { flex:1; min-width:0 }
-.knot-cover-queries>li>button { flex-shrink:0 }
-.knot-cover-queries summary { margin-top:5px; line-height:24px }
+.knot-cover-queries>li { padding:4px 0; border-bottom:1px solid var(--dsw-alias-border-l3) }
+.knot-cover-query { display:flex; align-items:center; justify-content:space-between; gap:20px; width:100%; padding:16px 12px; border:0; border-radius:10px; background:transparent; color:inherit; text-align:left; font:inherit; cursor:pointer }
+.knot-cover-query:hover { background:var(--dsw-alias-interactive-bg-hover) }
+.knot-cover-query:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary); outline-offset:2px }
+.knot-cover-query:disabled { cursor:default; opacity:.65 }
+.knot-cover-query>span:first-child { min-width:0; flex:1 }
+.knot-cover-query>span:last-child { color:var(--dsw-alias-label-tertiary); flex-shrink:0 }
+.knot-cover-query-text { display:block; margin-top:5px; line-height:24px; overflow-wrap:anywhere; white-space:pre-wrap }
+.knot-cover-queries details { margin:0 12px 12px }
+.knot-cover-queries summary { font-size:12px; color:var(--dsw-alias-label-tertiary) }
 .knot-cover-links { margin-top:24px }
 @media(max-width:720px) { .knot-cover { padding:18px 16px } .knot-cover-title { max-width:100%; padding:20px } .knot-cover-queries>li { gap:10px; flex-wrap:wrap } .knot-cover-art { width:100% } }

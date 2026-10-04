@@ -27,6 +27,8 @@ export const openAiLlmProvider = (options: OpenAiLlmOptions): LlmProvider => {
 
   return {
     async generate(call: LlmCall, onUpdate) {
+      const started = performance.now()
+      let ttftMs: number | undefined
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -53,11 +55,16 @@ export const openAiLlmProvider = (options: OpenAiLlmOptions): LlmProvider => {
       }
 
       if (onUpdate !== undefined) {
-        return readOpenAiStream(response, onUpdate, options.contextWindow)
+        const result = await readOpenAiStream(response, onUpdate, options.contextWindow, () => {
+          ttftMs ??= performance.now() - started
+        })
+        return { ...result, timing: { durationMs: performance.now() - started,
+          ...(ttftMs === undefined ? {} : { ttftMs }) } }
       }
 
       const body = await response.json() as OpenAiResponse
-      return responseResult(body, options.contextWindow ?? Number.MAX_SAFE_INTEGER)
+      return { ...responseResult(body, options.contextWindow ?? Number.MAX_SAFE_INTEGER),
+        timing: { durationMs: performance.now() - started } }
     },
   }
 
@@ -67,6 +74,7 @@ async function readOpenAiStream(
   response: Response,
   onUpdate: (update: GenerationUpdate) => void | Promise<void>,
   contextWindow = Number.MAX_SAFE_INTEGER,
+  onToken: () => void = () => {},
 ) {
   if (response.headers.get('content-type')?.includes('application/json')) {
     const body = await response.json() as OpenAiResponse
@@ -104,14 +112,17 @@ async function readOpenAiStream(
       ? delta.reasoning_content
       : typeof delta.reasoning === 'string' ? delta.reasoning : undefined
     if (reasoningDelta !== undefined && reasoningDelta.length > 0) {
+      onToken()
       reasoning += reasoningDelta
       await onUpdate({ kind: 'reasoning', text: reasoningDelta })
     }
     if (typeof delta.content === 'string' && delta.content.length > 0) {
+      onToken()
       content += delta.content
       await onUpdate({ kind: 'content', text: delta.content })
     }
     for (const call of delta.tool_calls ?? []) {
+      if (call.function?.name || call.function?.arguments) onToken()
       const current = calls.get(call.index) ?? { id: '', name: '', arguments: '' }
       current.id += call.id ?? ''
       current.name += call.function?.name ?? ''

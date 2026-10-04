@@ -176,6 +176,12 @@ export interface LlmGenerated {
   request: LlmRequest
   generated: GeneratedContent
   usage: LlmUsage
+  /** Client-observed Provider request timing; absent in older logs and mocks. */
+  timing?: {
+    durationMs: number
+    /** First non-empty reasoning/text/tool output, not response headers. */
+    ttftMs?: number
+  }
 }
 
 // The boundary is the requestId of the generation that tripped the threshold,

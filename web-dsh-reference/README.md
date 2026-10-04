@@ -133,6 +133,12 @@ an active Fixture backend.
   Final recorded content reconciles optimistic echoes and settles the display once.
 - Native Stop means **graceful pause after the current event**, not process abort. The
   same primary button resumes a paused run while preserving the unsent draft.
+  A version-checked build extension adds only that primary action's label, icon and callback;
+  native editor/layout/shortcuts remain in use (see NOTICE).
+- New `llm.generated.timing` records client-observed duration and, for streaming calls,
+  time to the first nonempty reasoning/text/tool output. Native views derive decode rate
+  from output tokens and duration minus TTFT; old logs without timing stay unknown.
+  No stream chunks or separately stored throughput are fabricated.
 - Native approval and Ask keep Host broker ownership. Allow/reject means one decision,
   not a persistent permission grant. Auto approval is neither review nor a sandbox.
 - Ask supports one question, optional choices and free text. Unsupported close/skip or

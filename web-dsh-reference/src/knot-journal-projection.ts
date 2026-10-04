@@ -43,11 +43,14 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
   const calls = new Map<string, { step: Step; start: ReadEvent }>()
   const completedTurns = new Set<number>()
   const generatedTurns = new Set<string>()
-  let nextTurn = 0
+  // Native DSH reserves step 0 for non-assistant requests (e.g. compaction).
+  let nextTurn = 1
   let active: number | undefined
   let latestInference: Record<string, any> | undefined
   let latestUsed: Record<string, any> | undefined
   let latestUsage: Record<string, any> | undefined
+  let tools: Record<string, any>[] = []
+  const compactions = new Map<string, { provider?: Record<string, any>; generated?: Record<string, any> }>()
   const stats = { turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0 }
 
   const emit = (source: ReadEvent, type: string, data: unknown, surfaceOp?: string) => {
@@ -62,7 +65,7 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
   }
   const begin = (id: string, turnId: unknown, event: ReadEvent) => {
     const turn = turnFor(turnId, event)
-    const step = stepCounts.get(turn) ?? 0
+    const step = stepCounts.get(turn) ?? 1
     stepCounts.set(turn, step + 1)
     const value: Step = { turn, step, start: event, inference: latestInference, pending: new Set(), closed: false }
     steps.set(id, value)
@@ -79,6 +82,33 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
   for (const event of events) {
     const data = object(event.data)
     switch (event.type) {
+      case 'system.prompt':
+        emit(event, 'system/message', { turn: active ?? 0, step: 0,
+          message: { role: 'system', content: [{ type: 'text', text: data.content ?? '' }] } }, 'append')
+        break
+      case 'tool.registry':
+        tools = array(data.schemas)
+        break
+      case 'context.fixed': case 'context.dynamic':
+        // Observed injections, not a claim that every past context remains in the current input.
+        emit(event, 'developer/message', { message: { role: 'developer',
+          id: `knot-context-${event.position}`, source: { kind: event.type },
+          content: [{ type: 'text', text: data.content ?? '' }] } }, 'append')
+        break
+      case 'history.compress.request':
+        compactions.set(data.requirementId, { provider: latestInference })
+        emit(event, 'compaction/start', { compactionId: data.requirementId, turn: active ?? null })
+        break
+      case 'history.checkpoint': {
+        const compact = compactions.get(data.requirementId)
+        if (!compact) break
+        emit(event, 'compaction/summary', { compactionId: data.requirementId,
+          summary: [{ type: 'text', text: data.summary }], provider: compact.provider?.providerProfileId ?? 'unknown',
+          model: compact.provider?.model ?? 'unknown',
+          ...(compact.generated?.usage ? { usage: nativeUsage(compact.generated.usage) } : {}) })
+        emit(event, 'compaction/end', { compactionId: data.requirementId, turn: active ?? null })
+        break
+      }
       case 'inference.configured':
         latestInference = data
         break
@@ -95,10 +125,26 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
         if (data.request?.purpose === 'agent') {
           begin(data.requestId, data.request.turnId, event)
           latestUsed = latestInference === undefined ? undefined : { ...latestInference }
+          emit(event, 'request/header', { reason: 'initial', header: {
+            config: { provider: latestInference?.providerProfileId ?? 'unknown', model: latestInference?.model ?? 'unknown',
+              ...(latestInference?.reasoningEffort ? { reasoningEffort: latestInference.reasoningEffort } : {}) },
+            ...(tools.length ? { tools: tools.map(tool => ({ name: tool.function?.name,
+              description: tool.function?.description, parameters: tool.function?.parameters })) } : {}),
+          } })
+          if (data.request.instruction) emit(event, 'developer/message', { message: { role: 'developer',
+            id: `knot-instruction-${data.requestId}`, source: { kind: 'agent.instruction' },
+            content: [{ type: 'text', text: data.request.instruction }] } }, 'append')
+        } else if (data.request?.purpose === 'history.compress') {
+          const compact = compactions.get(data.request.requirementId)
+          if (compact) compact.provider = latestInference
         }
         break
       case 'llm.generated': {
-        if (data.request?.purpose !== 'agent') break
+        if (data.request?.purpose !== 'agent') {
+          const compact = compactions.get(data.request?.requirementId)
+          if (compact) compact.generated = data
+          break
+        }
         const step = steps.get(data.requestId) ?? begin(data.requestId, data.request.turnId, event)
         step.generated = event
         generatedTurns.add(data.request.turnId)
@@ -112,15 +158,22 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
         }
         const usage = object(data.usage)
         latestUsage = usage
-        stats.llmMs += duration(step.start, event)
+        const timing = data.timing
+        const timed = typeof timing?.durationMs === 'number' && Number.isFinite(timing.durationMs) && timing.durationMs >= 0
+        stats.llmMs += timed ? timing.durationMs : duration(step.start, event)
+        if (timed && typeof timing.ttftMs === 'number' && timing.ttftMs >= 0 && timing.ttftMs <= timing.durationMs) {
+          stats.ttftMs += timing.ttftMs; stats.ttftSteps++
+          const decodeMs = timing.durationMs - timing.ttftMs
+          if (decodeMs > 0 && typeof usage.outputTokens === 'number') {
+            stats.decodeMs += decodeMs; stats.decodeTokens += usage.outputTokens
+          }
+        }
         emit(event, 'assistant/message', {
           turn: step.turn, step: step.step,
           message: { role: 'assistant', content, id: 'knot-assistant-' + data.requestId,
             source: { kind: 'model', provider: step.inference?.providerProfileId ?? 'unknown', model: step.inference?.model ?? 'unknown' } },
-          ...(typeof usage.inputTokens === 'number' && typeof usage.outputTokens === 'number' ? {
-            usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
-              ...(typeof usage.cachedInputTokens === 'number' ? { cacheReadTokens: usage.cachedInputTokens } : {}) },
-          } : {}),
+          ...(nativeUsage(usage) ? { usage: nativeUsage(usage) } : {}),
+          ...(timed ? { knotTiming: timing } : {}),
           stream: [],
         }, 'append')
         if (step.pending.size === 0) close(step, event)
@@ -202,6 +255,13 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
     records, attempts: Object.fromEntries([...steps].map(([id, value]) => [id, { turn: value.turn, step: value.step }])),
     projections: { asOfSeq: records.length - 1, values },
   }
+}
+function nativeUsage(usage: Record<string, any>) {
+  return typeof usage.inputTokens === 'number' && typeof usage.outputTokens === 'number' ? {
+    // DSH bills uncached input separately; Knot's inputTokens already includes the cache.
+    inputTokens: usage.inputTokens - (usage.cachedInputTokens ?? 0), outputTokens: usage.outputTokens,
+    ...(typeof usage.cachedInputTokens === 'number' ? { cacheReadTokens: usage.cachedInputTokens } : {}),
+  } : undefined
 }
 function selection(value: Record<string, any>) {
   return { provider: value.providerProfileId, model: value.model,

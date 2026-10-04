@@ -4,6 +4,7 @@ import { GoalBar } from '@deepseek-ai/dsh-client-ui-goal/client'
 import { extendNativeSlot } from './native-slot.ts'
 import { answerableQuestion } from './interaction-projection.ts'
 import { nativeToolProps } from './tool-presentation.ts'
+import { wireNativeTiming } from './native-timing.ts'
 
 const percent = (value: number) => (value * 100).toFixed(2) + '%'
 
@@ -20,8 +21,9 @@ function ReadonlyGoal({ useProjection }: any) {
   </div>
 }
 
-export const inject = ['slots']
+export const inject = ['slots', 'uiConversation']
 export function apply(ctx: any) {
+  wireNativeTiming(ctx)
   // Client plugins activate when their services arrive, not merely in bundle order.
   // Public SlotRegistry entries + shadowing: keep the original component and its hooks/styles.
   extendNativeSlot(ctx, 'conversation.composer.dock', entry => entry.options.id === 'stats', native => {
@@ -41,7 +43,6 @@ export function apply(ctx: any) {
           <p>输入 {usage.inputTokens.toLocaleString()} · 输出 {usage.outputTokens.toLocaleString()} · Usage {usage.knownCalls}/{usage.calls} 次</p>
           <p>历史缓存计数 {usage.cacheKnownCalls}/{usage.calls} 次；{usage.knownCacheHitRate === undefined ? '缓存未知' : '已知调用加权缓存率 ' + percent(usage.knownCacheHitRate)}</p></details>}
         {typeof usage?.latest.cacheHitRate === 'number' && !nativeUsage && <span>本次缓存 {percent(usage.latest.cacheHitRate)}</span>}
-        {typeof usage?.latest.outputRate === 'number' && <span title="输出 token / invoke→generated 总时长；不是 DSH decode TPS">端到端 {usage.latest.outputRate.toFixed(1)} tok/s</span>}
       </div>
     }
     ctx.slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0, priority: -10,

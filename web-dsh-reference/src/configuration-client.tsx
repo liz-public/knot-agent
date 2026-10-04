@@ -250,7 +250,8 @@ export function apply(ctx: any): void {
       const [liveState, setLiveState] = useState<string>()
       const paused = (liveState ?? snapshotState) === 'paused'
       const [error, setError] = useState('')
-      useEffect(() => { setError('') }, [props.sessionId, paused])
+      const [resuming, setResuming] = useState(false)
+      useEffect(() => { setError(''); setResuming(false) }, [props.sessionId, paused])
       useEffect(() => {
         const abort = new AbortController()
         setLiveState(undefined)
@@ -264,26 +265,28 @@ export function apply(ctx: any): void {
         })().catch(value => { if (!abort.signal.aborted) setError(String(value)) })
         return () => abort.abort()
       }, [props.sessionId])
-      const useSession = useCallback((selector: any) => props.useSession((state: any) =>
-        selector(paused ? { ...state, running: true, subagent: null } : state)), [props.useSession, paused])
       const useStopShortcut = useCallback((selector: any) => props.useStopShortcut((keys: any) =>
         selector(paused ? [] : keys)), [props.useStopShortcut, paused])
       const zh = document.documentElement.lang.startsWith('zh')
-      const notice = useMemo(() => error ? { level: 'error', text: error } : paused ? {
-        level: 'info', text: zh ? '暂停已请求 · 当前 handler 完成后停止；恢复后继续'
-          : 'Pause requested · stops after the current handler; resume to continue',
-      } : undefined, [error, paused, zh])
+      const notice = useMemo(() => error ? { level: 'error', text: error } : undefined, [error])
       const useNotices = useCallback((selector: any) => props.useNotices((current: any) =>
         selector(notice ?? current)), [props.useNotices, notice])
-      // Native Stop stays the only control. While paused, its existing blocked
-      // posture preserves the draft and gives the same button Resume semantics.
-      const stop = paused ? () => {
-        void call('knot/session/resume', { sessionId: props.sessionId }).catch(value => setError(String(value)))
-      } : props.stop
-      return <Original {...props} useSession={useSession} useStopShortcut={useStopShortcut} useNotices={useNotices} stop={stop}
+      const primaryAction = paused && !props.blocked ? {
+        label: zh ? '恢复运行' : 'Resume', disabled: resuming,
+        icon: <path d="M5 3.5v9l7-4.5z" fill="currentColor" />,
+        onClick: () => {
+          if (resuming) return
+          setResuming(true); setError('')
+          void call('knot/session/resume', { sessionId: props.sessionId })
+            .catch(value => setError(String(value))).finally(() => setResuming(false))
+        },
+      } : undefined
+      return <Original {...props} primaryAction={primaryAction} useStopShortcut={useStopShortcut} useNotices={useNotices}
+          stop={paused ? undefined : props.stop}
           blocked={props.blocked ?? (paused ? { reason: 'Pause requested' } : undefined)}
-          t={(key: string, params: any) => key === 'input.stop'
-            ? paused ? (zh ? '恢复运行' : 'Resume') : (zh ? '优雅暂停' : 'Pause gracefully') : props.t(key, params)} />
+          t={(key: string, params: any) => key === 'placeholder.unavailable' && paused && !props.blocked
+            ? (zh ? '暂停已请求，点击恢复后继续' : 'Pause requested; resume to continue') : key === 'input.stop'
+              ? paused ? (zh ? '恢复运行' : 'Resume') : (zh ? '优雅暂停' : 'Pause gracefully') : props.t(key, params)} />
     }
     // Keep the original entry's child-slot ownership and injected hooks. A new
     // shadow entry cannot redeclare these children. This wraps the public

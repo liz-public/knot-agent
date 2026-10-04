@@ -33,7 +33,7 @@ function Cover({ sessionId, useProjection, openView }: ViewProps) {
     })().catch(() => { /* The read endpoint owns errors; live state is optional for archives. */ })
     return () => abort.abort()
   }, [sessionId])
-  if (!value) return <section className="knot-cover"><p role={error ? 'alert' : undefined}>{error || '读取会话封面…'}</p><Button onClick={refresh}>重试</Button></section>
+  if (!value) return <section className="knot-cover"><p role={error ? 'alert' : undefined}>{error || '读取会话封面…'}</p>{error && <Button onClick={refresh}>重试</Button>}</section>
   const { session, usage, goal, todos, recordedConfiguration } = value
   const queries = value.queries.filter(query => query.content.toLowerCase().includes(filter.toLowerCase()))
   const inference = recordedConfiguration.inference
@@ -42,7 +42,7 @@ function Cover({ sessionId, useProjection, openView }: ViewProps) {
       <small>JOURNAL · 结绳记事</small><h1>{session.title}</h1><div className="knot-cover-tags"><Pill>{states[session.runState] ?? session.runState}</Pill>
         <Pill>{session.assembly}</Pill>{!session.writable && <Pill>只读记录</Pill>}</div>
       <p>{value.queries.length ? '从记录了解这段会话，再继续它。' : '会话已准备好。在下方输入你的第一个请求。'}</p>
-      <Button onClick={() => openView('chat', 'latest')}>{session.writable ? '进入对话 / 继续任务' : '查看对话'}</Button>
+      <Button variant="primary" onClick={() => openView('chat', 'latest')}>{session.writable ? '进入对话 / 继续任务' : '查看对话'} <span aria-hidden="true">→</span></Button>
     </div></header>
     {error && <p role="alert">{error}</p>}
     <div className="knot-cover-meta"><span>工作目录 <code>{session.workspace ?? '未记录'}</code></span>
@@ -68,12 +68,15 @@ function Cover({ sessionId, useProjection, openView }: ViewProps) {
       <Input aria-label="搜索用户输入" placeholder="搜索原始请求" value={filter} onChange={e => { setFilter(e.target.value); setLimit(50) }} /></header>
     {!queries.length && <p className="knot-cover-note">{filter ? '没有匹配的请求。' : '尚无用户输入。'}</p>}
     <ol className="knot-cover-queries">{queries.slice(0, limit).map(query => <li key={query.position}>
-      <div><small>#{query.position} · {time(query.observedAt)}</small><details><summary>{query.content.slice(0, 180)}{query.content.length > 180 ? '…' : ''}</summary><pre>{query.content}</pre></details></div>
-      <Button disabled={!query.turnId} onClick={() => openView('chat', `user:${query.turnId}`)}>查看原对话</Button>
+      <button className="knot-cover-query" disabled={!query.turnId} onClick={() => openView('chat', `user:${query.turnId}`)}>
+        <span><small>#{query.position} · {time(query.observedAt)}</small><span className="knot-cover-query-text">{query.content.slice(0, 180)}{query.content.length > 180 ? '…' : ''}</span></span>
+        <span aria-hidden="true">→</span>
+      </button>
+      {query.content.length > 180 && <details><summary>展开完整请求</summary><pre>{query.content}</pre></details>}
     </li>)}</ol>
     {queries.length > limit && <Button onClick={() => setLimit(n => n + 50)}>显示更多请求</Button>}</>}
     <footer className="knot-cover-links"><Button onClick={() => openView('knot-tools', '')}>工具统计</Button><Button onClick={() => openView('knot-context', '')}>上下文分析</Button>
-      <Button onClick={() => openView('knot-plugins', '')}>插件与协议</Button><Button onClick={refresh}>刷新封面</Button></footer>
+      <Button onClick={() => openView('knot-plugins', '')}>插件与协议</Button></footer>
   </section>
 }
 

@@ -6,6 +6,7 @@ import { bootInjections, orderByModuleGraph } from '@deepseek-ai/dsh-client-modu
 import { defineConfig, type Plugin } from 'vite'
 import { readonlyClientFactory } from './src/readonly-client.ts'
 import { buildSync } from 'esbuild'
+import { extendNativeInput } from './native-input-extension.ts'
 
 const VIRTUAL_BOOT = 'virtual:dsh-fixture-boot'
 const RESOLVED_VIRTUAL_BOOT = `\0${VIRTUAL_BOOT}`
@@ -159,6 +160,7 @@ function dshClientFixture(): Plugin {
     else source = entry.bundlePath === ''
       ? `window.__ModuleLoader__.load({id:'@knot-agent/client-readonly',factory:${readonlyClientFactory.toString()}})`
       : readFileSync(entry.bundlePath, 'utf8')
+    if (readOnly && entry.id === '@deepseek-ai/dsh-client-ui-conversation') source = extendNativeInput(source)
     if (readOnly && entry.id === '@deepseek-ai/dsh-client-ui-goal') {
       // Load the unchanged published factory as a view library. Its full apply()
       // is deliberately not activated: Knot exposes no GoalService mutation RPC.

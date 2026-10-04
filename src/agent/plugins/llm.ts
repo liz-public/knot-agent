@@ -49,7 +49,7 @@ export interface LlmProvider {
   generate(
     call: LlmCall,
     onUpdate?: (update: GenerationUpdate) => void | Promise<void>,
-  ): Promise<Pick<LlmGenerated, 'generated' | 'usage'>>
+  ): Promise<Pick<LlmGenerated, 'generated' | 'usage' | 'timing'>>
 }
 
 export interface LlmProviderResolver {
@@ -85,7 +85,7 @@ export const llmPlugin = (
     } catch {
       // Opening a presentation surface is best-effort too.
     }
-    let result: Pick<LlmGenerated, 'generated' | 'usage'>
+    let result: Pick<LlmGenerated, 'generated' | 'usage' | 'timing'>
     try {
       result = await providerFor(provider, events).generate(
         {
