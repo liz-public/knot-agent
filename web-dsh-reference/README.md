@@ -83,11 +83,10 @@ route. The Host broker, not this projection, owns waiting and execution.
 - Pending requests replay when a Session stream reconnects. Duplicate deliveries
   are suppressed; stale/duplicate decisions and HTTP failures are not accepted.
   Session disposal withdraws presentation, never grants approval or answers Ask.
-- Native Ask **close/skip are not Host cancellation operations**. Closing withdraws
-  the card while the Host still waits; reopen/reload the Session to answer it.
-  These visible native affordances need interaction refinement before treating
-  the shell as a complete Run product. Cross-client settlement synchronization
-  is not part of B3; this batch validates a single Client.
+- Native Ask **close/skip are not Host cancellation operations**. S2 rejects
+  unsupported actions before the native carrier settles: the original question
+  card displays the error, stays answerable and leaves the Host waiting.
+  Cross-client settlement synchronization is not part of B3; this batch validates a single Client.
 
 Browser smoke uses an isolated Host with the real HTTP server and broker, but no
 model, tools or persistent data:
@@ -115,8 +114,9 @@ VITE_KNOT_DSH_MODE=workbench KNOT_WORKBENCH_URL=http://127.0.0.1:4320 npm run de
 - The native Stop button maps to **graceful pause**, not abort. S1 reuses that same
   InputBar primary button for Resume while paused; no second runtime control is shown.
 - Bash stdout/stderr are expandable in a temporary live-output dock while the
-  command runs. After close, the native tool row owns the persisted result. Its
-  final result remains Knot JSON, not a fabricated DSH terminal payload.
+  command runs. After close, the native tool row owns the persisted result.
+  S2 maps known output/exit fields to the native terminal card for display only;
+  the persisted result and Inspector remain Knot JSON.
 - Runtime errors reach the native Session error surface and the dock. Switching
   Sessions closes the old SSE and discards transient presentation. Reopening/refreshing
   reads the complete Journal; missing live prefixes are not invented. An in-progress
@@ -163,7 +163,7 @@ but a real online Goal interaction still needs user acceptance.
 
 Remaining differences are intentional review items, not claims of DSH parity:
 live-output layout flashes, refresh/stream scheduling,
-custom configuration interactions, Ask close/skip, cross-client synchronization,
+custom configuration interactions, cross-client synchronization,
 native specialized tool-result semantics and partial custom i18n. Historical
 TTFT/decode timing, old cache counts and lost transient prefixes cannot be fabricated.
 
@@ -198,6 +198,28 @@ VITE_KNOT_DSH_MODE=workbench npm run build
   This matters because native durable projections reject equal-sequence updates.
 - Sidebar activity uses the snapshot's actual last activity timestamp, never refresh time.
   Text-only shortcut replies count completed rounds, with zero model steps and no fabricated usage.
+
+### S2 first batch: Ask and native tool fields
+
+- Ask's native composer seat keeps its layout, injected services and draft ownership.
+  A view of the pending question rejects cancel/skip before settlement; valid single-choice
+  and free-text answers still resolve through the existing broker. Unsupported waterfall
+  outcomes also return an RPC error instead of pretending cancellation succeeded.
+  These errors are UI feedback, not a made-up tool failure delivered to the model.
+- Native read/write/edit/Bash cards receive translated argument fields. Read's actual page
+  becomes line-number metadata; Bash's actual stdout/stderr and known exit code become the
+  native terminal display. A non-zero exit is presented as failure by that native terminal.
+  Unknown exits and structured execution failures retain generic fallback; no success code
+  is inferred. Captured stdout then stderr is not a claim of chronological interleaving.
+- Alias cards receive the native name inside the call block as well as its selector prop.
+  Ask's recorded answer is displayed as free text because Knot does not retain whether it
+  came from a choice or custom input. Subagent completion is not disguised as a background-start receipt.
+- Raw Journal/Context/Trajectory data is unchanged. Partial streaming arguments stay on
+  the native generic/preparing path. No applied full-file edit diff or Todo history diff is
+  invented when those facts are absent. Native write previews describe intended input,
+  not a measured diff against the previous file.
+- This batch does not yet change the live Bash dock, configuration menus or custom i18n.
+  No Host, business plugin, Journal kernel or dependency changes.
 
 Verification: root 140 tests and Client 20 tests pass; both Workbench and fixture builds pass.
 The real 1,134-event Session displays its original Todo panel. An isolated model-free Host

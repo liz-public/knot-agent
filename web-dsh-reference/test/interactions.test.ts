@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { createInteractionBroker } from '../../src/workbench/interactions.ts'
 import type { LiveSessionEvent } from '../../src/workbench/session.ts'
 import { createWorkbenchRemote } from '../src/workbench-remote.ts'
-import { interactionAnswer, interactionFrame } from '../src/interaction-projection.ts'
+import { answerableQuestion, interactionAnswer, interactionFrame } from '../src/interaction-projection.ts'
 
 test('B3 preserves request details and validates single-choice/free-text replies', () => {
   const approval = { id: 'a', kind: 'approval' as const, toolName: 'bash', arguments: { command: 'pwd' } }
@@ -83,7 +83,9 @@ test('B3 real broker: parallel decisions, duplicate delivery, Session switch and
   const reopened = await follow('one')
   const replayed = (await events.next()).value as any
   assert.equal(replayed.agentId, 'one')
-  assert.equal((await reply(replayed, undefined, 'rejected')).ok, true)
+  const writesBeforeCancel = writes.length
+  assert.equal((await reply(replayed, undefined, 'rejected')).ok, false)
+  assert.equal(writes.length, writesBeforeCancel)
   assert.equal(broker.pending().length, 1) // Closing Ask is not an empty answer.
   const questionId = broker.pending()[0]!.id
   fail = true
@@ -102,4 +104,25 @@ test('B3 real broker: parallel decisions, duplicate delivery, Session switch and
   reopened.abort.abort(); two.abort.abort(); eventsAbort.abort()
   await reopened.stream.return?.(); await two.stream.return?.(); await events.return?.()
   assert.equal(listeners.size, 0)
+})
+
+test('S2 unsupported Ask actions reject before settlement; native card can retry an answer', async () => {
+  class Pending {
+    questions = [{ id: 'q', question: 'Next?', options: [{ label: 'A' }] }]
+    #answer: unknown
+    get answered() { return this.#answer !== undefined }
+    answer(value: unknown) { this.#answer = value; return Promise.resolve() }
+    cancel() { this.#answer = 'cancelled'; return Promise.resolve() }
+  }
+  const pending = new Pending(), originalCancel = pending.cancel
+  const card = answerableQuestion(pending, 'Cancel is not supported')
+  assert.ok(card instanceof Pending)
+  assert.equal(card.questions, pending.questions)
+  await assert.rejects(card.cancel(), /Cancel is not supported/)
+  await assert.rejects(card.answer({ answers: [{ id: 'q', selected: [] }] }), /skipping is not supported/)
+  await assert.rejects(card.answer({ answers: [{ id: 'q', selected: ['unknown'] }] }), /requires one choice/)
+  assert.equal(pending.answered, false)
+  assert.equal(pending.cancel, originalCancel)
+  await card.answer({ answers: [{ id: 'q', selected: [], custom: 'My answer' }] })
+  assert.equal(pending.answered, true) // The original private-field receiver is preserved.
 })

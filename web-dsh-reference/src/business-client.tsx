@@ -1,8 +1,10 @@
 /** Knot-only presentation contributions; native DSH Chat/Trajectory stay intact. */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { GoalBar } from '@deepseek-ai/dsh-client-ui-goal/client'
 import { extendNativeSlot } from './native-slot.ts'
+import { answerableQuestion } from './interaction-projection.ts'
+import { nativeToolProps } from './tool-presentation.ts'
 import type { SessionSnapshotDto, SessionSummaryDto } from '../../src/workbench/session.js'
 import type { StudioAssemblyDto } from '../../src/workbench/studio.js'
 import type { ContextProjectionDto } from '../../src/workbench/context-projection.js'
@@ -150,12 +152,26 @@ export function apply(ctx: any) {
       openChild: async (id: string) => { await ctx.sessions.refresh(); ctx.uiWorkspace.openSession(id) },
     }),
   }, InspectionView))
-  // Same native per-tool views with a display alias only. Facts/Context keep Knot names.
-  for (const [name, nativeName] of [['todo.write', 'todo_write'], ['goal.write', 'update_goal'], ['spawn_agent', 'subagent'], ['ask', 'ask_user_question']]) {
+  // Native QuestionFlow catches rejected verbs and keeps the question visible.
+  extendNativeSlot(ctx, 'conversation.composer', entry => entry.locale === 'question', native => {
+    const Original = native.component
+    function Question(props: any) {
+      const matched = useMemo(() => answerableQuestion(props.matched,
+        document.documentElement.lang.startsWith('zh')
+          ? '此 Ask 不支持取消；请回答问题。取消未提交，模型仍在等待。'
+          : 'This Ask cannot be cancelled. Please answer; the agent is still waiting.'), [props.matched, props.t])
+      return <Original {...props} matched={matched} />
+    }
+    ctx.effect(() => { native.component = Question; return () => { native.component = Original } })
+  })
+  // Native card field adaptation only. Facts/Context/Trajectory keep Knot names.
+  for (const [name, nativeName] of [['read', 'read'], ['write', 'write'], ['edit', 'edit'], ['bash', 'bash'],
+    ['todo.write', 'todo_write'], ['goal.write', 'update_goal'], ['spawn_agent', 'subagent'], ['ask', 'ask_user_question']]) {
     extendNativeSlot(ctx, 'tool.call.toolview', entry => entry.options.key === nativeName, native => {
       const Original = native.component
-      ctx.slots.register({ name: 'tool.call.toolview', key: name, locale: native.locale, inject: native.inject },
-        (props: any) => <Original {...props} toolName={nativeName} />)
+      const Card = (props: any) => <Original {...nativeToolProps(props)} />
+      if (name === nativeName) ctx.effect(() => { native.component = Card; return () => { native.component = Original } })
+      else ctx.slots.register({ name: 'tool.call.toolview', key: name, locale: native.locale, inject: native.inject }, Card)
     })
   }
 }

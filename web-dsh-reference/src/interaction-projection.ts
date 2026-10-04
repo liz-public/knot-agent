@@ -30,3 +30,16 @@ export function interactionAnswer(interaction: InteractionRequestDto, value: unk
     && interaction.choices?.includes(answer.selected[0]!)) return answer.selected[0]!
   throw new Error('Ask requires one choice or a free-text answer; skipping is not supported')
 }
+
+/** Reject before the native carrier settles; its card can show the error and retry. */
+export function answerableQuestion(pending: any, cancelMessage: string) {
+  return Object.create(pending, {
+    cancel: { value: async () => { throw new Error(cancelMessage) } },
+    answer: { value: async (value: unknown) => {
+      const question = pending.questions[0]
+      interactionAnswer({ kind: 'ask', id: question.id, question: question.question,
+        choices: question.options?.map((option: any) => option.label) }, value)
+      return pending.answer(value)
+    } },
+  })
+}

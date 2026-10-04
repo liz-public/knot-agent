@@ -59,9 +59,11 @@ test('B5 native contributions install even when the original Client activates la
   const module = { exports: {} as any }
   new Function('require', 'module', 'exports', output)((name: string) =>
     name === 'react/jsx-runtime' ? { jsx: (type: any, props: any) => ({ type, props }), jsxs: (type: any, props: any) => ({ type, props }) }
-      : name === '@deepseek-ai/dsh-client-ui-goal/client' ? { GoalBar: 'NativeGoalBar' } : {}, module, module.exports)
-  const entries: any[] = [], listeners: Array<(slot: string) => void> = []
+      : name === '@deepseek-ai/dsh-client-ui-goal/client' ? { GoalBar: 'NativeGoalBar' }
+        : name === 'react' ? { useMemo: (fn: any) => fn() } : {}, module, module.exports)
+  const entries: any[] = [], listeners: Array<(slot: string) => void> = [], cleanups: any[] = []
   const ctx = { sessions: {}, uiWorkspace: {}, on: (_: string, handler: any) => listeners.push(handler),
+    effect: (setup: any) => cleanups.push(setup()),
     slots: { entries: (slot: string) => entries.filter(entry => entry.options.name === slot), inject: (_: string, setup: any) => setup(),
       register: (options: any, component: any) => { entries.push({ options, component, inject: options.inject, locale: options.locale }); listeners.forEach(handler => handler(options.name)) } } }
   module.exports.apply(ctx)
@@ -89,4 +91,27 @@ test('B5 native contributions install even when the original Client activates la
   assert.equal(goalDock.component({ useProjection: () => ({ goal: { phase: 'complete' } }) }), null)
   listeners.forEach(handler => handler('tool.call.toolview'))
   assert.equal(entries.filter(entry => entry.options.key === 'todo.write').length, 1)
+
+  const Read = () => null, Question = () => null
+  ctx.slots.register({ name: 'tool.call.toolview', key: 'read', locale, inject }, Read)
+  const nativeRead = entries.find(entry => entry.options.key === 'read')
+  const readWrapper = nativeRead.component
+  assert.equal(readWrapper({ toolName: 'read', block: { name: 'read', argsRaw: '{"path":"a"}' } }).type, Read)
+  assert.equal(JSON.parse(readWrapper({ toolName: 'read', block: { name: 'read', argsRaw: '{"path":"a"}' } }).props.block.argsRaw).file_path, 'a')
+  assert.equal(nativeRead.inject, inject)
+  ctx.slots.register({ name: 'conversation.composer', locale: 'question', inject }, Question)
+  const nativeQuestion = entries.find(entry => entry.locale === 'question')
+  const originalMatched = { questions: [{ id: 'q', question: 'Next?' }], answer: async () => 'answered' }
+  ;(globalThis as any).document = { documentElement: { lang: 'en' } }
+  try {
+    const wrappedQuestion = nativeQuestion.component({ matched: originalMatched })
+    assert.equal(wrappedQuestion.type, Question)
+    await assert.rejects(wrappedQuestion.props.matched.cancel(), /cannot be cancelled/)
+    assert.equal(nativeQuestion.inject, inject)
+  } finally { delete (globalThis as any).document }
+  listeners.forEach(handler => handler('tool.call.toolview'))
+  assert.equal(nativeRead.component, readWrapper) // No nested wrapping on a later slot notification.
+  cleanups.forEach(cleanup => cleanup())
+  assert.equal(nativeRead.component, Read)
+  assert.equal(nativeQuestion.component, Question)
 })

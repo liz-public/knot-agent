@@ -102,7 +102,6 @@ export function createWorkbenchRemote(
             const outcome = object(input.outcome)
             // Withdrawal is not a user decision: never resolve the Host broker on scope loss or Ask close.
             if (outcome.kind === 'rejected') {
-              if (object(outcome.error).code === 'ASK_CANCELLED') return ok(undefined)
               throw new Error(object(outcome.error).message ?? 'Client interaction failed')
             }
             const item = pending.get(input.eventId)
