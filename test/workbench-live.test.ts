@@ -16,6 +16,39 @@ import { runSubagentSession, subagentConfiguration } from '../src/workbench/suba
 
 const usage = { inputTokens: 20, outputTokens: 5, totalTokens: 25, contextWindow: 1000 }
 
+test('CASE2 command launch requests approval once; waiting and stopping owned handles need no extra approval', { timeout: 5000 }, async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-command-approval-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  let step = 0, handle = ''
+  const session = await createLiveSession({ id: 'commands', title: 'Command approval test', cwd, journalPath: join(cwd, 's.jsonl'), assembly: case2Assembly,
+    defaultConfiguration: { approvalMode: 'ask' }, llm: { async generate(call) {
+      const last = [...call.messages].reverse().find(message => message.role === 'tool')
+      if (last) handle = JSON.parse(last.content!).processId ?? handle
+      step++
+      const command = JSON.stringify(process.execPath) + ' -e ' + JSON.stringify('setInterval(()=>{},1000)')
+      const tool = step === 1 ? { name: 'bash', arguments: { command, yieldMs: 0 } }
+        : step === 2 ? { name: 'process.wait', arguments: { processId: handle, cursor: 0, waitMs: 0 } }
+          : step === 3 ? { name: 'process.stop', arguments: { processId: handle } } : undefined
+      return { generated: { content: tool ? undefined : 'Stopped.', toolCalls: tool ? [{ id: 'command-' + step, ...tool }] : [] }, usage }
+    } } })
+  t.after(() => session.close?.())
+  const events: LiveSessionEvent[] = []
+  session.subscribe!(event => events.push(event))
+  const approval = nextEvent(events, session.subscribe!, event => event.kind === 'interaction.request')
+  const idle = nextEvent(events, session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
+  session.submit!('Start, inspect and stop one background command.')
+  const request = await approval
+  assert.equal(request.kind, 'interaction.request')
+  if (request.kind !== 'interaction.request') throw new Error('expected approval')
+  assert.equal(request.interaction.kind, 'approval')
+  session.respond!(request.interaction.id, 'allow')
+  await idle
+  assert.equal(events.filter(event => event.kind === 'interaction.request').length, 1)
+  const snapshot = await session.snapshot()
+  const result = snapshot.events.filter(event => event.type === 'tool.result').at(-1)!.data as any
+  assert.equal(JSON.parse(result.results[0].content).status, 'stopped')
+})
+
 test('subagent inheritance reads the latest committed model, effort and approval policy', () => {
   const events = [
     { type: 'inference.configured', data: { providerProfileId: 'old', provider: 'deepseek', model: 'old', reasoningEffort: 'low' } },

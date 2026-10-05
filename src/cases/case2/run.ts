@@ -70,7 +70,7 @@ const agent = journalPath === undefined
   ? createCase2Agent(options)
   : await createPersistentCase2Agent({ ...options, journalPath })
 
-await agent.submit(query)
+try { await agent.submit(query) } finally { await agent.close() }
 process.stderr.write(
   `[idle] ${(performance.now() - startedAt).toFixed(1)}ms total, ${eventNumber} traced events\n`,
 )

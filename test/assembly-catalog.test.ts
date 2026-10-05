@@ -47,7 +47,7 @@ test('assembly catalog exposes CASE1 and CASE2 from their executable definitions
   assert.deepEqual(catalog.list().map(item => item.description.id), ['case1', 'case2'])
   assert.deepEqual(catalog.get('case1')?.description.tools.map(tool => tool.name), ['bash'])
   assert.deepEqual(catalog.get('case2')?.description.tools.map(tool => tool.name), [
-    'read', 'write', 'edit', 'bash', 'todo.write', 'goal.write', 'spawn_agent', 'ask',
+    'read', 'write', 'edit', 'bash', 'process.wait', 'process.stop', 'todo.write', 'goal.write', 'spawn_agent', 'ask',
   ])
   assert.equal(catalog.get('missing'), undefined)
 })

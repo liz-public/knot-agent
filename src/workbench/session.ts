@@ -104,5 +104,6 @@ export interface WorkbenchSession {
   respond?(interactionId: string, value: string): boolean
   configure?(configuration: SessionConfiguration): Promise<void>
   rename?(title: string): Promise<void>
+  close?(): Promise<void>
   updateMetadata?(patch: Partial<Pick<SessionMetadata, 'title' | 'archived' | 'pinnedAt'>>): Promise<void>
 }

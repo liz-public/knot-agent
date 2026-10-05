@@ -93,6 +93,7 @@ export async function createLiveSession(
 
   return {
     id: options.id,
+    ...(agent.close === undefined ? {} : { close: () => agent.close!() }),
     snapshot,
     summary: async () => (await snapshot()).session,
     subscribe(listener) {

@@ -1,22 +1,11 @@
-import { spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import type { ToolDefinition, ToolExecution } from '../../agent/plugins/tools.js'
+import { createCommandProcesses, type CommandProcesses, type ToolOutput } from './command-process.js'
+import { commandTools } from './command-tools.js'
 
 const READ_MAX_LINES = 2000
 const READ_MAX_BYTES = 50 * 1024
-
-export interface ToolOutput {
-  open(meta: {
-    readonly turnId: string
-    readonly callId: string
-    readonly toolName: string
-    readonly command: string
-  }): {
-    write(update: { readonly stream: 'stdout' | 'stderr'; readonly text: string }): void | Promise<void>
-    close(result: { readonly exitCode: number }): void | Promise<void>
-  } | undefined
-}
 
 function textArgument(arguments_: Record<string, unknown>, name: string): string {
   const value = arguments_[name]
@@ -94,15 +83,7 @@ function result(data: Record<string, unknown>): ToolExecution {
   return { content: JSON.stringify(data) }
 }
 
-function present(action: () => void | Promise<void>): void {
-  try {
-    void Promise.resolve(action()).catch(() => undefined)
-  } catch {
-    // Presentation cannot change tool execution.
-  }
-}
-
-export function codingTools(cwd: string, output?: ToolOutput): readonly ToolDefinition[] {
+export function codingTools(cwd: string, output?: ToolOutput, processes: CommandProcesses = createCommandProcesses(cwd, output)): readonly ToolDefinition[] {
   const read: ToolDefinition = {
     name: 'read',
     schema: {
@@ -195,54 +176,5 @@ export function codingTools(cwd: string, output?: ToolOutput): readonly ToolDefi
     },
   }
 
-  const bash: ToolDefinition = {
-    name: 'bash',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'bash',
-        description: 'Run one shell command in the workspace and return its exit status and output.',
-        parameters: {
-          type: 'object',
-          properties: { command: { type: 'string' } },
-          required: ['command'],
-          additionalProperties: false,
-        },
-      },
-    },
-    execute(arguments_, context) {
-      const command = textArgument(arguments_, 'command')
-      return new Promise(resolveResult => {
-        let channel: ReturnType<ToolOutput['open']>
-        try {
-          channel = output?.open({ ...context, toolName: 'bash', command })
-        } catch {
-          // Presentation cannot change tool execution.
-        }
-        const child = spawn(command, { cwd, shell: true })
-        let stdout = ''
-        let stderr = ''
-        child.stdout.on('data', chunk => {
-          const text = String(chunk)
-          stdout += text
-          if (channel !== undefined) present(() => channel.write({ stream: 'stdout', text }))
-        })
-        child.stderr.on('data', chunk => {
-          const text = String(chunk)
-          stderr += text
-          if (channel !== undefined) present(() => channel.write({ stream: 'stderr', text }))
-        })
-        child.once('error', error => {
-          stderr += error.message
-        })
-        child.once('close', code => {
-          const exitCode = code ?? 1
-          if (channel !== undefined) present(() => channel.close({ exitCode }))
-          resolveResult(result({ ok: exitCode === 0, exitCode, stdout, stderr }))
-        })
-      })
-    },
-  }
-
-  return [read, write, edit, bash]
+  return [read, write, edit, ...commandTools(processes)]
 }

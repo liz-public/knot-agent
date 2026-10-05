@@ -1,7 +1,8 @@
 import type { ToolDefinition } from '../../agent/plugins/tools.js'
 import { webSearchTool } from '../../agent/tools/web-search.js'
 import type { WebSearchProvider } from '../../agent/providers/deepseek-search.js'
-import { codingTools, type ToolOutput } from './coding-tools.js'
+import { codingTools } from './coding-tools.js'
+import type { CommandProcesses, ToolOutput } from './command-process.js'
 import { goalTool } from './goal-tool.js'
 import { spawnAgentTool, type SubagentFactory } from './subagent-tool.js'
 import { todoTool } from './todo-tool.js'
@@ -15,6 +16,7 @@ import {
 
 export interface Case2ToolOptions {
   readonly cwd: string
+  readonly commandProcesses?: CommandProcesses
   readonly toolOutput?: ToolOutput
   readonly permissionPolicy?: PermissionPolicy
   readonly approvalPort?: ApprovalPort
@@ -27,7 +29,7 @@ export interface Case2ToolOptions {
 
 export function case2ToolDefinitions(options: Case2ToolOptions): readonly ToolDefinition[] {
   const base = [
-    ...codingTools(options.cwd, options.toolOutput),
+    ...codingTools(options.cwd, options.toolOutput, options.commandProcesses),
     todoTool(),
     goalTool(),
     ...(options.subagentFactory === undefined

@@ -138,7 +138,7 @@ test('Studio persists Journal-derived Case runs and observed flow', async t => {
   assert.equal(initial.cases.length, 2)
   assert.deepEqual(initial.projects.map(item => item.id), ['case1', 'case2'])
   assert.deepEqual(initial.projects.find(item => item.id === 'case2')?.assembly.tools.map(tool => tool.name), [
-    'read', 'write', 'edit', 'bash', 'todo.write', 'goal.write', 'spawn_agent', 'ask',
+    'read', 'write', 'edit', 'bash', 'process.wait', 'process.stop', 'todo.write', 'goal.write', 'spawn_agent', 'ask',
   ])
   const run = await studio.run({ caseId: 'case2-coding', mode: 'mock' })
   assert.equal(run.status, 'passed')

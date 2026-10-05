@@ -393,4 +393,5 @@ server.listen(port, '127.0.0.1', () => {
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => {
   server.closeAllConnections()
   server.close()
+  for (const session of registry.list()) void session.close?.().catch(error => console.error('Session resource close failed:', error))
 })

@@ -40,6 +40,17 @@ test('S2 Bash terminal uses actual output and exit code, preserving unknown/fail
   assert.deepEqual(nativeToolProps(cli).block.content, cli.block.content)
 })
 
+test('running and stopped Bash results never fabricate a completed zero exit for the native terminal', () => {
+  for (const result of [{ status: 'running', processId: 'p', stdout: 'started', stderr: '', nextCursor: 1 },
+    { status: 'stopped', processId: 'p', exitCode: null, signal: 'SIGTERM', stdout: '', stderr: '' }]) {
+    const input = card('bash', { command: 'example' }, result)
+    const output = nativeToolProps(input)
+    assert.equal(JSON.parse(output.block.call.argsRaw).description, undefined)
+    assert.deepEqual(output.block.content, input.block.content)
+    assert.ok(!JSON.stringify(output.block.content).includes('[exit code: 0]'))
+  }
+})
+
 test('S2 aliases call names inside native blocks and presents Ask answers without guessing choice provenance', () => {
   const ask = nativeToolProps(card('ask', { question: 'Next?', choices: ['A'] }, { ok: true, answer: 'A' }))
   assert.equal(ask.toolName, 'ask_user_question')

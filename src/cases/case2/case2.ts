@@ -15,11 +15,11 @@ import { sessionTitlePlugin, SESSION_TITLE_METADATA } from '../../agent/plugins/
 import { projectSessionTitle, SESSION_TITLE_CONFIGURED, TITLE_REQUEST } from '../../agent/session-title.js'
 import type { ToolDefinition } from '../../agent/plugins/tools.js'
 import type { WebSearchProvider } from '../../agent/providers/deepseek-search.js'
-import type { ToolOutput } from './coding-tools.js'
 import { controlledEventBoundary } from '../../plugins/controlled-boundary.js'
 import { buildCase2PluginNodes } from './plugin-definitions.js'
 import type { SubagentFactory } from './subagent-tool.js'
 import { case2ToolDefinitions } from './tool-definitions.js'
+import { createCommandProcesses, type ToolOutput } from './command-process.js'
 import type { ApprovalPort, AskPort, PermissionPolicy } from './tool-interaction.js'
 
 export interface Case2Options {
@@ -55,8 +55,10 @@ function assembleCase2Agent(
 ) {
   const { journal, runUntilIdle } = runtime
   const boundary = controlledEventBoundary()
+  const commands = createCommandProcesses(options.cwd, options.toolOutput)
   const tools = case2ToolDefinitions({
     ...options,
+    commandProcesses: commands,
     approvalMode: () => projectSessionConfiguration(journal.read()).approvalMode ?? 'ask',
   })
   const traceNodes: readonly PluginNode[] = options.trace === undefined ? [] : [{
@@ -128,6 +130,7 @@ function assembleCase2Agent(
 
   return {
     journal,
+    close: commands.close,
     start,
     submit,
     async rename(title: string) {

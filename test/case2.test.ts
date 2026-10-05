@@ -156,7 +156,7 @@ test('CASE2.0 edits and verifies a real workspace through the four coding tools'
         assert.match(call.messages[0]?.content ?? '', /Current workspace:/)
         assert.deepEqual(
           call.tools.map(schema => (schema['function'] as { name: string }).name),
-          ['read', 'write', 'edit', 'bash', 'todo.write', 'goal.write'],
+          ['read', 'write', 'edit', 'bash', 'process.wait', 'process.stop', 'todo.write', 'goal.write'],
         )
         return {
           generated: { toolCalls: [{ id: 'read-1', name: 'read', arguments: { path: 'math.js' } }] },

@@ -49,6 +49,8 @@ export interface SessionRuntime {
   resume(): void
   status(): 'idle' | 'running' | 'paused'
   rename?(title: string): Promise<void>
+  /** Release optional external execution resources; never called by pause or idle. */
+  close?(): Promise<void>
 }
 
 export interface AssemblyInput {
