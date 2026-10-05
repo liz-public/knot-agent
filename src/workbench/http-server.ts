@@ -14,6 +14,8 @@ import { projectToolAnalytics } from './tool-analytics.js'
 import { projectPluginAnalytics } from './plugin-analytics.js'
 import { projectSessionCover } from './session-cover.js'
 import { readWorkspaceFile, WorkspaceFileError } from './workspace-files.js'
+import { createUserTerminals, UserTerminalError } from './user-terminal.js'
+import { serveUserTerminal } from './terminal-http.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
@@ -136,13 +138,16 @@ function providerDraft(body: Record<string, unknown>): ProviderProfileDraft {
 
 export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
   const registry = options.sessionRegistry ?? createSessionRegistry(options.sessions)
+  const terminals = createUserTerminals()
   const providerProfiles = () => typeof options.providerProfiles === 'function'
     ? options.providerProfiles()
     : options.providerProfiles ?? []
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      if (await serveUserTerminal(request, response, url, registry, terminals,
+        () => readBody(request), value => sendJson(response, 200, value))) return
 
       if (request.method === 'GET' && !url.pathname.startsWith('/api/') && options.webRoot !== undefined) {
         if (await serveWeb(response, options.webRoot, decodeURIComponent(url.pathname))) return
@@ -549,6 +554,10 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       sendJson(response, 404, { error: { code: 'not_found', message: 'Route was not found' } })
     } catch (error) {
+      if (error instanceof UserTerminalError) {
+        sendJson(response, 400, { error: { code: error.code, message: error.message, details: error.details } })
+        return
+      }
       if (error instanceof WorkspaceFileError) {
         sendJson(response, error.code.endsWith('/not-found') ? 404 : 400, { error: { code: error.code, message: error.message } })
         return
@@ -563,4 +572,6 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
       })
     }
   })
+  server.once('close', () => { void terminals.dispose() })
+  return server
 }

@@ -6,6 +6,7 @@ import type { StudioSnapshotDto } from '../../src/workbench/studio.js'
 import { projectKnotSnapshot } from './knot-journal-projection.ts'
 import { interactionAnswer, interactionFrame } from './interaction-projection.ts'
 import { GenerationProjection } from './generation-projection.ts'
+import { callTerminal, openTerminal } from './terminal-remote.ts'
 
 type SubscribeSession = (id: string, listener: (event: LiveSessionEvent) => void, reconnect?: () => void) => () => void
 type SubscribeCatalog = (listener: () => void) => () => void
@@ -140,6 +141,7 @@ export function createWorkbenchRemote(
   return {
     async call(_channel, endpoint, payload, signal) {
       try {
+        if (endpoint.startsWith('terminal/')) return await callTerminal(fetcher, endpoint.slice(9), payload, signal)
         const input = request(payload)
         if (['workspaceFiles/list', 'workspaceFiles/stat', 'workspaceFiles/read'].includes(endpoint)) {
           const action = endpoint.split('/')[1]!
@@ -250,7 +252,6 @@ export function createWorkbenchRemote(
           case 'permissionPresets/catalog': return ok({ options: [] })
           case 'dynamicCordisRunner/syncInspectManifest': return ok(null)
           case 'dynamicCordisRunner/inventory': return ok([])
-          case 'terminal/list': return ok([])
           case 'skills/list': return ok({ skills: [] })
           case 'schedule/catalog': case 'schedule/list': return ok([])
           case 'account/getProfile': case 'account/getBalance': return ok(null)
@@ -259,10 +260,14 @@ export function createWorkbenchRemote(
           default: return unsupported()
         }
       } catch (error) {
+        if (object(error).isDSHRemoteError) return { ok: false, error: {
+          code: object(error).code, message: object(error).message, details: object(error).details,
+        } }
         return { ok: false, error: { code: 'knot/request-failed', message: String(error), details: {} } }
       }
     },
     async *open(_channel, endpoint, payload, signal) {
+      if (endpoint.startsWith('terminal/')) { yield* openTerminal(fetcher, endpoint.slice(9), payload, signal); return }
       const input = request(payload)
       const queue: unknown[] = []
       let wake: (() => void) | undefined

@@ -382,3 +382,7 @@ server.listen(port, '127.0.0.1', () => {
   process.stdout.write(`Knot workbench: http://127.0.0.1:${port}\n`)
   process.stdout.write(`Sessions: ${registry.list().map(session => session.id).join(', ')}\n`)
 })
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => {
+  server.closeAllConnections()
+  server.close()
+})

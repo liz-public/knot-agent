@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/prepare-pty.mjs",
     "build": "tsc -p tsconfig.json",
     "case1": "npm run build --silent && node dist/src/cases/case1/run.js",
     "case2": "npm run build --silent && node dist/src/cases/case2/run.js",
@@ -24,5 +25,10 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
+    "node-pty": "1.1.0"
   }
 }

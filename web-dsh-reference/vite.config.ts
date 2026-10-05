@@ -167,6 +167,11 @@ function dshClientFixture(): Plugin {
       source = `window.__ModuleLoader__.load({id:${JSON.stringify(entry.id)},factory:(require)=>{let registration;const window={__ModuleLoader__:{load:(value)=>{registration=value}}};${source}\nreturn {GoalBar:registration.factory(require).GoalBar,apply(){}};}})`
     }
     sources.set(entry.url, source)
+    if (entry.id === '@deepseek-ai/dsh-client-ui-sidebar-terminal') {
+      // Our static carrier has no DSH /?? resource endpoint. Pre-register the
+      // unchanged terminal chunk; native React still materializes it on demand.
+      sources.set(entry.url, source + '\n;\n' + readFileSync(join(dirname(entry.bundlePath), 'client.terminal.js'), 'utf8'))
+    }
   }
   if (readOnly) for (const name of localStyles) sources.set(`/knot-${name}.css`, readFileSync(join(import.meta.dirname, `src/${name}-client.css`)))
   sources.set('/dsh-plugins/bootstrap.js', bootstrapEntries
