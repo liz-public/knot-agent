@@ -1,4 +1,5 @@
 import type { Plugin } from '../../journal.js'
+import { readImageAttachment } from '../attachment-content.js'
 import {
   llmPlugin,
   type GenerationUpdate,
@@ -38,10 +39,16 @@ export const openAiLlmProvider = (options: OpenAiLlmOptions): LlmProvider => {
         body: JSON.stringify({
           ...options.extraBody,
           model: options.model,
-          messages: call.messages.map(({ reasoning, ...message }) => ({
+          messages: await Promise.all(call.messages.map(async ({ reasoning, images, ...message }) => ({
             ...message,
+            ...(images?.length ? { content: [
+              ...(message.content ? [{ type: 'text', text: message.content }] : []),
+              ...await Promise.all(images.map(async ref => ({ type: 'image_url', image_url: {
+                url: `data:${ref.mediaType};base64,${(await readImageAttachment(ref)).toString('base64')}`,
+              } }))),
+            ] } : {}),
             ...(reasoning === undefined ? {} : { reasoning_content: reasoning }),
-          })),
+          }))),
           ...(call.tools.length === 0
             ? {}
             : { tools: call.tools, tool_choice: 'auto' }),

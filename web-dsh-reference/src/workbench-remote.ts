@@ -55,7 +55,13 @@ export function createWorkbenchRemote(
       }),
     })
     const value = await response.json()
-    if (!response.ok) throw new Error(value.error?.message ?? `Knot HTTP ${response.status}: ${path}`)
+    if (!response.ok) {
+      const error = new Error(value.error?.message ?? `Knot HTTP ${response.status}: ${path}`)
+      if (value.error?.code === 'session/attachment-invalid') Object.assign(error, {
+        isDSHRemoteError: true, code: value.error.code, details: value.error.details ?? {},
+      })
+      throw error
+    }
     return value as T
   }
   const get = <T>(path: string, signal?: AbortSignal) => http<T>(path, signal)
@@ -157,7 +163,30 @@ export function createWorkbenchRemote(
     async call(_channel, endpoint, payload, signal) {
       try {
         if (endpoint.startsWith('terminal/')) return await callTerminal(fetcher, endpoint.slice(9), payload, signal)
+        if (endpoint === 'fileUploads/upload') {
+          const envelope = object(Array.isArray(object(payload).args) ? object(payload).args[0] : object(payload).args)
+          return await http(`sessions/${encodeURIComponent(envelope.agentId)}/upload`, signal, 'POST', envelope.request)
+        }
         const input = request(payload)
+        if (endpoint === 'fileReferences/list') {
+          // Native @ UI owns quoting, chips, selection and preview. Only list
+          // the addressed directory; never read file contents or scan a tree.
+          const query = input.query as string
+          const slash = query.lastIndexOf('/')
+          const directory = slash < 0 ? '' : query.slice(0, slash + 1)
+          const name = query.slice(slash + 1).toLocaleLowerCase()
+          const listing = await get<{ path: string; absolutePath: string; entries: { name: string; type: string }[] }>(
+            `sessions/${encodeURIComponent(input.agentId)}/files/list?${new URLSearchParams({ path: directory })}`, signal)
+          return ok(listing.entries.filter(entry =>
+            (entry.type === 'file' || entry.type === 'directory') && entry.name.toLocaleLowerCase().includes(name),
+          ).map(entry => ({
+            // Directories remain relative for native drill/breadcrumbs; picked
+            // files carry an unambiguous Host path into the native serializer.
+            path: (entry.type === 'file' ? listing.absolutePath.replace(/\/$/, '') + '/'
+              : listing.path ? listing.path + '/' : '') + entry.name,
+            kind: entry.type,
+          })))
+        }
         if (['workspaceFiles/list', 'workspaceFiles/stat', 'workspaceFiles/read'].includes(endpoint)) {
           const action = endpoint.split('/')[1]!
           const params = new URLSearchParams({ path: input.path ?? '', ...object(input.range) })
@@ -205,17 +234,23 @@ export function createWorkbenchRemote(
             const id = input.sessionId
             const current = await snapshot(id, signal)
             if (!current.session.writable) throw new Error('Session is read-only')
-            if (!Array.isArray(input.content) || input.content.some((part: any) => part.type !== 'text')) throw new Error('Attachments are not connected in B4')
-            const content = input.content.map((part: any) => part.text).join('\n')
-            if (!content.trim()) throw new Error('Message is empty')
+            if (!Array.isArray(input.content) || input.content.some((part: any) => !['text', 'file', 'image'].includes(part.type))) throw new Error('Unsupported prompt content')
+            const content = input.content.filter((part: any) => part.type === 'text').map((part: any) => part.text).join('\n')
+            const hasAttachments = input.content.some((part: any) => part.type !== 'text')
+            if (!content.trim() && !hasAttachments) throw new Error('Message is empty')
             if (current.session.runState === 'paused') throw new Error('请先恢复 Session，再发送消息')
             if (current.session.runState === 'running' && input.mode !== 'steer') throw new Error('运行中仅支持 Steering；请使用 Cmd/Ctrl+Enter，或等待 idle 后发送')
             const receipts = prompts.get(id) ?? []
             const receipt = { id: input.requestId, content, after: current.events.length }
             receipts.push(receipt); prompts.set(id, receipts)
-            try { await http(`sessions/${encodeURIComponent(id)}/messages`, signal, 'POST', { content }) }
+            try { await http(`sessions/${encodeURIComponent(id)}/messages`, signal, 'POST', { content: hasAttachments ? input.content : content }) }
             catch (error) { prompts.set(id, (prompts.get(id) ?? []).filter(item => item !== receipt)); throw error }
             return ok({ accepted: true })
+          }
+          case 'session/attachment': {
+            const result = await get<{ attachment: unknown; data: string }>(
+              `sessions/${encodeURIComponent(input.sessionId)}/attachments?id=${encodeURIComponent(input.attachmentId)}`, signal)
+            return ok(result)
           }
           case 'session/cancel': case 'knot/session/pause': case 'knot/session/resume': {
             const action = endpoint.endsWith('resume') ? 'resume' : 'pause'

@@ -136,7 +136,10 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
         const turn = turnFor(data.turnId, event)
         if (typeof data.turnId === 'string') turns.set(data.turnId, turn)
         emit(event, 'user/message', {
-          content: [{ type: 'text', text: data.content ?? '' }], source: { kind: 'user' }, role: 'user', id: 'knot-user-' + data.turnId,
+          content: [
+            ...array(data.attachments).map(({ kind, path: _path, ...attachment }) => ({ type: kind, attachment })),
+            ...(data.content ? [{ type: 'text', text: data.content }] : []),
+          ], source: { kind: 'user' }, role: 'user', id: 'knot-user-' + data.turnId,
         }, 'append')
         break
       }
@@ -249,6 +252,7 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
     sessionStats: stats,
     knotEventCount: events.length,
     knotRunState: session.runState,
+    ...(session.imageLimits ? { imageLimits: session.imageLimits } : {}),
     ...business,
     modelSelection: {
       lastUsed: latestUsed === undefined ? null : selection(latestUsed),

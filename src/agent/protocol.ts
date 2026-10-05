@@ -38,6 +38,19 @@ export interface SystemPrompt {
 export interface UserMessage {
   turnId: string
   content: string
+  attachments?: readonly AttachmentRef[]
+}
+
+/** Persist references, not image/file bytes. The receiving Host owns admission. */
+export type AttachmentRef = {
+  kind: 'file' | 'image'
+  attachmentId: string
+  name: string
+  bytes: number
+  path: string
+  mediaType?: string
+  width?: number
+  height?: number
 }
 
 export interface DynamicContext {
@@ -118,6 +131,7 @@ export type LlmRequest = AgentLlmRequest | CompressionLlmRequest
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | null
+  images?: readonly AttachmentRef[]
   /** Canonical reasoning; an API adapter maps it to its vendor field. */
   reasoning?: string
   tool_call_id?: string

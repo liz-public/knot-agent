@@ -16,6 +16,8 @@ import { projectSessionCover } from './session-cover.js'
 import { readWorkspaceFile, WorkspaceFileError } from './workspace-files.js'
 import { createUserTerminals, UserTerminalError } from './user-terminal.js'
 import { serveUserTerminal } from './terminal-http.js'
+import { AttachmentError, ATTACHMENT_MESSAGE_BYTES, createAttachmentStore, IMAGE_LIMITS } from './attachments.js'
+import type { AttachmentRef } from '../agent/protocol.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
@@ -85,12 +87,15 @@ function sendJson(response: ServerResponse, status: number, data: unknown): void
   response.end(body)
 }
 
-async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
-  let text = ''
+async function readBody(request: IncomingMessage, maxBytes = 64 * 1024): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = []
+  let bytes = 0
   for await (const chunk of request) {
-    text += String(chunk)
-    if (Buffer.byteLength(text) > 64 * 1024) throw new Error('request body is too large')
+    bytes += chunk.length
+    if (bytes > maxBytes) throw new Error('request body is too large')
+    chunks.push(Buffer.from(chunk))
   }
+  const text = Buffer.concat(chunks).toString('utf8')
   if (text.length === 0) return {}
   const value = JSON.parse(text) as unknown
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -139,6 +144,20 @@ function providerDraft(body: Record<string, unknown>): ProviderProfileDraft {
 export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
   const registry = options.sessionRegistry ?? createSessionRegistry(options.sessions)
   const terminals = createUserTerminals()
+  const attachments = new Map<string, ReturnType<typeof createAttachmentStore>>()
+  const attachmentStore = async (session: WorkbenchSession) => {
+    let store = attachments.get(session.id)
+    if (!store) {
+      const workspace = (await session.summary()).workspace
+      if (!workspace) throw new AttachmentError('Session has no workspace', 'UNKNOWN_WORKSPACE')
+      store = attachments.get(session.id)
+      if (!store) {
+        store = createAttachmentStore(workspace, session.id)
+        attachments.set(session.id, store)
+      }
+    }
+    return store
+  }
   const providerProfiles = () => typeof options.providerProfiles === 'function'
     ? options.providerProfiles()
     : options.providerProfiles ?? []
@@ -146,6 +165,42 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      const encodedUpload = pathMatch(url.pathname, '/upload')
+      if (request.method === 'POST' && (url.pathname === '/api/session/uploadFileBinary' || encodedUpload !== undefined)) {
+        const id = encodedUpload ?? url.searchParams.get('sessionId') ?? ''
+        const session = registry.get(id)
+        if (!session?.submit) { sendJson(response, 404, { ok: false, error: { code: 'session/not-found', message: 'Writable Session was not found', details: {} } }); return }
+        try {
+          if ((await session.summary()).parentSessionId) throw new AttachmentError('Subagent file uploads are not supported', 'SUBAGENT_FILE_UNSUPPORTED')
+          const store = await attachmentStore(session)
+          let value
+          if (encodedUpload !== undefined) {
+            const body = await readBody(request, ATTACHMENT_MESSAGE_BYTES)
+            if (typeof body['data'] !== 'string') throw new AttachmentError('Expected encoded file bytes', 'INVALID_FILE')
+            value = await store.upload((async function* () { yield Buffer.from(body['data'] as string, 'base64') })(), typeof body['name'] === 'string' ? body['name'] : undefined)
+          } else {
+            if (request.headers['content-type']?.split(';')[0] !== 'application/octet-stream') { sendJson(response, 415, { error: { message: 'Expected application/octet-stream' } }); return }
+            value = await store.upload(request, url.searchParams.get('name') ?? undefined)
+          }
+          sendJson(response, 200, { ok: true, value })
+        } catch (error) {
+          sendJson(response, 200, { ok: false, error: { code: error instanceof AttachmentError ? error.code : 'gateway/internal',
+            message: error instanceof Error ? error.message : String(error), details: { reason: error instanceof AttachmentError ? error.reason : 'STORE_FAILED' } } })
+        }
+        return
+      }
+      const imageId = pathMatch(url.pathname, '/attachments')
+      if (request.method === 'GET' && imageId !== undefined) {
+        const session = registry.get(imageId)
+        if (!session) { sendJson(response, 404, { error: { code: 'session/not-found', message: 'Session was not found' } }); return }
+        const snapshot = await session.snapshot()
+        const refs = snapshot.events.filter(event => event.type === 'user.message').flatMap(event =>
+          (event.data as { attachments?: readonly AttachmentRef[] }).attachments ?? [])
+        const ref = refs.find(ref => ref.kind === 'image' && ref.attachmentId === url.searchParams.get('id'))
+        if (!ref) throw new AttachmentError('Image is not referenced by this Session', 'INVALID_ATTACHMENT_REF')
+        sendJson(response, 200, await (await attachmentStore(session)).read(ref))
+        return
+      }
       if (await serveUserTerminal(request, response, url, registry, terminals,
         () => readBody(request), value => sendJson(response, 200, value))) return
 
@@ -364,7 +419,8 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } })
           return
         }
-        const snapshot = await session.snapshot()
+        const source = await session.snapshot()
+        const snapshot = { ...source, session: { ...source.session, imageLimits: IMAGE_LIMITS } }
         const cursor = url.searchParams.get('after')
         if (cursor === null) sendJson(response, 200, snapshot)
         else {
@@ -477,13 +533,19 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           sendJson(response, session === undefined ? 404 : 405, { error: { code: 'session_not_writable', message: 'Session is not writable' } })
           return
         }
-        const body = await readBody(request)
+        const body = await readBody(request, ATTACHMENT_MESSAGE_BYTES)
         const content = body['content']
-        if (typeof content !== 'string' || content.trim().length === 0) {
+        if (typeof content !== 'string' && !Array.isArray(content) || typeof content === 'string' && content.trim().length === 0) {
           sendJson(response, 400, { error: { code: 'invalid_message', message: 'content must be a non-empty string' } })
           return
         }
-        session.submit(content)
+        if (Array.isArray(content)) {
+          const store = await attachmentStore(session)
+          const admitted = await store.admit(content)
+          if (!admitted.content.trim() && !admitted.attachments.length) throw new AttachmentError('Message is empty', 'EMPTY_MESSAGE')
+          session.submit(admitted.content, admitted.attachments)
+          store.retire(content)
+        } else session.submit(content as string)
         sendJson(response, 202, { accepted: true })
         return
       }
@@ -571,6 +633,10 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       sendJson(response, 404, { error: { code: 'not_found', message: 'Route was not found' } })
     } catch (error) {
+      if (error instanceof AttachmentError) {
+        sendJson(response, 400, { error: { code: error.code, message: error.message, details: { reason: error.reason } } })
+        return
+      }
       if (error instanceof UserTerminalError) {
         sendJson(response, 400, { error: { code: error.code, message: error.message, details: error.details } })
         return

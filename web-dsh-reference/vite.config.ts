@@ -80,7 +80,7 @@ function dshClientFixture(): Plugin {
   const localStyles = ['configuration', 'business', 'inspection', 'cover']
   // UI-only capability owners are hidden until their Knot operations are connected.
   const unconnectedUi = new Set(['ui-model-selection', 'ui-agent-preset', 'ui-permission-presets',
-    'ui-plan', 'ui-jobs', 'ui-plugin-manager', 'ui-cordis', 'ui-attachment',
+    'ui-plan', 'ui-jobs', 'ui-plugin-manager', 'ui-cordis',
     'ui-settings-models', 'ui-settings-account', 'ui-settings-plugins', 'ui-settings-plugin-inventory'])
   for (const entry of entries) {
     if (entry.disabled === true || typeof entry.name !== 'string') continue
@@ -259,7 +259,10 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 4175,
-    proxy: { '/api/workbench': process.env['KNOT_WORKBENCH_URL'] ?? 'http://127.0.0.1:4317' },
+    proxy: {
+      '/api/workbench': process.env['KNOT_WORKBENCH_URL'] ?? 'http://127.0.0.1:4317',
+      '/api/session/uploadFileBinary': process.env['KNOT_WORKBENCH_URL'] ?? 'http://127.0.0.1:4317',
+    },
   },
   preview: {
     host: '127.0.0.1',

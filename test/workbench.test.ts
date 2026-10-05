@@ -7,6 +7,7 @@ import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import { JournalReadError, readJournalSnapshot } from '../src/workbench/read-journal.js'
 import { storedSession } from '../src/workbench/stored-session.js'
 import { createAssemblyCatalog } from '../src/workbench/assembly-catalog.js'
+import { IMAGE_LIMITS } from '../src/workbench/attachments.js'
 
 test('session reads have no retained history; missing live logs are empty, stored logs remain errors', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-session-read-'))
@@ -145,6 +146,7 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
   assert.deepEqual(await response.json(), {
     session: {
       id: 'case2-main',
+      imageLimits: IMAGE_LIMITS,
       title: 'New session',
       projectId: 'case2',
       assembly: 'case2',

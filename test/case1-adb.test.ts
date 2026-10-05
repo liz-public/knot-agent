@@ -127,7 +127,7 @@ test('extractScreenText reads uiautomator attributes', () => {
 
 test('adb calendar.list filters events by day window', async () => {
   const now = Date.now()
-  const inside = now + 3_600_000
+  const inside = now // Adding an hour crosses the day window after 23:00.
   const outside = now + 40 * 86_400_000
   const executor = mockExecutor({
     'content query --uri content://com.android.calendar/events': [

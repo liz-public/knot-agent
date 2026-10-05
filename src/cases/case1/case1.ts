@@ -13,6 +13,7 @@ import type { ApprovalPort } from './approval-port.js'
 import type { OutputSinks } from '../../agent/plugins/output.js'
 import { buildCase1PluginNodes } from './plugin-definitions.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
+import type { AttachmentRef } from '../../agent/protocol.js'
 import { sessionTitlePlugin, SESSION_TITLE_METADATA } from '../../agent/plugins/session-title.js'
 import type { LlmProviderSource } from '../../agent/plugins/llm.js'
 import { projectSessionTitle, SESSION_TITLE_CONFIGURED, TITLE_REQUEST } from '../../agent/session-title.js'
@@ -101,14 +102,14 @@ function assembleCase1Agent(
     return turnId
   }
 
-  async function submit(content: string, configuration?: SessionConfiguration): Promise<void> {
+  async function submit(content: string, configuration?: SessionConfiguration, attachments?: readonly AttachmentRef[]): Promise<void> {
     if (running) throw new Error('CASE1 agent is already running')
     await start()
     running = true
     if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
     const first = turnIds.size === 0
     const turnId = nextTurnId('turn')
-    journal.append(USER_MESSAGE, { turnId, content })
+    journal.append(USER_MESSAGE, { turnId, content, ...(attachments?.length ? { attachments } : {}) })
     if (first && options.titleProvider !== undefined && projectSessionTitle(journal.read()) === undefined) {
       journal.append(TITLE_REQUEST, { turnId })
     }
@@ -121,9 +122,9 @@ function assembleCase1Agent(
     }
   }
 
-  function steer(content: string): void {
+  function steer(content: string, attachments?: readonly AttachmentRef[]): void {
     if (!running) throw new Error('CASE1 agent is idle; use submit instead')
-    journal.append(USER_MESSAGE, { turnId: nextTurnId('steer'), content })
+    journal.append(USER_MESSAGE, { turnId: nextTurnId('steer'), content, ...(attachments?.length ? { attachments } : {}) })
   }
 
   return {

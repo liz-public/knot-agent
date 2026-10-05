@@ -30,6 +30,8 @@ test('workspace HTTP is Session-scoped, read-only, lazy and paged for native fil
     return { status: response.status, value: await response.json() }
   }
   const listing = (await get('list', '')).value
+  assert.equal(listing.absolutePath, workspace)
+  assert.equal((await get('list', 'src')).value.absolutePath, join(workspace, 'src'))
   assert.ok(listing.entries.some((entry: any) => entry.name === 'src' && entry.type === 'directory'))
   const first = (await get('read', 'README.md', '&limit=2')).value
   assert.equal(first.text, '# Hello\n中文'); assert.equal(first.lines, 2); assert.equal(first.eof, false)

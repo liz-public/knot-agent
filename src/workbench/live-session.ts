@@ -103,14 +103,14 @@ export async function createLiveSession(
       }
       return unsubscribe
     },
-    submit(content) {
+    submit(content, attachments) {
       if (runState === 'running' || runState === 'paused') {
-        agent.steer(content)
+        agent.steer(content, attachments)
         return
       }
       if (runState !== 'idle') throw new Error(`session is ${runState}`)
       setState('running')
-      void agent.submit(content, pendingConfiguration).then(
+      void agent.submit(content, pendingConfiguration, attachments).then(
         () => setState('idle'),
         error => {
           hub.emit({ kind: 'run.error', message: error instanceof Error ? error.message : String(error) })

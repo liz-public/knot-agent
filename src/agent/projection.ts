@@ -92,7 +92,12 @@ function semanticMessages(
   const deferredUsers: UserMessage[] = []
   let awaitingToolResult = false
   const appendUser = (message: UserMessage) => {
-    messages.push({ role: 'user', content: message.content })
+    const files = message.attachments?.filter(ref => ref.kind === 'file') ?? []
+    const images = message.attachments?.filter(ref => ref.kind === 'image') ?? []
+    messages.push({ role: 'user', content: message.content + (files.length ?
+      '\nUser-provided files (read only when needed):\n' + files.map(ref => JSON.stringify({ name: ref.name, path: ref.path })).join('\n') : ''),
+      ...(images.length ? { images } : {}),
+    })
     if (dynamic?.turnId === message.turnId) messages.push(dynamicMessage(dynamic))
   }
   for (let index = startIndex; index <= endIndex; index += 1) {

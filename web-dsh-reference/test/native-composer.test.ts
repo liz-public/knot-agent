@@ -3,13 +3,16 @@ import { test } from 'node:test'
 import { buildSync } from 'esbuild'
 
 test('S1 wraps the native composer seat without duplicating its child slots; Pause/Resume preserve its draft', async () => {
+  const effects: { setup: () => any; deps: any[] }[] = [], stateUpdates: any[] = []
+  const fileListeners = new Map<string, (event: any) => void>()
   const output = buildSync({ entryPoints: [new URL('../src/configuration-client.tsx', import.meta.url).pathname],
     bundle: true, write: false, format: 'cjs', jsx: 'automatic',
     external: ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives'] }).outputFiles[0].text
   const module = { exports: {} as any }
   new Function('require', 'module', 'exports', output)((name: string) => name === 'react/jsx-runtime'
     ? { jsx: (type: any, props: any) => ({ type, props }), jsxs: (type: any, props: any) => ({ type, props }) }
-    : name === 'react' ? { useState: (value: any) => [value, () => {}], useEffect: () => {}, useCallback: (fn: any) => fn, useMemo: (fn: any) => fn() } : {}, module, module.exports)
+    : name === 'react' ? { useState: (value: any) => [value, (next: any) => stateUpdates.push(next)],
+      useEffect: (setup: any, deps: any) => effects.push({ setup, deps }), useCallback: (fn: any) => fn, useMemo: (fn: any) => fn() } : {}, module, module.exports)
   const entries: any[] = [], listeners: any[] = [], cleanups: any[] = [], requests: any[] = []
   const Native = () => null
   // StoredEntry.options intentionally has no name/inject/children: these are
@@ -26,7 +29,9 @@ test('S1 wraps the native composer seat without duplicating its child slots; Pau
   ;(globalThis as any).window = { __DSH_TRANSPORT__: { rpc: { call: async (...args: any[]) => {
     requests.push(args); return { ok: true }
   } } } }
-  ;(globalThis as any).document = { documentElement: { lang: 'en' } }
+  ;(globalThis as any).document = { documentElement: { lang: 'en' },
+    addEventListener: (name: string, fn: any) => fileListeners.set(name, fn),
+    removeEventListener: (name: string) => fileListeners.delete(name) }
   try {
     module.exports.apply(ctx)
     entries.push(native); listeners.forEach(fn => fn('conversation.composer.bar'))
@@ -35,7 +40,7 @@ test('S1 wraps the native composer seat without duplicating its child slots; Pau
     listeners.forEach(fn => fn('conversation.composer.bar'))
     assert.equal(native.component, wrapped); assert.equal(native.children, children); assert.equal(native.inject, inject)
     const state = { running: false, subagent: 'child', draft: 'Unsent text' }
-    const stop = () => 'pause', props = { sessionId: 's', stop, useSession: (fn: any) => fn(state),
+    const addFiles = () => 'native upload', stop = () => 'pause', props = { sessionId: 's', stop, addFiles, useSession: (fn: any) => fn(state),
       useProjection: () => 'paused', useNotices: (fn: any) => fn(null), useStopShortcut: (fn: any) => fn(['Escape']), t: (key: string) => key }
     const paused = wrapped(props)
     assert.equal(paused.type, Native); assert.ok(paused.props.blocked)
@@ -50,6 +55,8 @@ test('S1 wraps the native composer seat without duplicating its child slots; Pau
     paused.props.primaryAction.onClick(); await Promise.resolve()
     assert.equal(requests[0][1], 'knot/session/resume'); assert.deepEqual(requests[0][2], { args: [{ sessionId: 's' }] })
     const running = wrapped({ ...props, useProjection: () => 'running' })
+    assert.equal(running.props.addFiles, addFiles)
+    assert.equal(fileListeners.size, 0) // Native drop/paste handling is not intercepted.
     assert.equal(running.props.stop, stop); assert.equal(running.props.blocked, undefined)
     assert.equal(running.props.useSession((next: any) => next), state)
     assert.equal(running.props.t('input.stop'), 'Pause gracefully')

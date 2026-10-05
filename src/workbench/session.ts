@@ -1,4 +1,6 @@
 import type { ReadEvent } from './read-journal.js'
+import type { AttachmentRef } from '../agent/protocol.js'
+import type { IMAGE_LIMITS } from './attachments.js'
 import type {
   ApprovalMode,
   ReasoningEffort,
@@ -21,6 +23,7 @@ export interface SessionSummaryDto extends SessionMetadata {
   readonly projectId?: string
   readonly assembly: string
   readonly workspace?: string
+  readonly imageLimits?: typeof IMAGE_LIMITS
   readonly model?: string
   readonly providerProfileId?: string
   readonly reasoningEffort?: ReasoningEffort
@@ -95,7 +98,7 @@ export interface WorkbenchSession {
   summary(): Promise<SessionSummaryDto>
   snapshot(): Promise<SessionSnapshotDto>
   subscribe?(listener: (event: LiveSessionEvent) => void): () => void
-  submit?(content: string): void
+  submit?(content: string, attachments?: readonly AttachmentRef[]): void
   pause?(): void
   resume?(): void
   respond?(interactionId: string, value: string): boolean

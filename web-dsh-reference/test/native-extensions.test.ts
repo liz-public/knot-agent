@@ -14,6 +14,7 @@ test('the version-pinned InputBar extension compiles, keeps native defaults and 
   new Function('window', extended) // Published loader factory remains syntactically valid.
   assert.ok(extended.includes('primaryAction?.icon ??'))
   assert.ok(extended.includes('primaryAction.disabled === true'))
+  assert.ok(!extended.includes('文件上传（未接入）'))
   assert.throws(() => extendNativeInput(extended), /no longer matches/)
 })
 

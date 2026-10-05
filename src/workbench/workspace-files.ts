@@ -30,7 +30,8 @@ export async function readWorkspaceFile(workspace: string | undefined, path: str
       if (!info.isDirectory()) fail('not-directory', 'Path is not a directory')
       const children = (await readdir(target, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))
       // No recursive walk or per-entry stat. Symlinks are not advertised as readable files.
-      return { path: relative(root, target), entries: children.slice(0, 1000).map(child => ({
+      // Keep the workspace spelling used by tools (e.g. /tmp vs /private/tmp).
+      return { path: relative(root, target), absolutePath: requested, entries: children.slice(0, 1000).map(child => ({
         name: child.name, type: child.isDirectory() ? 'directory' : child.isFile() ? 'file' : 'other',
       })), truncated: children.length > 1000 }
     }

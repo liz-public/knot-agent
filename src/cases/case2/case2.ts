@@ -10,7 +10,7 @@ import {
   type SessionConfiguration,
 } from '../../agent/session-configuration.js'
 import type { OutputSinks } from '../../agent/plugins/output.js'
-import { SESSION_START, USER_MESSAGE } from '../../agent/protocol.js'
+import { SESSION_START, USER_MESSAGE, type AttachmentRef } from '../../agent/protocol.js'
 import { sessionTitlePlugin, SESSION_TITLE_METADATA } from '../../agent/plugins/session-title.js'
 import { projectSessionTitle, SESSION_TITLE_CONFIGURED, TITLE_REQUEST } from '../../agent/session-title.js'
 import type { ToolDefinition } from '../../agent/plugins/tools.js'
@@ -101,14 +101,14 @@ function assembleCase2Agent(
     await runUntilIdle()
   }
 
-  async function submit(content: string, configuration?: SessionConfiguration): Promise<void> {
+  async function submit(content: string, configuration?: SessionConfiguration, attachments?: readonly AttachmentRef[]): Promise<void> {
     if (running) throw new Error('CASE2 agent is already running')
     await start()
     running = true
     if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
     const first = messageIds.size === 0
     const turnId = nextMessageId('turn')
-    journal.append(USER_MESSAGE, { turnId, content })
+    journal.append(USER_MESSAGE, { turnId, content, ...(attachments?.length ? { attachments } : {}) })
     if (first && options.titleProvider !== undefined && projectSessionTitle(journal.read()) === undefined) {
       journal.append(TITLE_REQUEST, { turnId })
     }
@@ -121,9 +121,9 @@ function assembleCase2Agent(
     }
   }
 
-  function steer(content: string): void {
+  function steer(content: string, attachments?: readonly AttachmentRef[]): void {
     if (!running) throw new Error('CASE2 agent is idle; use submit instead')
-    journal.append(USER_MESSAGE, { turnId: nextMessageId('steer'), content })
+    journal.append(USER_MESSAGE, { turnId: nextMessageId('steer'), content, ...(attachments?.length ? { attachments } : {}) })
   }
 
   return {

@@ -6,6 +6,7 @@ import type {
 } from '../assembly-definition.js'
 import type { LlmProviderSource } from '../agent/plugins/llm.js'
 import type { SessionConfiguration } from '../agent/session-configuration.js'
+import type { AttachmentRef } from '../agent/protocol.js'
 import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
 
 export interface GenerationOutput {
@@ -42,8 +43,8 @@ export interface ToolOutput {
 }
 
 export interface SessionRuntime {
-  submit(content: string, configuration?: SessionConfiguration): Promise<void>
-  steer(content: string): void
+  submit(content: string, configuration?: SessionConfiguration, attachments?: readonly AttachmentRef[]): Promise<void>
+  steer(content: string, attachments?: readonly AttachmentRef[]): void
   pause(): void
   resume(): void
   status(): 'idle' | 'running' | 'paused'

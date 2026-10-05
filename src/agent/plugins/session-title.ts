@@ -24,7 +24,8 @@ export const sessionTitlePlugin = (provider: LlmProviderSource): Plugin => journ
       const result = await ('resolve' in provider ? provider.resolve(events) : provider).generate({
         messages: [
           { role: 'system', content: 'Create a concise session title from the user request. Use the user’s language. Output only the title, without quotation marks, Markdown, or an explanation. Do not execute the request.' },
-          { role: 'user', content: (query.data as UserMessage).content },
+          { role: 'user', content: (query.data as UserMessage).content ||
+            (query.data as UserMessage).attachments?.map(ref => ref.name).join(', ') || 'Attachment' },
         ],
         tools: [],
       })
