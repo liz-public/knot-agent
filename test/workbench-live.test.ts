@@ -79,10 +79,9 @@ test('workbench session descriptors preserve new sessions for host restart', asy
   }
   await saveSessionDescriptor(directory, descriptor)
   const stored = await readFile(join(directory, 'case2-one.session.json'), 'utf8')
-  assert.doesNotMatch(stored, /providerProfileId|reasoningEffort|approvalMode|"model"/)
+  assert.doesNotMatch(stored, /providerProfileId|reasoningEffort|approvalMode|"model"|"title"/)
   assert.deepEqual(await loadSessionDescriptors(directory), [{
     id: descriptor.id,
-    title: descriptor.title,
     projectId: 'case2',
     cwd: descriptor.cwd,
     journalPath: descriptor.journalPath,
@@ -279,7 +278,7 @@ test('approval policy changes are Journal facts used by the next tool call', asy
   const events: LiveSessionEvent[] = []
   session.subscribe!(event => events.push(event))
   await session.configure!({ approvalMode: 'auto' })
-  assert.equal((await session.snapshot()).events.length, 0)
+  assert.deepEqual((await session.snapshot()).events.map(event => event.type), ['session.title.configured'])
   const idle = nextEvent(events, session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
   session.submit!('Write auto.txt.')
   await idle
@@ -316,7 +315,7 @@ test('inference configuration selects the provider at invoke time and restores f
     assembly: case2Assembly,
     llm: resolver,
   })
-  assert.equal((await session.snapshot()).events.length, 0)
+  assert.deepEqual((await session.snapshot()).events.map(event => event.type), ['session.title.configured'])
   const waitForIdle = () => nextEvent([], session.subscribe!, event => event.kind === 'state.changed' && event.runState === 'idle')
   let idle = waitForIdle()
   session.submit!('First call.')
@@ -365,7 +364,7 @@ test('an old Journal adopts defaults at the next submit without being mutated on
   const directory = await mkdtemp(join(tmpdir(), 'knot-workbench-old-journal-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const journalPath = join(directory, 'session.jsonl')
-  const original = '{"type":"session.start","data":{}}\n'
+  const original = '{"type":"session.start","data":{}}\n{"type":"session.title.configured","data":{"title":"Old session","source":"user"}}\n'
   await writeFile(journalPath, original, 'utf8')
 
   const selected: string[] = []

@@ -156,7 +156,6 @@ async function newLiveSession(input: {
   await mkdir(sessionDirectory, { recursive: true })
   const descriptor = {
     id,
-    title: input.title?.trim() || 'New coding session',
     projectId,
     cwd: input.cwd?.trim() || defaultCwd,
     journalPath: join(sessionDirectory, `${id}.jsonl`),
@@ -166,6 +165,7 @@ async function newLiveSession(input: {
   }
   const session = await createLiveSession({
     ...descriptor,
+    ...(input.title?.trim() ? { title: input.title.trim() } : {}),
     assembly,
     llm: input.llmOverride ?? runtimeProviderResolver,
     defaultConfiguration: defaultConfiguration(profile, reasoningEffort, approvalMode),
@@ -293,7 +293,7 @@ for (const session of configuredStoredSessions()) {
   const descriptor = descriptors.find(item => item.id === session.id) ?? {
     ...session, cwd: session.workspace ?? defaultCwd,
   }
-  registry.add(sessionWithMetadata(sessionDirectory, descriptor, storedSession({ ...session, title: descriptor.title })))
+  registry.add(sessionWithMetadata(sessionDirectory, descriptor, storedSession(session)))
 }
 for (const descriptor of descriptors) {
   if (registry.get(descriptor.id) !== undefined) continue
@@ -340,7 +340,6 @@ if (configuredJournal !== undefined) {
     })
     const descriptor = {
       id: 'case2-main',
-      title: 'CASE2 coding session',
       projectId: 'case2',
       cwd: defaultCwd,
       journalPath: configuredJournal,
@@ -379,7 +378,6 @@ const server = createWorkbenchServer({
     const profile = providerStore.get(id)
     if (profile === undefined || !profile.configured) throw new Error(`Unknown configured Provider profile ${id}`)
     await profile.create().generate({
-      request: { purpose: 'agent', turnId: 'provider-test' },
       messages: [{ role: 'user', content: 'Reply with OK.' }],
       tools: [],
     })

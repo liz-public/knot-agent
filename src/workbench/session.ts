@@ -10,7 +10,7 @@ export type { ApprovalMode, ReasoningEffort }
 
 export interface SessionMetadata {
   readonly title: string
-  /** Product metadata revision, not a Journal position. */
+  /** Display revision derived from the latest title fact's storage metadata. */
   readonly titleVersion?: number
   readonly archived?: boolean
   readonly pinnedAt?: number
@@ -100,5 +100,6 @@ export interface WorkbenchSession {
   resume?(): void
   respond?(interactionId: string, value: string): boolean
   configure?(configuration: SessionConfiguration): Promise<void>
+  rename?(title: string): Promise<void>
   updateMetadata?(patch: Partial<Pick<SessionMetadata, 'title' | 'archived' | 'pinnedAt'>>): Promise<void>
 }

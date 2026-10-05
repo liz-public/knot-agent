@@ -1,10 +1,13 @@
 import { readJournalSnapshot, type JournalReadLimits } from './read-journal.js'
 import { projectSessionConfiguration } from '../agent/session-configuration.js'
 import type { SessionSnapshotDto, WorkbenchSession } from './session.js'
+import { createJournal } from '../journal.js'
+import { jsonlStorePlugin } from '../plugins/jsonl.js'
+import { SESSION_TITLE_CONFIGURED } from '../agent/session-title.js'
+import { sessionTitleView } from './session-title.js'
 
 export interface StoredSessionConfig {
   readonly id: string
-  readonly title: string
   readonly projectId?: string
   readonly assembly: string
   readonly journalPath: string
@@ -25,7 +28,7 @@ export function storedSession(
     return {
       session: {
         id: config.id,
-        title: config.title,
+        ...sessionTitleView(journal.events),
         projectId: config.projectId ?? config.assembly,
         assembly: config.assembly,
         ...(config.workspace === undefined ? {} : { workspace: config.workspace }),
@@ -50,5 +53,12 @@ export function storedSession(
     id: config.id,
     snapshot,
     summary: async () => (await snapshot()).session,
+    async rename(title) {
+      // Read-only execution still permits product control facts; no agent plugins are installed.
+      const runtime = createJournal()
+      jsonlStorePlugin(config.journalPath)(runtime.journal)
+      runtime.journal.append(SESSION_TITLE_CONFIGURED, { title, source: 'user' })
+      await runtime.runUntilIdle()
+    },
   }
 }

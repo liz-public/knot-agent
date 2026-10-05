@@ -330,7 +330,7 @@ test('CASE2.2 blocks completion until todo state is complete', async t => {
         }
       }
       if (generation === 3) {
-        assert.match(call.request.purpose === 'agent' ? call.request.instruction ?? '' : '', /not completed/)
+        assert.match(call.request?.purpose === 'agent' ? call.request.instruction ?? '' : '', /not completed/)
         return {
           generated: {
             toolCalls: [{
@@ -629,8 +629,8 @@ test('CASE2 compacts before a guarded continuation and then resumes it', async t
     output: { content: content => replies.push(content) },
     llm: {
       async generate(call) {
-        purposes.push(call.request.purpose)
-        if (call.request.purpose === 'history.compress') {
+        purposes.push(call.request!.purpose)
+        if (call.request?.purpose === 'history.compress') {
           return {
             generated: { content: 'An explicit goal remains active.', reasoning: 'Compress the active goal.', toolCalls: [] },
             usage,

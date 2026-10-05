@@ -13,7 +13,8 @@ import {
 } from '../protocol.js'
 
 export interface LlmCall {
-  readonly request: LlmRequest
+  /** Journal request metadata is present only for the main agent/compression path. */
+  readonly request?: LlmRequest
   readonly messages: readonly ChatMessage[]
   readonly tools: readonly Record<string, unknown>[]
 }

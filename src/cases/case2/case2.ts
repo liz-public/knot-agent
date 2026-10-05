@@ -11,6 +11,8 @@ import {
 } from '../../agent/session-configuration.js'
 import type { OutputSinks } from '../../agent/plugins/output.js'
 import { SESSION_START, USER_MESSAGE } from '../../agent/protocol.js'
+import { sessionTitlePlugin, SESSION_TITLE_METADATA } from '../../agent/plugins/session-title.js'
+import { projectSessionTitle, SESSION_TITLE_CONFIGURED, TITLE_REQUEST } from '../../agent/session-title.js'
 import type { ToolDefinition } from '../../agent/plugins/tools.js'
 import type { WebSearchProvider } from '../../agent/providers/deepseek-search.js'
 import type { ToolOutput } from './coding-tools.js'
@@ -23,6 +25,7 @@ import type { ApprovalPort, AskPort, PermissionPolicy } from './tool-interaction
 export interface Case2Options {
   readonly cwd: string
   readonly llm: LlmProviderSource
+  readonly titleProvider?: LlmProviderSource
   readonly liveOutput?: LiveOutput
   readonly toolOutput?: ToolOutput
   readonly output?: OutputSinks
@@ -68,12 +71,15 @@ function assembleCase2Agent(
     liveOutput: options.liveOutput,
     tools,
     output: options.output,
-  }, [...platformPlugins, ...traceNodes])
+  }, [...platformPlugins, ...traceNodes, ...(options.titleProvider === undefined ? [] : [{
+    metadata: SESSION_TITLE_METADATA, plugin: sessionTitlePlugin(options.titleProvider),
+  }])])
   for (const node of nodes) node.plugin(journal)
 
   let started = restored
   let messageNumber = 0
   let running = false
+  let drain: Promise<void> | undefined
   const messageIds = new Set(journal.read()
     .filter(event => event.type === USER_MESSAGE)
     .map(event => (event.data as { turnId: string }).turnId))
@@ -100,10 +106,17 @@ function assembleCase2Agent(
     await start()
     running = true
     if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
-    journal.append(USER_MESSAGE, { turnId: nextMessageId('turn'), content })
+    const first = messageIds.size === 0
+    const turnId = nextMessageId('turn')
+    journal.append(USER_MESSAGE, { turnId, content })
+    if (first && options.titleProvider !== undefined && projectSessionTitle(journal.read()) === undefined) {
+      journal.append(TITLE_REQUEST, { turnId })
+    }
     try {
-      await runUntilIdle()
+      drain = runUntilIdle()
+      await drain
     } finally {
+      drain = undefined
       running = false
     }
   }
@@ -117,6 +130,10 @@ function assembleCase2Agent(
     journal,
     start,
     submit,
+    async rename(title: string) {
+      journal.append(SESSION_TITLE_CONFIGURED, { title, source: 'user' })
+      await (drain ?? runUntilIdle())
+    },
     steer,
     pause: () => { if (running) boundary.control.pause() },
     resume: () => boundary.control.resume(),

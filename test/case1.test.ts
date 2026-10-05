@@ -608,7 +608,7 @@ test('a later compression includes the previous checkpoint summary', async () =>
   let agentNumber = 0
   const provider: LlmProvider = {
     async generate(call) {
-      if (call.request.purpose === 'history.compress') {
+      if (call.request?.purpose === 'history.compress') {
         compressionInputs.push(call.messages[1]?.content ?? '')
         compressionNumber += 1
         return {
@@ -907,7 +907,7 @@ test('the turn recovers when the device forgot what the journal remembers', asyn
   }
   const provider: LlmProvider = {
     async generate(call) {
-      const turnId = call.request.purpose === 'agent' ? call.request.turnId : 'compress'
+      const turnId = call.request?.purpose === 'agent' ? call.request.turnId : 'compress'
       const latest = [...call.messages].reverse().find(message => message.role === 'tool')
       const observed = latest?.content ?? ''
       // Turn 1 stops while the device still holds a candidate list.

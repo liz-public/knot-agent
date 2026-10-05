@@ -49,6 +49,7 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
   let latestInference: Record<string, any> | undefined
   let latestUsed: Record<string, any> | undefined
   let latestUsage: Record<string, any> | undefined
+  let titleRequest: { turnId: string; inference?: Record<string, any> } | undefined
   let tools: Record<string, any>[] = []
   const compactions = new Map<string, { provider?: Record<string, any>; generated?: Record<string, any> }>()
   const stats = { turns: 0, steps: 0, llmMs: 0, toolMs: 0, ttftMs: 0, ttftSteps: 0, decodeMs: 0, decodeTokens: 0 }
@@ -112,6 +113,24 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
       case 'inference.configured':
         latestInference = data
         break
+      case 'title.request':
+        titleRequest = { turnId: data.turnId, inference: latestInference }
+        break
+      case 'session.title.configured': {
+        const query = titleRequest === undefined ? undefined : records.find(record =>
+          record.event.type === 'user/message' && object(record.event.data).id === 'knot-user-' + titleRequest!.turnId)
+        emit(event, 'session/title', {
+          title: data.title,
+          messageSeqs: data.source === 'generated' && query ? [query.event.seq] : [],
+          source: data.source === 'generated' ? {
+            kind: 'provider', provider: 'knot-session-title',
+            ...(titleRequest?.inference ? { model: {
+              provider: titleRequest.inference.providerProfileId, model: titleRequest.inference.model,
+            } } : {}),
+          } : { kind: 'user' },
+        })
+        break
+      }
       case 'user.message': {
         // An input admitted before the prior assistant commits is steering, not a new completed turn.
         const turn = turnFor(data.turnId, event)

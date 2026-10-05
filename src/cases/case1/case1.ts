@@ -13,6 +13,9 @@ import type { ApprovalPort } from './approval-port.js'
 import type { OutputSinks } from '../../agent/plugins/output.js'
 import { buildCase1PluginNodes } from './plugin-definitions.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
+import { sessionTitlePlugin, SESSION_TITLE_METADATA } from '../../agent/plugins/session-title.js'
+import type { LlmProviderSource } from '../../agent/plugins/llm.js'
+import { projectSessionTitle, SESSION_TITLE_CONFIGURED, TITLE_REQUEST } from '../../agent/session-title.js'
 import { androidCallRule, androidFlashlightRule, shortcutSource } from './shortcuts.js'
 import {
   appendSessionConfiguration,
@@ -22,6 +25,7 @@ import {
 
 export interface Case1Options {
   readonly llm: Plugin
+  readonly titleProvider?: LlmProviderSource
   readonly dispatcher: ToolDispatcher
   readonly approvalPort?: ApprovalPort
   readonly appMatcher?: AppMatcher
@@ -59,6 +63,7 @@ function assembleCase1Agent(
   let started = restored
   let turnNumber = 0
   let running = false
+  let drain: Promise<void> | undefined
   const turnIds = new Set(journal.read()
     .filter(event => event.type === USER_MESSAGE)
     .map(event => (event.data as { turnId: string }).turnId))
@@ -74,7 +79,9 @@ function assembleCase1Agent(
     output: options.output,
     tools,
     trace: options.trace,
-  }, platformPlugins)
+  }, [...platformPlugins, ...(options.titleProvider === undefined ? [] : [{
+    metadata: SESSION_TITLE_METADATA, plugin: sessionTitlePlugin(options.titleProvider),
+  }])])
   for (const node of nodes) node.plugin(journal)
 
   async function start(): Promise<void> {
@@ -99,10 +106,17 @@ function assembleCase1Agent(
     await start()
     running = true
     if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
-    journal.append(USER_MESSAGE, { turnId: nextTurnId('turn'), content })
+    const first = turnIds.size === 0
+    const turnId = nextTurnId('turn')
+    journal.append(USER_MESSAGE, { turnId, content })
+    if (first && options.titleProvider !== undefined && projectSessionTitle(journal.read()) === undefined) {
+      journal.append(TITLE_REQUEST, { turnId })
+    }
     try {
-      await runUntilIdle()
+      drain = runUntilIdle()
+      await drain
     } finally {
+      drain = undefined
       running = false
     }
   }
@@ -116,6 +130,10 @@ function assembleCase1Agent(
     journal,
     start,
     submit,
+    async rename(title: string) {
+      journal.append(SESSION_TITLE_CONFIGURED, { title, source: 'user' })
+      await (drain ?? runUntilIdle())
+    },
     steer,
     pause: () => { if (running) boundary.control.pause() },
     resume: () => boundary.control.resume(),

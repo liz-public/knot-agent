@@ -13,6 +13,28 @@ function snapshot(entries: [string, unknown][]): SessionSnapshotDto {
 }
 const request = (turnId = 't1') => ({ purpose: 'agent', turnId })
 
+test('Journal titles enter the native log with original query provenance, not an assistant step', () => {
+  const source = snapshot([
+    ['inference.configured', { providerProfileId: 'deepseek', model: 'flash' }],
+    ['user.message', { turnId: 't1', content: 'Hello' }],
+    ['title.request', { turnId: 't1' }],
+    ['inference.configured', { providerProfileId: 'different', model: 'later' }],
+    ['session.title.configured', { title: 'Generated', source: 'generated' }],
+    ['session.title.configured', { title: 'Manual', source: 'user' }],
+  ])
+  source.session = { ...source.session, title: 'Manual' }
+  const projected = projectKnotSnapshot(source)
+  const titles = projected.records.filter(record => record.event.type === 'session/title')
+  const query = projected.records.find(record => record.event.type === 'user/message')!
+  assert.deepEqual(titles.map(record => record.event.data), [
+    { title: 'Generated', messageSeqs: [query.event.seq], source: { kind: 'provider', provider: 'knot-session-title', model: { provider: 'deepseek', model: 'flash' } } },
+    { title: 'Manual', messageSeqs: [], source: { kind: 'user' } },
+  ])
+  assert.equal(projected.records.some(record => record.event.type === 'step/start'), false)
+  assert.equal(projected.projections.values.knotEventCount, 6)
+  assert.equal(projected.projections.values.title, 'Manual')
+})
+
 test('steering preserves both parallel results, content and reasoning', () => {
   const result = projectKnotSnapshot(snapshot([
     ['user.message', { turnId: 't1', content: 'Start' }],

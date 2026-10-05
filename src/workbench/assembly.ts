@@ -47,6 +47,7 @@ export interface SessionRuntime {
   pause(): void
   resume(): void
   status(): 'idle' | 'running' | 'paused'
+  rename?(title: string): Promise<void>
 }
 
 export interface AssemblyInput {

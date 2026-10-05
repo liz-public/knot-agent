@@ -7,8 +7,9 @@ import { createWorkbenchServer } from '../src/workbench/http-server.js'
 import { loadSessionDescriptors, saveSessionDescriptor, sessionWithMetadata } from '../src/workbench/session-catalog.js'
 import { createSessionRegistry } from '../src/workbench/session-registry.js'
 import type { WorkbenchSession } from '../src/workbench/session.js'
+import { storedSession } from '../src/workbench/stored-session.js'
 
-test('Host Session metadata persists independently of runtime and Journal, including readonly sessions', async t => {
+test('rename uses Journal title facts; archive and pin remain Host metadata, including readonly sessions', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-session-management-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const descriptor = { id: 'session', title: 'Original', cwd: directory,
@@ -17,12 +18,10 @@ test('Host Session metadata persists independently of runtime and Journal, inclu
   await writeFile(descriptor.journalPath, journal)
   await saveSessionDescriptor(directory, descriptor)
   let stops = 0
-  let historyReads = 0
+  const stored = storedSession({ ...descriptor, workspace: directory })
   const runtime: WorkbenchSession = {
-    id: descriptor.id,
-    summary: async () => ({ id: descriptor.id, title: descriptor.title, assembly: 'case2',
-      workspace: directory, eventCount: 1, runState: 'running', writable: true, parentSessionId: 'parent' }),
-    snapshot: async () => { historyReads++; return { session: await runtime.summary(), events: [] } },
+    ...stored,
+    summary: async () => ({ ...await stored.summary(), runState: 'running', writable: true }),
     pause: () => { stops++ },
   }
   const session = sessionWithMetadata(directory, descriptor, runtime)
@@ -42,7 +41,6 @@ test('Host Session metadata persists independently of runtime and Journal, inclu
   assert.equal(renamed.status, 200)
   assert.equal(renamed.value.session.title, 'My session')
   assert.ok(renamed.value.session.titleVersion > 0)
-  assert.equal(historyReads, 0) // metadata changes need no execution/history projection
   await Promise.all([patch({ title: 'Final title' }), patch({ pinned: true })])
   assert.equal((await session.summary()).title, 'Final title')
   assert.ok((await session.summary()).pinnedAt)
@@ -61,11 +59,13 @@ test('Host Session metadata persists independently of runtime and Journal, inclu
   assert.equal((await patch({ pinned: true }, 'missing')).status, 404)
   assert.equal((await session.summary()).archived, true)
   assert.equal((await session.snapshot()).session.title, 'Final title')
-  assert.equal(await readFile(descriptor.journalPath, 'utf8'), journal)
+  const renamedJournal = await readFile(descriptor.journalPath, 'utf8')
+  assert.ok(renamedJournal.startsWith(journal))
+  assert.equal(renamedJournal.trim().split('\n').length, 3)
   const [saved] = await loadSessionDescriptors(directory)
   assert.equal(saved!.parentSessionId, 'parent')
-  const restored = sessionWithMetadata(directory, saved!, { ...runtime,
-    summary: async () => ({ ...await runtime.summary(), runState: 'completed', writable: false }) })
+  assert.doesNotMatch(await readFile(join(directory, 'session.session.json'), 'utf8'), /"title"|titleVersion/)
+  const restored = sessionWithMetadata(directory, saved!, storedSession({ ...saved!, workspace: directory }))
   assert.equal((await restored.summary()).title, 'Final title')
   assert.equal((await restored.summary()).archived, true)
   assert.equal((await restored.summary()).writable, false)
@@ -74,22 +74,21 @@ test('Host Session metadata persists independently of runtime and Journal, inclu
   await restored.updateMetadata!({ pinnedAt: 0 })
   assert.equal((await loadSessionDescriptors(directory))[0]!.archived, undefined)
   assert.equal((await loadSessionDescriptors(directory))[0]!.pinnedAt, undefined)
-  assert.equal(await readFile(descriptor.journalPath, 'utf8'), journal)
+  assert.equal(await readFile(descriptor.journalPath, 'utf8'), renamedJournal)
   assert.equal(notifications, 5)
 })
 
-test('failed metadata persistence does not expose an uncommitted title and permits retry', async t => {
+test('failed archive/pin persistence keeps product metadata unchanged and permits retry', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'knot-session-metadata-failure-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const descriptor = { id: 's', title: 'original', cwd: directory, journalPath: join(directory, 's.jsonl'), assembly: 'case2' }
-  const session = sessionWithMetadata(join(directory, 'blocked'), descriptor, {
-    id: 's', summary: async () => ({ ...descriptor, eventCount: 0, runState: 'idle', writable: true }),
-    snapshot: async () => { throw new Error('must not read Journal') },
-  })
+  await writeFile(descriptor.journalPath, JSON.stringify({ type: 'session.title.configured', data: { title: 'original', source: 'user' } }) + '\n')
+  const session = sessionWithMetadata(join(directory, 'blocked'), descriptor, storedSession(descriptor))
   await writeFile(join(directory, 'blocked'), 'not a directory')
-  await assert.rejects(session.updateMetadata!({ title: 'uncommitted' }))
+  await assert.rejects(session.updateMetadata!({ pinnedAt: 42 }))
   assert.equal((await session.summary()).title, 'original')
   await rm(join(directory, 'blocked'))
-  await session.updateMetadata!({ title: 'retry' })
-  assert.equal((await session.summary()).title, 'retry')
+  assert.equal((await session.summary()).pinnedAt, 0)
+  await session.updateMetadata!({ pinnedAt: 42 })
+  assert.equal((await session.summary()).pinnedAt, 42)
 })

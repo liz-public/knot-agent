@@ -137,7 +137,7 @@ export function createWorkbenchRemote(
   const publishCatalog = (sessions: SessionSummaryDto[]) => {
     for (const session of sessions) {
       publish('$events', { type: 'emit', event: 'api-session/added', args: [row(session)] })
-      // DSH needs a title watermark; this is product metadata, not a fabricated Journal event.
+      // DSH needs a title watermark, derived by the Host from the stored title fact.
       publish('session/control', { type: 'projection', sessionId: session.id, key: 'title',
         value: session.title, seq: session.titleVersion ?? 0 })
     }

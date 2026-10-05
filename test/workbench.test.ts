@@ -12,7 +12,7 @@ test('session reads have no retained history; missing live logs are empty, store
   const directory = await mkdtemp(join(tmpdir(), 'knot-session-read-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const path = join(directory, 'session.jsonl')
-  const session = storedSession({ id: 's', title: 'S', assembly: 'case2', journalPath: path })
+  const session = storedSession({ id: 's', assembly: 'case2', journalPath: path })
   await assert.rejects(() => session.snapshot(), /source was not found/)
   assert.equal((await readJournalSnapshot(path, {}, 'empty')).eventCount, 0)
   await writeFile(path, JSON.stringify({ type: 'note', data: 'first' }) + '\n')
@@ -30,7 +30,7 @@ test('owned Session history passes the import reader limits without weakening bo
   const path = join(directory, 'large.jsonl')
   await writeFile(path, JSON.stringify({ type: 'tool.result', data: 'x'.repeat(8 * 1024 * 1024) }) + '\n')
   await assert.rejects(() => readJournalSnapshot(path), /read limit/)
-  const session = storedSession({ id: 'large', title: 'Large', assembly: 'case2', journalPath: path })
+  const session = storedSession({ id: 'large', assembly: 'case2', journalPath: path })
   assert.equal((await session.snapshot()).events.length, 1)
   await writeFile(path, (JSON.stringify({ type: 'note', data: null }) + '\n').repeat(20_001))
   await assert.rejects(() => readJournalSnapshot(path), /event read limit/)
@@ -44,7 +44,7 @@ test('HTTP deltas preserve positions and plugin analytics works without Studio',
   await writeFile(path, JSON.stringify({ type: 'user.message', data: { content: 'Hello' } }) + '\n')
   const server = createWorkbenchServer({
     assemblies: createAssemblyCatalog(),
-    sessions: [storedSession({ id: 's', title: 'S', assembly: 'case2', journalPath: path })],
+    sessions: [storedSession({ id: 's', assembly: 'case2', journalPath: path })],
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) })
@@ -111,7 +111,6 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
 
   const server = createWorkbenchServer({ sessions: [storedSession({
     id: 'case2-main',
-    title: 'CASE2 session',
     projectId: 'case2',
     assembly: 'case2',
     journalPath: path,
@@ -132,7 +131,7 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
   assert.equal(catalog.status, 200)
   assert.deepEqual(await catalog.json(), { sessions: [{
     id: 'case2-main',
-    title: 'CASE2 session',
+    title: 'New session',
     projectId: 'case2',
     assembly: 'case2',
     runState: 'completed',
@@ -146,7 +145,7 @@ test('workbench HTTP endpoint exposes only the configured read-only snapshot', a
   assert.deepEqual(await response.json(), {
     session: {
       id: 'case2-main',
-      title: 'CASE2 session',
+      title: 'New session',
       projectId: 'case2',
       assembly: 'case2',
       runState: 'completed',

@@ -28,6 +28,8 @@ export const mockLlmProvider = (options: MockLlmOptions = {}): LlmProvider => {
       const respond = (result: Pick<LlmGenerated, 'generated' | 'usage'>) =>
         streamMockResult(result, onUpdate, options.streamDelayMs ?? 20)
 
+      if (call.request === undefined) return respond({ generated: { content: '手机助手', toolCalls: [] }, usage: { contextWindow } })
+
       if (call.request.purpose === 'history.compress') {
         return respond({
           generated: {

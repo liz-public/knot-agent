@@ -9,6 +9,7 @@ import {
   defineAssembly,
 } from './assembly.js'
 import { JOURNAL_CHANGE_METADATA } from './journal-bridge.js'
+import { SESSION_TITLE_METADATA } from '../agent/plugins/session-title.js'
 
 const defaultPermissionPolicy: PermissionPolicy = {
   evaluate({ toolName }) {
@@ -32,6 +33,7 @@ export function createCase2Assembly(webSearch?: WebSearchProvider) {
     definitions[0]!,
     { metadata: JSONL_STORE_METADATA },
     { metadata: JOURNAL_CHANGE_METADATA },
+    { metadata: SESSION_TITLE_METADATA },
     ...definitions.slice(1),
   ]
 
@@ -43,6 +45,7 @@ export function createCase2Assembly(webSearch?: WebSearchProvider) {
       cwd: input.cwd,
       journalPath: input.journalPath,
       llm: input.llm,
+      titleProvider: input.llm,
       liveOutput: { open: meta => input.liveOutput.open(meta) },
       toolOutput: input.toolOutput,
       output: { content: () => undefined },

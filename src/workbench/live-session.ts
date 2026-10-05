@@ -9,10 +9,11 @@ import { readJournalSnapshot } from './read-journal.js'
 import { projectSessionConfiguration, type SessionConfiguration } from '../agent/session-configuration.js'
 import type { LiveSessionEvent, SessionRunState, WorkbenchSession } from './session.js'
 import { workbenchToolOutput } from './tool-output.js'
+import { sessionTitleView } from './session-title.js'
 
 export interface LiveSessionOptions {
   readonly id: string
-  readonly title: string
+  readonly title?: string
   readonly projectId?: string
   readonly cwd: string
   readonly journalPath: string
@@ -45,7 +46,9 @@ export async function createLiveSession(
   })
 
   const read = () => readJournalSnapshot(options.journalPath, { maxBytes: Infinity, maxEvents: Infinity }, 'empty')
-  const recorded = projectSessionConfiguration((await read()).events)
+  const initial = await read()
+  if (options.title && initial.events.length === 0) await agent.rename?.(options.title)
+  const recorded = projectSessionConfiguration(initial.events)
   let pendingConfiguration: SessionConfiguration = {
     inference: recorded.inference ?? options.defaultConfiguration?.inference,
     approvalMode: recorded.approvalMode ?? options.defaultConfiguration?.approvalMode,
@@ -60,7 +63,7 @@ export async function createLiveSession(
     return {
       session: {
         id: options.id,
-        title: options.title,
+        ...sessionTitleView(journal.events),
         ...(options.projectId === undefined ? {} : { projectId: options.projectId }),
         assembly: options.assembly.description.id,
         workspace: options.cwd,
@@ -133,5 +136,6 @@ export async function createLiveSession(
         approvalMode: configuration.approvalMode ?? pendingConfiguration.approvalMode,
       }
     },
+    ...(agent.rename === undefined ? {} : { rename: (title: string) => agent.rename!(title) }),
   }
 }

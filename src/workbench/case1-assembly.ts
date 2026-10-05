@@ -10,6 +10,7 @@ import {
   defineAssembly,
 } from './assembly.js'
 import { JOURNAL_CHANGE_METADATA } from './journal-bridge.js'
+import { SESSION_TITLE_METADATA } from '../agent/plugins/session-title.js'
 
 const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
 const bash = createBashTool(catalog, createToolDispatcher({}))
@@ -20,6 +21,7 @@ function pluginsFor() {
     definitions[0]!,
     { metadata: JSONL_STORE_METADATA },
     { metadata: JOURNAL_CHANGE_METADATA },
+    { metadata: SESSION_TITLE_METADATA },
     ...definitions.slice(1),
   ]
 }
@@ -33,6 +35,7 @@ export const case1Assembly = defineAssembly({
     return createPersistentCase1Agent({
       journalPath: input.journalPath,
       llm: llmPlugin(input.llm, { open: meta => input.liveOutput.open(meta) }),
+      titleProvider: input.llm,
       output: { content: () => undefined },
       dispatcher: runtime.dispatcher,
       approvalPort: input.approvalPort,

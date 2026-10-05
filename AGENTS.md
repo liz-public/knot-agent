@@ -227,6 +227,14 @@ CASE1 的候选列表属于第一类：`contact call` 让**设备**生成并持�
 
 持久 Case 在恢复时把 JSONL 载入内存 Journal，用于继续执行；Workbench 另行读取同一 JSONL，用于展示 `observedAt` 等 Journal 外元数据和支持只读 Session。前者是**执行读模型**，后者是**展示读模型**，不是两份业务状态。不要为了消除文件的二次读取而向 `SessionRuntime` 暴露可写 Journal，或把存储加载塞进内核。只有真实长 Session 的启动性能证明这里成为瓶颈后，才重新设计一次加载、多方投影的存储边界。
 
+### 一次性标题服务
+
+Workbench 的 CASE1 / CASE2 装配标题插件。装配层在首条 `user.message` 和配置已追加后，只追加一次 `title.request { turnId }`，不让标题插件每轮订阅用户消息。
+
+标题插件只订阅 `title.request`，读取该请求前的 query 和推理配置，直接调用无工具的 Provider，追加 `session.title.configured { title, source: 'generated' }`。不扩展主任务的 `llm.request` / manifest / `llm.generated`，标题也不进入任务上下文。失败仅记 `title.failed`，不阻断任务、不自动重试。
+
+手动改名通过受控运行接口追加同一事实（`source: 'user'`）；正在投递时入队并等待现有 drain 完成，不重入内核。自动结果不得覆盖已经追加的用户标题。标题由最后一个事实投影，descriptor 不保存标题；旧标题已作一次性离线数据迁移，运行时不保留旧字段兼容路径、不在启动时补写。归档和置顶仍是 Host 元数据。
+
 CASE1 的五个问题，**没有一个的正确解法需要内核提供新能力**：
 
 | 问题 | 曾经看起来需要 | 实际用什么解决 |
