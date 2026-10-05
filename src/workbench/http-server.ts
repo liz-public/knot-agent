@@ -341,6 +341,23 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
       }
 
       const snapshotId = pathMatch(url.pathname, '')
+      if (request.method === 'PATCH' && snapshotId !== undefined) {
+        const session = registry.get(snapshotId)
+        if (!session) { sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } }); return }
+        if (!session.updateMetadata) { sendJson(response, 405, { error: { code: 'session_metadata_unavailable', message: 'Session metadata cannot be changed' } }); return }
+        const body = await readBody(request)
+        if (Object.keys(body).some(key => !['title', 'archived', 'pinned'].includes(key)) || !Object.keys(body).length) throw new Error('Expected title, archived or pinned')
+        if (body['title'] !== undefined && (typeof body['title'] !== 'string' || !body['title'].trim() || body['title'].trim().length > 200)) throw new Error('title must be 1–200 characters')
+        for (const key of ['archived', 'pinned']) if (body[key] !== undefined && typeof body[key] !== 'boolean') throw new Error(`${key} must be a boolean`)
+        await registry.updateMetadata(snapshotId, {
+          ...(typeof body['title'] === 'string' ? { title: body['title'].trim() } : {}),
+          ...(typeof body['archived'] === 'boolean' ? { archived: body['archived'] } : {}),
+          ...(body['archived'] === true || body['pinned'] === false ? { pinnedAt: 0 }
+            : body['pinned'] === true ? { pinnedAt: (await session.summary()).pinnedAt || Date.now() } : {}),
+        })
+        sendJson(response, 200, { session: await session.summary() })
+        return
+      }
       if (request.method === 'GET' && snapshotId !== undefined) {
         const session = registry.get(snapshotId)
         if (session === undefined) {

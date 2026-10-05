@@ -22,6 +22,7 @@ function CoverArt({ sessionId }: { sessionId: string }) {
 }
 
 function Cover({ sessionId, useProjection, openView }: ViewProps) {
+  const title = useProjection('title')
   const subagentCount = useProjection('subagentCatalog')?.length ?? 0
   const { value, error, refresh } = useRead<SessionCoverDto>('knot/cover', { sessionId })
   const [filter, setFilter] = useState(''), [limit, setLimit] = useState(50)
@@ -34,7 +35,7 @@ function Cover({ sessionId, useProjection, openView }: ViewProps) {
   const inference = recordedConfiguration.inference
   return <section className="knot-cover">
     <CoverHero key={sessionId} sessionId={sessionId}><CoverArt sessionId={sessionId} /><div className="knot-cover-title">
-      <small>JOURNAL · 结绳记事</small><h1>{session.title}</h1><div className="knot-cover-tags"><Pill>{states[session.runState] ?? session.runState}</Pill>
+      <small>JOURNAL · 结绳记事</small><h1>{title ?? session.title}</h1><div className="knot-cover-tags"><Pill>{states[session.runState] ?? session.runState}</Pill>
         <Pill>{session.assembly}</Pill>{!session.writable && <Pill>只读记录</Pill>}</div>
       <p>{value.queries.length ? '从记录了解这段会话，再继续它。' : '会话已准备好。在下方输入你的第一个请求。'}</p>
       <Button variant="primary" onClick={() => openView('chat', 'latest')}>{session.writable ? '进入对话 / 继续任务' : '查看对话'} <span aria-hidden="true">→</span></Button>

@@ -8,9 +8,16 @@ import type { SessionConfiguration } from '../agent/session-configuration.js'
 export type SessionRunState = 'completed' | 'idle' | 'running' | 'paused' | 'failed'
 export type { ApprovalMode, ReasoningEffort }
 
-export interface SessionSummaryDto {
-  readonly id: string
+export interface SessionMetadata {
   readonly title: string
+  /** Product metadata revision, not a Journal position. */
+  readonly titleVersion?: number
+  readonly archived?: boolean
+  readonly pinnedAt?: number
+}
+
+export interface SessionSummaryDto extends SessionMetadata {
+  readonly id: string
   readonly projectId?: string
   readonly assembly: string
   readonly workspace?: string
@@ -93,4 +100,5 @@ export interface WorkbenchSession {
   resume?(): void
   respond?(interactionId: string, value: string): boolean
   configure?(configuration: SessionConfiguration): Promise<void>
+  updateMetadata?(patch: Partial<Pick<SessionMetadata, 'title' | 'archived' | 'pinnedAt'>>): Promise<void>
 }

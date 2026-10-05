@@ -17,7 +17,7 @@ import {
 } from './provider-profile.js'
 import { createProviderProfileStore } from './provider-profile-store.js'
 import type { ApprovalMode, ReasoningEffort, WorkbenchSession } from './session.js'
-import { loadSessionDescriptors, saveSessionDescriptor } from './session-catalog.js'
+import { loadSessionDescriptors, saveSessionDescriptor, sessionWithMetadata } from './session-catalog.js'
 import { createSessionRegistry } from './session-registry.js'
 import { storedSession, type StoredSessionConfig } from './stored-session.js'
 import { runSubagentSession, subagentConfiguration } from './subagent-session.js'
@@ -172,7 +172,7 @@ async function newLiveSession(input: {
     ...(subagentFactory === undefined ? {} : { subagentFactory }),
   })
   await saveSessionDescriptor(sessionDirectory, descriptor)
-  return session
+  return sessionWithMetadata(sessionDirectory, descriptor, session)
 }
 
 function mockStudioProvider(): LlmProvider {
@@ -288,12 +288,18 @@ async function runSubagent(input: {
   return await runSubagentSession(child, registry, input.task)
 }
 
-for (const session of configuredStoredSessions()) registry.add(storedSession(session))
-for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
+const descriptors = await loadSessionDescriptors(sessionDirectory)
+for (const session of configuredStoredSessions()) {
+  const descriptor = descriptors.find(item => item.id === session.id) ?? {
+    ...session, cwd: session.workspace ?? defaultCwd,
+  }
+  registry.add(sessionWithMetadata(sessionDirectory, descriptor, storedSession({ ...session, title: descriptor.title })))
+}
+for (const descriptor of descriptors) {
   if (registry.get(descriptor.id) !== undefined) continue
   const definition = assemblies.get(descriptor.assembly)
   if (definition === undefined) {
-    registry.add(storedSession(descriptor))
+    registry.add(sessionWithMetadata(sessionDirectory, descriptor, storedSession({ ...descriptor, workspace: descriptor.cwd })))
     continue
   }
   const candidate = providerStore.default()
@@ -304,13 +310,13 @@ for (const descriptor of await loadSessionDescriptors(sessionDirectory)) {
     projectId: descriptor.projectId ?? descriptor.assembly,
     delegationDepth: descriptor.delegationDepth ?? 0,
   })
-  registry.add(await createLiveSession({
+  registry.add(sessionWithMetadata(sessionDirectory, descriptor, await createLiveSession({
     ...descriptor,
     llm: runtimeProviderResolver,
     defaultConfiguration: defaultConfiguration(profile, profile?.defaultReasoningEffort, 'ask'),
     assembly: definition,
     ...(subagentFactory === undefined ? {} : { subagentFactory }),
-  }))
+  })))
 }
 
 const studioDirectory = process.env['KNOT_STUDIO_DIR']
@@ -332,18 +338,22 @@ if (configuredJournal !== undefined) {
       projectId: 'case2',
       delegationDepth: 0,
     })
-    registry.add(await createLiveSession({
+    const descriptor = {
       id: 'case2-main',
       title: 'CASE2 coding session',
       projectId: 'case2',
       cwd: defaultCwd,
       journalPath: configuredJournal,
+      assembly: 'case2',
+      delegationDepth: 0,
+    }
+    registry.add(sessionWithMetadata(sessionDirectory, descriptor, await createLiveSession({
+      ...descriptor,
       llm: runtimeProviderResolver,
       defaultConfiguration: defaultConfiguration(profile, profile?.defaultReasoningEffort, 'ask'),
-      delegationDepth: 0,
       assembly: assemblies.get('case2')!,
       ...(subagentFactory === undefined ? {} : { subagentFactory }),
-    }))
+    })))
   }
 }
 if (registry.list().length === 0 && providerStore.default() !== undefined) registry.add(await newLiveSession({

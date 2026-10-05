@@ -54,6 +54,7 @@ function SessionModel({ call, sessionId }: { call: Call; sessionId: string }) {
     setSession(next); setCatalog(options)
   }
   useEffect(() => { let active = true
+    if (!sessionId) return
     void call<SessionSummaryDto>('knot/session', { sessionId }).then(value => { if (active) setSession(value) })
       .catch(value => { if (active) setError(String(value)) })
     return () => { active = false }
@@ -77,6 +78,7 @@ function SessionModel({ call, sessionId }: { call: Call; sessionId: string }) {
     } catch (value) { setError(String(value)) } finally { setBusy(false) }
   }
   const disabled = busy || !session || !editable(session)
+  if (!sessionId) return null
   const profile = catalog?.providers.find(item => item.id === session?.providerProfileId)
   const modelItems: MenuEntry[] = [
     { type: 'label', id: 'models', text: '模型 · 下一轮生效' },
@@ -206,6 +208,7 @@ function NewSession({ call, openSession, close }: { call: Call; openSession: (id
 function RuntimeDock({ call, sessionId }: { call: Call; sessionId: string }) {
   const [error, setError] = useState('')
   useEffect(() => {
+    if (!sessionId) return
     const abort = new AbortController()
     setError('')
     void (async () => {
@@ -241,6 +244,7 @@ export function apply(ctx: any): void {
       useEffect(() => {
         const abort = new AbortController()
         setLiveState(undefined)
+        if (!props.sessionId) return
         // Pause can change without a new Journal fact. Native sequenced
         // projections reject equal-seq updates, so use the transient live port.
         void (async () => {

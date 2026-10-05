@@ -60,7 +60,6 @@ export function createWorkbenchRemote(
   }
   const get = <T>(path: string, signal?: AbortSignal) => http<T>(path, signal)
   let catalog: SessionSummaryDto[] | undefined
-  const listedIds = new Set<string>()
   const list = async (signal?: AbortSignal) => {
     catalog = (await get<{ sessions: SessionSummaryDto[] }>('sessions', signal)).sessions
     return catalog
@@ -117,11 +116,11 @@ export function createWorkbenchRemote(
     else prompts.delete(id)
   }
   const row = (session: SessionSummaryDto) => ({
-    sessionId: session.id, updatedAt: Date.parse(session.updatedAt ?? '') || 0,
-    running: session.runState === 'running', blank: session.eventCount === 0,
+    sessionId: session.id, updatedAt: Date.parse(session.updatedAt ?? '') || session.titleVersion || 0,
+    running: session.runState === 'running', blank: session.eventCount === 0 && !session.titleVersion,
     agentAvailable: session.writable,
-    cwd: session.workspace, parentSessionId: session.parentSessionId,
-    ...(session.parentSessionId ? { origin: 'subagent' } : {}),
+    ...(session.workspace === undefined ? {} : { cwd: session.workspace }),
+    ...(session.parentSessionId ? { parentSessionId: session.parentSessionId, origin: 'subagent' } : {}),
     projections: { kind: 'cached', asOfSeq: -1, values: { title: session.title, knotEventCount: session.eventCount } },
   })
   const workspaces = (sessions: SessionSummaryDto[]) => {
@@ -130,10 +129,26 @@ export function createWorkbenchRemote(
       sessionIds: sessions.filter(session => session.workspace === path && !session.parentSessionId).map(session => session.id),
       createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() }))
   }
+  const memberships = (sessions: SessionSummaryDto[]) => ({
+    archivedSessionIds: sessions.filter(session => session.archived).map(session => session.id),
+    pinnedSessionIds: sessions.filter(session => session.pinnedAt && !session.archived)
+      .sort((a, b) => b.pinnedAt! - a.pinnedAt!).map(session => session.id),
+  })
+  const publishCatalog = (sessions: SessionSummaryDto[]) => {
+    for (const session of sessions) {
+      publish('$events', { type: 'emit', event: 'api-session/added', args: [row(session)] })
+      // DSH needs a title watermark; this is product metadata, not a fabricated Journal event.
+      publish('session/control', { type: 'projection', sessionId: session.id, key: 'title',
+        value: session.title, seq: session.titleVersion ?? 0 })
+    }
+    for (const workspace of workspaces(sessions)) publish('workspace/follow', { type: 'upsert', workspace })
+    const state = memberships(sessions)
+    publish('workspace/follow', { type: 'archived', archivedSessionIds: state.archivedSessionIds })
+    publish('workspace/follow', { type: 'pinned', pinnedSessionIds: state.pinnedSessionIds })
+  }
   const created = async (input: Record<string, any>, signal?: AbortSignal) => {
     const { session } = await http<{ session: SessionSummaryDto }>('sessions', signal, 'POST', input)
     publish('$events', { type: 'emit', event: 'api-session/added', args: [row(session)] })
-    listedIds.add(session.id)
     for (const workspace of workspaces(await list(signal))) publish('workspace/follow', { type: 'upsert', workspace })
     return session
   }
@@ -151,6 +166,22 @@ export function createWorkbenchRemote(
           return response.ok ? ok(value) : { ok: false, error: { ...value.error, details: { path: input.path } } }
         }
         switch (endpoint) {
+          case 'session/rename':
+          case 'workspace/archiveSession': case 'workspace/unarchiveSession':
+          case 'workspace/pinSession': case 'workspace/unpinSession': {
+            if (input.stopActivity === true) throw new Error('Stop-and-archive is not connected; pause the Session separately')
+            const patch = endpoint === 'session/rename' ? { title: input.title }
+              : endpoint.endsWith('unarchiveSession') ? { archived: false }
+              : endpoint.endsWith('archiveSession') ? { archived: true }
+              : { pinned: endpoint.endsWith('/pinSession') }
+            const { session } = await http<{ session: SessionSummaryDto }>(
+              `sessions/${encodeURIComponent(input.sessionId)}`, signal, 'PATCH', patch)
+            publishCatalog(await list(signal))
+            return ok(endpoint === 'session/rename'
+              ? { title: session.title, seq: session.titleVersion ?? 0 }
+              : endpoint.includes('archiveSession') ? { archivedSessionIds: memberships(catalog!).archivedSessionIds }
+              : { pinnedSessionIds: memberships(catalog!).pinnedSessionIds })
+          }
           case '$events/result': {
             const outcome = object(input.outcome)
             // Withdrawal is not a user decision: never resolve the Host broker on scope loss or Ask close.
@@ -168,7 +199,6 @@ export function createWorkbenchRemote(
           }
           case 'session/list': {
             const sessions = await list(signal)
-            for (const session of sessions) listedIds.add(session.id)
             return ok({ items: sessions.map(row) })
           }
           case 'session/prompt': {
@@ -303,16 +333,12 @@ export function createWorkbenchRemote(
           break
         case 'workspace/follow': {
           unsubscribe = catalogSubscribe?.(() => {
-            // Membership changes, not every Journal append, invalidate the catalog.
+            // Membership/product metadata changes, not every Journal append.
             catalog = undefined
             processing = processing.then(async () => {
               if (signal.aborted) return
               const sessions = await list(signal)
-              for (const session of sessions) if (!listedIds.has(session.id)) {
-                publish('$events', { type: 'emit', event: 'api-session/added', args: [row(session)] })
-                listedIds.add(session.id)
-              }
-              for (const workspace of workspaces(sessions)) publish('workspace/follow', { type: 'upsert', workspace })
+              publishCatalog(sessions)
               for (const id of follows.keys()) {
                 const seq = cursors.get(id) ?? -1
                 if (seq >= 0) publish('session/control', { type: 'projection', sessionId: id,
@@ -321,10 +347,9 @@ export function createWorkbenchRemote(
             }).catch(() => {})
           })
           const sessions = await list(signal)
-          for (const session of sessions) listedIds.add(session.id)
           yield { type: 'baseline', value: {
             items: workspaces(sessions),
-            archivedSessionIds: [], pinnedSessionIds: [],
+            ...memberships(sessions),
           } }
           break
         }
