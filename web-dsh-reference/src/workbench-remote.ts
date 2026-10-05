@@ -141,6 +141,13 @@ export function createWorkbenchRemote(
     async call(_channel, endpoint, payload, signal) {
       try {
         const input = request(payload)
+        if (['workspaceFiles/list', 'workspaceFiles/stat', 'workspaceFiles/read'].includes(endpoint)) {
+          const action = endpoint.split('/')[1]!
+          const params = new URLSearchParams({ path: input.path ?? '', ...object(input.range) })
+          const response = await fetcher(`/api/workbench/sessions/${encodeURIComponent(input.workspaceFileScopeId)}/files/${action}?${params}`, { signal })
+          const value = await response.json()
+          return response.ok ? ok(value) : { ok: false, error: { ...value.error, details: { path: input.path } } }
+        }
         switch (endpoint) {
           case '$events/result': {
             const outcome = object(input.outcome)
@@ -272,6 +279,12 @@ export function createWorkbenchRemote(
       let processing = Promise.resolve()
       try {
       switch (endpoint) {
+        case 'workspaceFiles/changes':
+          // Native file views already support a backend without watches: initial
+          // reads and explicit Refresh work; no polling or synthetic change frames.
+          throw Object.assign(new Error('Workspace auto-refresh is not connected'), {
+            isDSHRemoteError: true, code: 'workspace-file/watch-unsupported', details: { path: input.path },
+          })
         case '$events': {
           // No DSH Host: this only establishes the Client's read connection.
           generationId = clientId = crypto.randomUUID()

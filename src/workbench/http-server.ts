@@ -13,6 +13,7 @@ import type { AssemblyCatalog } from './assembly-catalog.js'
 import { projectToolAnalytics } from './tool-analytics.js'
 import { projectPluginAnalytics } from './plugin-analytics.js'
 import { projectSessionCover } from './session-cover.js'
+import { readWorkspaceFile, WorkspaceFileError } from './workspace-files.js'
 
 export interface WorkbenchServerOptions {
   readonly sessions: readonly WorkbenchSession[]
@@ -324,6 +325,16 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         return
       }
 
+      const filesMatch = /^\/api\/workbench\/sessions\/([^/]+)\/files\/(list|stat|read)$/.exec(url.pathname)
+      if (request.method === 'GET' && filesMatch !== null) {
+        const session = registry.get(decodeURIComponent(filesMatch[1]!))
+        if (!session) { sendJson(response, 404, { error: { code: 'session_not_found', message: 'Session was not found' } }); return }
+        const value = await readWorkspaceFile((await session.summary()).workspace, url.searchParams.get('path') ?? '',
+          filesMatch[2] as 'list' | 'stat' | 'read', Number(url.searchParams.get('offset') ?? 1), Number(url.searchParams.get('limit') ?? 200))
+        sendJson(response, 200, value)
+        return
+      }
+
       const snapshotId = pathMatch(url.pathname, '')
       if (request.method === 'GET' && snapshotId !== undefined) {
         const session = registry.get(snapshotId)
@@ -538,6 +549,10 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       sendJson(response, 404, { error: { code: 'not_found', message: 'Route was not found' } })
     } catch (error) {
+      if (error instanceof WorkspaceFileError) {
+        sendJson(response, error.code.endsWith('/not-found') ? 404 : 400, { error: { code: error.code, message: error.message } })
+        return
+      }
       if (error instanceof JournalReadError) {
         const status = error.code === 'source_not_found' ? 404 : error.code === 'read_failed' ? 500 : 422
         sendJson(response, status, { error: { code: error.code, message: error.message } })

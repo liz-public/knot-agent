@@ -205,33 +205,19 @@ function NewSession({ call, openSession, close }: { call: Call; openSession: (id
 
 function RuntimeDock({ call, sessionId }: { call: Call; sessionId: string }) {
   const [error, setError] = useState('')
-  const [tools, setTools] = useState<Record<string, { command: string; text: string }>>({})
   useEffect(() => {
     const abort = new AbortController()
-    setTools({}); setError('')
+    setError('')
     void (async () => {
       const rpc = (window as any).__DSH_TRANSPORT__.rpc
       for await (const event of rpc.open('$knot', 'knot/live', { args: [{ sessionId }] }, abort.signal)) {
         if (event.kind === 'state.changed' && event.runState === 'running') setError('')
         if (event.kind === 'run.error') setError(event.message)
-        if (event.kind === 'tool.open') setTools(previous => ({ ...previous, [event.callId]: { command: event.command, text: '' } }))
-        if (event.kind === 'tool.update') setTools(previous => previous[event.callId] ? {
-          ...previous, [event.callId]: { ...previous[event.callId], text: previous[event.callId].text + event.update.text },
-        } : previous)
-        if (event.kind === 'tool.close') setTools(previous => {
-          const next = { ...previous }; delete next[event.callId]; return next
-        })
       }
     })().catch(value => { if (!abort.signal.aborted) setError(String(value)) })
     return () => abort.abort()
   }, [call, sessionId])
-  if (!error && Object.keys(tools).length === 0) return null
-  return <div className="knot-runtime">
-    {Object.entries(tools).map(([id, tool]) => <details key={id} className="knot-runtime-tool">
-      <summary>正在执行 · {tool.command}</summary><pre>{tool.text || '等待输出…'}</pre>
-    </details>)}
-    <ErrorText value={error} />
-  </div>
+  return error ? <div className="knot-runtime"><ErrorText value={error} /></div> : null
 }
 
 export const inject = ['slots', 'uiWorkspace', 'sessions']
