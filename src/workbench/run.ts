@@ -384,7 +384,7 @@ const server = createWorkbenchServer({
   },
   studio,
   createSession: newLiveSession,
-  webRoot: process.env['KNOT_WEB_ROOT'] ?? join(process.cwd(), 'web', 'dist'),
+  webRoot: process.env['KNOT_WEB_ROOT'] ?? join(process.cwd(), 'web-dsh-reference', 'dist'),
 })
 server.listen(port, '127.0.0.1', () => {
   process.stdout.write(`Knot workbench: http://127.0.0.1:${port}\n`)

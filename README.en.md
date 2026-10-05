@@ -323,7 +323,7 @@ CASE2 can inspect, modify, and verify files in a real workspace. Its CLI uses an
 
 ## Workbench
 
-Two frontends currently use the same Knot Host: **the official DSH shell is the current Run integration**, while the earlier custom Web retains the minimal Studio Case/Run surface. They have separate browser UI preferences but can access the same persistent Sessions.
+Two frontends currently use the same Knot Host: **the official DSH shell connected to real Workbench is the default entry**, while the earlier custom Web retains the minimal Studio Case/Run surface. They have separate browser UI preferences but can access the same persistent Sessions.
 
 ### DSH shell: current Run
 
@@ -341,15 +341,22 @@ Start in separate terminals:
 npm run workbench:api
 
 # Terminal 2: DSH frontend with real Knot data
-VITE_KNOT_DSH_MODE=workbench npm run dsh-reference:dev -- --port 4178 --strictPort
+npm run dsh-reference:dev -- --port 4178 --strictPort
 ```
 
-Open `http://127.0.0.1:4178/`. Without `VITE_KNOT_DSH_MODE=workbench`, this frontend runs an isolated Fixture, not your real Agent.
+Requires Node.js 22.18 or newer. After both installs, `npm start` builds and serves the real DSH/Workbench UI at `http://127.0.0.1:4317/`.
+No API key is required to open Settings; configure a DeepSeek or OpenAI-compatible Provider before creating a runnable Session.
+Credentials stay in local `.knot/` storage, not the Journal or frontend configuration. An optional `.env` is loaded when present; see [.env.example](.env.example).
+
+For the two-terminal development setup above, open `http://127.0.0.1:4178/`. Development and builds now default to real Workbench mode; only explicit `VITE_KNOT_DSH_MODE=fixture` selects the isolated Fixture.
 
 - create, select, and restore Sessions;
 - stream content, reasoning, tool calls, and tool output;
 - use native approval, Ask, Todo and child navigation, with read-only native Goal presentation;
 - change the next submitted model, reasoning effort and approval policy while idle;
+- use native queued follow-up or steering; edit/remove/promote pending messages before they enter Journal;
+- select/drop files, select/drop/paste images, and reference workspace paths with `@`; compatible Providers receive actual image bytes;
+- manage background commands through bounded `bash`, incremental `process.wait` and normal-termination `process.stop`;
 - use native Chat / Trajectory beside Journal, tool analytics, context analysis and plugin/protocol tabs;
 - inspect a read-only Session cover with configuration, Usage, Todo/Goal and original queries that link back to Chat.
 
@@ -361,13 +368,14 @@ DSH Web / Client Cordis → presentation and RPC/SSE adapter → Knot Host
 
 Client Cordis runs the DSH presentation layer, not Knot business plugins. No DSH Host, AgentLoop or tool execution backend is activated. B1–B5 and S1–S5 add about **2,279 lines** of owned production integration and **1,220 lines** of tests/smoke scripts (physical lines including comments/blanks, `2b7c94c` → `91f2200`; excluding official code, fixtures, lockfile and docs). Aggregate npm packages still install backend dependencies transitively; installation does not mean execution.
 
-Graceful pause does not abort a process, and auto approval is not a sandbox. Unconnected attachment, fork and dynamic-plugin operations are hidden or explicitly refused. Missing usage is not zero, output rate is not decode TPS, and subscription matches are not handler executions. See the [integration and deviation guide](web-dsh-reference/README.md).
+Graceful pause does not abort a process, and auto approval is not a sandbox. Attachments and queue/steer delivery are connected; unconnected fork and dynamic-plugin operations are hidden or explicitly refused. Missing usage is not zero, output rate is not decode TPS, and subscription matches are not handler executions. See the [integration and deviation guide](web-dsh-reference/README.md).
 
 ### Earlier Web and Studio
 
 ```bash
 npm --prefix web install
-npm run workbench
+npm run web:build
+KNOT_WEB_ROOT=web/dist npm run workbench:api
 ```
 
 Open `http://127.0.0.1:4317/`. Stop a Host already running in terminal 1 before using this command, to avoid a port conflict.

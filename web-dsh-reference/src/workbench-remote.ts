@@ -3,7 +3,7 @@ import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/cli
 import type { InteractionRequestDto, LiveSessionEvent, SessionSnapshotDto, SessionSummaryDto } from '../../src/workbench/session.js'
 import type { ProviderProfileSummary } from '../../src/workbench/provider-profile.js'
 import type { StudioSnapshotDto } from '../../src/workbench/studio.js'
-import { projectKnotSnapshot } from './knot-journal-projection.ts'
+import { projectKnotSnapshot, projectInbox } from './knot-journal-projection.ts'
 import { interactionAnswer, interactionFrame } from './interaction-projection.ts'
 import { GenerationProjection } from './generation-projection.ts'
 import { callTerminal, openTerminal } from './terminal-remote.ts'
@@ -57,7 +57,7 @@ export function createWorkbenchRemote(
     const value = await response.json()
     if (!response.ok) {
       const error = new Error(value.error?.message ?? `Knot HTTP ${response.status}: ${path}`)
-      if (value.error?.code === 'session/attachment-invalid') Object.assign(error, {
+      if (['session/attachment-invalid', 'session/queue-item-not-found', 'session/steer-unavailable'].includes(value.error?.code)) Object.assign(error, {
         isDSHRemoteError: true, code: value.error.code, details: value.error.details ?? {},
       })
       throw error
@@ -84,7 +84,7 @@ export function createWorkbenchRemote(
         : next.after !== (previous?.events.length ?? 0) - 1
           ? (() => { throw new Error('Journal delta does not follow the current snapshot') })()
           : next.events.length ? [...previous!.events, ...next.events] : previous!.events
-      const result = { session: next.session, events }
+      const result = { ...next, events }
       if (follows.has(id)) snapshots.set(id, result)
       return result
     }
@@ -239,12 +239,31 @@ export function createWorkbenchRemote(
             const hasAttachments = input.content.some((part: any) => part.type !== 'text')
             if (!content.trim() && !hasAttachments) throw new Error('Message is empty')
             if (current.session.runState === 'paused') throw new Error('请先恢复 Session，再发送消息')
-            if (current.session.runState === 'running' && input.mode !== 'steer') throw new Error('运行中仅支持 Steering；请使用 Cmd/Ctrl+Enter，或等待 idle 后发送')
+            if (input.mode !== undefined && input.mode !== 'queue' && input.mode !== 'steer') throw new Error('Unsupported send mode')
             const receipts = prompts.get(id) ?? []
             const receipt = { id: input.requestId, content, after: current.events.length }
             receipts.push(receipt); prompts.set(id, receipts)
-            try { await http(`sessions/${encodeURIComponent(id)}/messages`, signal, 'POST', { content: hasAttachments ? input.content : content }) }
+            try { await http(`sessions/${encodeURIComponent(id)}/messages`, signal, 'POST', {
+              content: hasAttachments ? input.content : content, mode: input.mode ?? 'queue', requestId: input.requestId,
+            }) }
             catch (error) { prompts.set(id, (prompts.get(id) ?? []).filter(item => item !== receipt)); throw error }
+            return ok({ accepted: true })
+          }
+          case 'session/updateQueue': {
+            const action = input.action
+            if (!action || !['edit', 'remove', 'steer'].includes(action.kind)) throw new Error('Invalid queue action')
+            if (action.kind === 'edit' && (!Array.isArray(action.content) || action.content.some((part: any) => part.type !== 'text'))) throw new Error('Queue edits must be text-only')
+            const current = await snapshot(input.sessionId, signal)
+            const queued = current.pendingInputs?.find(item => item.id === input.itemId)
+            const content = action.kind === 'edit' ? action.content.map((part: any) => part.text).join('\n') : undefined
+            await http(`sessions/${encodeURIComponent(input.sessionId)}/queue`, signal, 'PATCH', {
+              itemId: input.itemId, action: { kind: action.kind, ...(content === undefined ? {} : { content }) },
+            })
+            if (queued?.requestId) {
+              const receipts = prompts.get(input.sessionId) ?? []
+              if (action.kind === 'remove') prompts.set(input.sessionId, receipts.filter(item => item.id !== queued.requestId))
+              if (action.kind === 'edit') for (const receipt of receipts) if (receipt.id === queued.requestId) receipt.content = content
+            }
             return ok({ accepted: true })
           }
           case 'session/attachment': {
@@ -443,6 +462,10 @@ export function createWorkbenchRemote(
                 break
               }
               case 'journal.changed': if (dirty) await refresh(); break
+              case 'queue.changed':
+                publish('session/control', { type: 'projection', sessionId: id, key: 'inbox',
+                  value: projectInbox(event.pendingInputs, event.queueVersion), seq: cursor,
+                }); break
               case 'generation.open': {
                 if (event.purpose !== 'agent') break
                 await refresh()

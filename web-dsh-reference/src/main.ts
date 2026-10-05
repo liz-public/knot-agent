@@ -3,6 +3,7 @@ import knotJournal from 'virtual:knot-journal-fixture'
 import { createAssembledRemote } from './fixture-remote.ts'
 import { projectKnotJournal } from './knot-journal-projection.ts'
 import { createWorkbenchRemote } from './workbench-remote.ts'
+import { presentationMode } from './presentation-mode.ts'
 
 interface FixtureWindow extends Window {
   __DSH_BOOT__?: unknown
@@ -20,13 +21,14 @@ async function evaluateBundle(url: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (import.meta.env.VITE_KNOT_DSH_MODE === 'workbench') document.title = 'Knot · DSH Run'
+  const workbench = presentationMode(import.meta.env.VITE_KNOT_DSH_MODE) === 'workbench'
+  if (workbench) document.title = 'Knot · DSH Run'
   const fixtureWindow = window as FixtureWindow
   fixtureWindow.__DSH_BOOT__ = boot.graph
   ;(0, eval)(boot.moduleLoaderFacade)
   await evaluateBundle(boot.bootstrapUrl)
 
-  const rpc = import.meta.env.VITE_KNOT_DSH_MODE === 'workbench'
+  const rpc = workbench
     ? createWorkbenchRemote()
     : createAssembledRemote({
         ...(knotJournal === null ? {} : { journal: projectKnotJournal(knotJournal.raw, knotJournal.path) }),

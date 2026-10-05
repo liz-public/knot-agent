@@ -194,8 +194,9 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         const session = registry.get(imageId)
         if (!session) { sendJson(response, 404, { error: { code: 'session/not-found', message: 'Session was not found' } }); return }
         const snapshot = await session.snapshot()
-        const refs = snapshot.events.filter(event => event.type === 'user.message').flatMap(event =>
-          (event.data as { attachments?: readonly AttachmentRef[] }).attachments ?? [])
+        const refs = [...snapshot.events.filter(event => event.type === 'user.message').flatMap(event =>
+          (event.data as { attachments?: readonly AttachmentRef[] }).attachments ?? []),
+          ...(snapshot.pendingInputs ?? []).flatMap(input => input.attachments ?? [])]
         const ref = refs.find(ref => ref.kind === 'image' && ref.attachmentId === url.searchParams.get('id'))
         if (!ref) throw new AttachmentError('Image is not referenced by this Session', 'INVALID_ATTACHMENT_REF')
         sendJson(response, 200, await (await attachmentStore(session)).read(ref))
@@ -535,6 +536,9 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         }
         const body = await readBody(request, ATTACHMENT_MESSAGE_BYTES)
         const content = body['content']
+        if (body['mode'] !== undefined && body['mode'] !== 'queue' && body['mode'] !== 'steer') throw new Error('mode must be queue or steer')
+        const submission = { mode: body['mode'] as 'queue' | 'steer' | undefined,
+          ...(typeof body['requestId'] === 'string' ? { requestId: body['requestId'] } : {}) }
         if (typeof content !== 'string' && !Array.isArray(content) || typeof content === 'string' && content.trim().length === 0) {
           sendJson(response, 400, { error: { code: 'invalid_message', message: 'content must be a non-empty string' } })
           return
@@ -543,11 +547,23 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           const store = await attachmentStore(session)
           const admitted = await store.admit(content)
           if (!admitted.content.trim() && !admitted.attachments.length) throw new AttachmentError('Message is empty', 'EMPTY_MESSAGE')
-          session.submit(admitted.content, admitted.attachments)
+          session.submit(admitted.content, admitted.attachments, submission)
           store.retire(content)
-        } else session.submit(content as string)
+        } else session.submit(content as string, undefined, submission)
         sendJson(response, 202, { accepted: true })
         return
+      }
+
+      const queueId = pathMatch(url.pathname, '/queue')
+      if (request.method === 'PATCH' && queueId !== undefined) {
+        const session = registry.get(queueId)
+        if (!session?.updateQueued) throw new Error('Queued input is unavailable')
+        const body = await readBody(request)
+        const action = body['action'] as { kind?: unknown; content?: unknown } | undefined
+        if (typeof body['itemId'] !== 'string' || !action || !['remove', 'steer', 'edit'].includes(String(action.kind))) throw new Error('Invalid queue action')
+        if (action.kind === 'edit' && typeof action.content !== 'string') throw new Error('Queue edit requires text')
+        session.updateQueued(body['itemId'], action.kind === 'edit' ? { kind: 'edit', content: action.content as string } : { kind: action.kind as 'remove' | 'steer' })
+        sendJson(response, 200, { accepted: true }); return
       }
 
       const configurationId = pathMatch(url.pathname, '/configuration')
@@ -633,6 +649,9 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       sendJson(response, 404, { error: { code: 'not_found', message: 'Route was not found' } })
     } catch (error) {
+      if (error instanceof Error && 'code' in error && ['session/queue-item-not-found', 'session/steer-unavailable'].includes(String(error.code))) {
+        sendJson(response, 400, { error: { code: error.code, message: error.message, details: {} } }); return
+      }
       if (error instanceof AttachmentError) {
         sendJson(response, 400, { error: { code: error.code, message: error.message, details: { reason: error.reason } } })
         return

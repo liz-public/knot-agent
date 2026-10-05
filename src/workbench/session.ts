@@ -39,12 +39,16 @@ export interface SessionSummaryDto extends SessionMetadata {
 export interface SessionSnapshotDto {
   readonly session: SessionSummaryDto
   readonly events: readonly ReadEvent[]
+  /** Unsubmitted Host input, not a Journal fact; not restored after Host exit. */
+  readonly pendingInputs?: readonly PendingInput[]
+  readonly queueVersion?: InputQueueVersion
   /** HTTP delta response only: events strictly after this position; -1 resets. */
   readonly after?: number
 }
 
 export type LiveSessionEvent =
   | { readonly kind: 'journal.changed' }
+  | { readonly kind: 'queue.changed'; readonly pendingInputs: readonly PendingInput[]; readonly queueVersion: InputQueueVersion }
   | { readonly kind: 'state.changed'; readonly runState: SessionRunState }
   | {
     readonly kind: 'generation.open'
@@ -93,12 +97,28 @@ export type InteractionRequestDto =
     readonly choices?: readonly string[]
   }
 
+export interface PendingInput {
+  readonly id: string
+  readonly content: string
+  readonly attachments?: readonly AttachmentRef[]
+  readonly requestId?: string
+}
+export interface InputQueueVersion { readonly epoch: string; readonly revision: number }
+
+export interface SubmissionOptions {
+  readonly mode?: 'queue' | 'steer'
+  readonly requestId?: string
+}
+
+export type QueueAction = { readonly kind: 'remove' | 'steer' } | { readonly kind: 'edit'; readonly content: string }
+
 export interface WorkbenchSession {
   readonly id: string
   summary(): Promise<SessionSummaryDto>
   snapshot(): Promise<SessionSnapshotDto>
   subscribe?(listener: (event: LiveSessionEvent) => void): () => void
-  submit?(content: string, attachments?: readonly AttachmentRef[]): void
+  submit?(content: string, attachments?: readonly AttachmentRef[], options?: SubmissionOptions): void
+  updateQueued?(id: string, action: QueueAction): void
   pause?(): void
   resume?(): void
   respond?(interactionId: string, value: string): boolean

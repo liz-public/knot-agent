@@ -14,3 +14,9 @@ builds apply one version-checked InputBar extension for an optional primary acti
 Installed package files and Fixture builds are unchanged. No DSH Host execution backend is activated. This is not
 part of the Knot Journal kernel and does not imply endorsement by or affiliation
 with DeepSeek.
+
+Workbench builds also apply a version-checked inbox projection extension to the
+published Session Client. Unsubmitted Knot input is Host-owned rather than a
+durable DSH inbox event: only this value uses the Host's epoch/revision to accept
+updates at an unchanged log watermark. Original Journal sequence numbers and
+all other projection replay rules remain unchanged.

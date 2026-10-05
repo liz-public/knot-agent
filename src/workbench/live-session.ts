@@ -8,6 +8,8 @@ import { workbenchLiveOutput } from './live-output.js'
 import { readJournalSnapshot } from './read-journal.js'
 import { projectSessionConfiguration, type SessionConfiguration } from '../agent/session-configuration.js'
 import type { LiveSessionEvent, SessionRunState, WorkbenchSession } from './session.js'
+import type { PendingInput } from './session.js'
+import { randomUUID } from 'node:crypto'
 import { workbenchToolOutput } from './tool-output.js'
 import { sessionTitleView } from './session-title.js'
 
@@ -55,6 +57,12 @@ export async function createLiveSession(
   }
 
   let runState: SessionRunState = 'idle'
+  const pendingInputs: PendingInput[] = []
+  const queueEpoch = randomUUID()
+  let queueRevision = 0
+  const queueChanged = () => { queueRevision++; hub.emit({ kind: 'queue.changed',
+    pendingInputs: [...pendingInputs], queueVersion: { epoch: queueEpoch, revision: queueRevision },
+  }) }
 
   async function snapshot() {
     const journal = await read()
@@ -83,12 +91,27 @@ export async function createLiveSession(
         writable: true,
       },
       events: journal.events,
+      ...(pendingInputs.length ? { pendingInputs: [...pendingInputs] } : {}),
+      queueVersion: { epoch: queueEpoch, revision: queueRevision },
     }
   }
 
   function setState(next: SessionRunState): void {
     runState = next
     hub.emit({ kind: 'state.changed', runState })
+  }
+
+  function execute(input: PendingInput) {
+    setState('running')
+    void agent.submit(input.content, pendingConfiguration, input.attachments).then(() => {
+      const next = pendingInputs.shift()
+      if (next) { queueChanged(); execute(next) }
+      else setState('idle')
+    }, error => {
+      hub.emit({ kind: 'run.error', message: error instanceof Error ? error.message : String(error) })
+      // Do not automatically continue queued input through an uncertain failed history.
+      setState('idle')
+    })
   }
 
   return {
@@ -104,20 +127,35 @@ export async function createLiveSession(
       }
       return unsubscribe
     },
-    submit(content, attachments) {
+    submit(content, attachments, submission = {}) {
       if (runState === 'running' || runState === 'paused') {
-        agent.steer(content, attachments)
+        if (submission.mode === 'steer') {
+          if (runState === 'paused') throw new Error('Resume before steering')
+          agent.steer(content, attachments)
+        } else {
+          pendingInputs.push({ id: randomUUID(), content, attachments, requestId: submission.requestId })
+          queueChanged()
+        }
         return
       }
       if (runState !== 'idle') throw new Error(`session is ${runState}`)
-      setState('running')
-      void agent.submit(content, pendingConfiguration, attachments).then(
-        () => setState('idle'),
-        error => {
-          hub.emit({ kind: 'run.error', message: error instanceof Error ? error.message : String(error) })
-          setState('idle')
-        },
-      )
+      execute({ id: randomUUID(), content, attachments, requestId: submission.requestId })
+    },
+    updateQueued(id, action) {
+      const index = pendingInputs.findIndex(item => item.id === id)
+      if (index < 0) throw Object.assign(new Error('Queued message was not found'), { code: 'session/queue-item-not-found' })
+      const input = pendingInputs[index]!
+      if (action.kind === 'edit') {
+        if (!action.content.trim() || input.attachments?.length) throw new Error('Only non-empty text-only queued messages can be edited')
+        pendingInputs[index] = { ...input, content: action.content }
+      } else {
+        if (action.kind === 'steer') {
+          if (runState !== 'running') throw Object.assign(new Error('No running turn to steer'), { code: 'session/steer-unavailable' })
+          agent.steer(input.content, input.attachments)
+        }
+        pendingInputs.splice(index, 1)
+      }
+      queueChanged()
     },
     pause() {
       if (runState !== 'running') return

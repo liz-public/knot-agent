@@ -7,6 +7,8 @@ import { defineConfig, type Plugin } from 'vite'
 import { readonlyClientFactory } from './src/readonly-client.ts'
 import { buildSync } from 'esbuild'
 import { extendNativeInput } from './native-input-extension.ts'
+import { presentationMode } from './src/presentation-mode.ts'
+import { extendNativeInbox } from './native-inbox-extension.ts'
 
 const VIRTUAL_BOOT = 'virtual:dsh-fixture-boot'
 const RESOLVED_VIRTUAL_BOOT = `\0${VIRTUAL_BOOT}`
@@ -69,7 +71,7 @@ function dshClientFixture(): Plugin {
   })) as readonly ComposedEntry[]
 
   const unordered: ClientEntry[] = []
-  const readOnly = process.env['VITE_KNOT_DSH_MODE'] === 'workbench'
+  const readOnly = presentationMode(process.env['VITE_KNOT_DSH_MODE']) === 'workbench'
   const localClients = [
     { name: 'configuration', inject: ['@deepseek-ai/dsh-client-ui-workspace', '@deepseek-ai/dsh-client-ui-primitives'] },
     { name: 'business', inject: ['@deepseek-ai/dsh-client-ui-chat', '@deepseek-ai/dsh-client-ui-tool', '@deepseek-ai/dsh-client-ui-goal'] },
@@ -161,6 +163,7 @@ function dshClientFixture(): Plugin {
       ? `window.__ModuleLoader__.load({id:'@knot-agent/client-readonly',factory:${readonlyClientFactory.toString()}})`
       : readFileSync(entry.bundlePath, 'utf8')
     if (readOnly && entry.id === '@deepseek-ai/dsh-client-ui-conversation') source = extendNativeInput(source)
+    if (readOnly && entry.id === '@deepseek-ai/dsh-api-session-controller') source = extendNativeInbox(source)
     if (readOnly && entry.id === '@deepseek-ai/dsh-client-ui-goal') {
       // Load the unchanged published factory as a view library. Its full apply()
       // is deliberately not activated: Knot exposes no GoalService mutation RPC.
@@ -213,6 +216,8 @@ function dshClientFixture(): Plugin {
     },
     load(id) {
       if (id === RESOLVED_VIRTUAL_KNOT_JOURNAL) {
+        // A normal build must never embed a local experimental Session log.
+        if (readOnly) return 'export default null'
         const requested = process.env['KNOT_DSH_JOURNAL']
         if (requested === undefined || requested.trim().length === 0) return 'export default null'
         const path = isAbsolute(requested) ? requested : resolve(dirname(import.meta.dirname), requested)

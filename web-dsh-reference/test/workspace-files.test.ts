@@ -63,7 +63,7 @@ test('native file selection sends the concrete Host path, not a basename, withou
   const candidates = await remote.call('$native', 'fileReferences/list', { args: [{ agentId: 's', query: 'READ' }] }) as any
   const ref = formatFileMention(candidates.value[0], false)
   const result = await remote.call('$native', 'session/prompt', { args: [{ sessionId: 's', requestId: 'input-1',
-    content: [{ type: 'text', text: `看下 ${ref}` }], mode: 'default' }] }) as any
+    content: [{ type: 'text', text: `看下 ${ref}` }], mode: 'queue' }] }) as any
   assert.equal(result.ok, true)
   assert.deepEqual(messages, ['看下 @"/workspace/real path/README.md"'])
   assert.ok(!requests.some(url => url.includes('/files/read')))

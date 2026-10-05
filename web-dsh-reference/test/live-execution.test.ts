@@ -44,7 +44,7 @@ test('B4 carrier sends, steers, settles, pauses/resumes and forwards errors with
   await tick()
   const call = (endpoint: string, input: any) => remote.call('$test', endpoint, { args: [input] }) as Promise<any>
   assert.equal((await call('session/prompt', { sessionId: 'one', requestId: 'rpc1', mode: 'queue', content: [{ type: 'text', text: 'Hello' }] })).ok, true)
-  assert.deepEqual(writes.at(-1).body, { content: 'Hello' })
+  assert.deepEqual(writes.at(-1).body, { content: 'Hello', mode: 'queue', requestId: 'rpc1' })
   events.push({ position: 0, type: 'user.message', data: { turnId: 't', content: 'Hello' } },
     { position: 1, type: 'llm.invoke', data: { requestId: 'r', request: { turnId: 't', purpose: 'agent' } } })
   listeners.get('one')!({ kind: 'generation.open', purpose: 'agent', turnId: 't', requestId: 'r' })
@@ -67,9 +67,9 @@ test('B4 carrier sends, steers, settles, pauses/resumes and forwards errors with
   assert.equal(frames.filter(value => value.event?.type === 'assistant/message').length, 1)
   assert.equal(second.length, 1) // No other Session's events are delivered.
   sessions[0].runState = 'running'
-  assert.equal((await call('session/prompt', { sessionId: 'one', mode: 'queue', content: [{ type: 'text', text: 'Follow up' }] })).ok, false)
+  assert.equal((await call('session/prompt', { sessionId: 'one', mode: 'queue', content: [{ type: 'text', text: 'Follow up' }] })).ok, true)
   assert.equal((await call('session/prompt', { sessionId: 'one', mode: 'steer', content: [{ type: 'text', text: 'Change' }] })).ok, true)
-  assert.equal((await call('session/prompt', { sessionId: 'one', content: [{ type: 'image' }] })).ok, false)
+  assert.equal((await call('session/prompt', { sessionId: 'one', content: [{ type: 'audio' }] })).ok, false)
   for (const endpoint of ['session/cancel', 'knot/session/resume']) assert.equal((await call(endpoint, { sessionId: 'one' })).ok, true)
   assert.deepEqual(writes.slice(-2).map(value => value.url), ['/api/workbench/sessions/one/pause', '/api/workbench/sessions/one/resume'])
   listeners.get('one')!({ kind: 'tool.open', callId: 'c', command: 'pwd', toolName: 'bash', turnId: 't' })

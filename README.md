@@ -299,35 +299,48 @@ Mock Provider 用于测试和可复现 Case 装配。Workbench 的真实 Provide
 
 ## Workbench
 
-当前保留两个前端，使用同一 Knot Host：**DSH 官方壳是当前 Run 接线方向**，早期自有 Web
+当前保留两个前端，使用同一 Knot Host：**默认入口为接入真实 Workbench 的 DSH 官方壳**，早期自有 Web
 仍提供 Studio 的最小 Case/Run 界面。二者不共用浏览器 UI 偏好，但可访问同一批持久 Session。
 
 ### DSH 壳：当前 Run
 
-首次安装：
+需要 Node.js 22.18 或更新版本。首次安装：
 
 ```bash
 npm install
 npm --prefix web-dsh-reference install
 ```
 
-分别在两个终端启动：
+启动（自动构建 Host 与 DSH 壳）：
+
+```bash
+npm start
+```
+
+打开 `http://127.0.0.1:4317/`。没有 API Key 也能打开配置页面；在设置中的「模型 Provider」
+添加 DeepSeek 或 OpenAI-compatible 线路后创建 Session。凭据只保存在本机 `.knot/`，
+不进入 Journal 或前端配置。`.env` 可选，参见 [配置示例](.env.example)；存在时启动命令会读取它。
+
+开发时可以分别在两个终端启动：
 
 ```bash
 # 终端 1：Knot Host API
 npm run workbench:api
 
 # 终端 2：接入真实 Knot 数据的 DSH 前端
-VITE_KNOT_DSH_MODE=workbench npm run dsh-reference:dev -- --port 4178 --strictPort
+npm run dsh-reference:dev -- --port 4178 --strictPort
 ```
 
-浏览器打开 `http://127.0.0.1:4178/`。不设置 `VITE_KNOT_DSH_MODE=workbench` 时，
-该前端运行的是独立 Fixture，不是你的真实 Agent。
+浏览器打开 `http://127.0.0.1:4178/`。开发与构建均默认使用真实 Workbench；
+只有显式设置 `VITE_KNOT_DSH_MODE=fixture` 才运行独立 Fixture。
 
 - 创建、选择和恢复 Session；
 - 流式展示 content、reasoning、工具调用与工具输出；
 - 使用原生审批、Ask、Todo 与子会话导航；Goal 为原生只读适配；
 - 在空闲边界调整下一次提交的模型、推理强度和审批策略；
+- 原生排队／插话发送：排队在当前轮结束后提交，插话进入当前轮；待发送内容可编辑、移除或转插话；
+- 文件选择／拖入、图片选择／拖入／粘贴，以及 `@` 工作区路径引用；图片由支持多模态的 Provider 实际读取；
+- 长命令返回后台句柄，通过 `process.wait` 增量读取、`process.stop` 请求正常终止；
 - 使用原生 Chat / Trajectory，以及平级的 Journal、工具统计、上下文分析、插件与协议页签；
 - 从只读 Session 封面查看配置、Usage、Todo/Goal、原始 Query 目录并定位到对话。
 
@@ -342,7 +355,7 @@ AgentLoop 或工具执行面。B1–B5、S1–S5 的自有生产适配约 **2,27
 测试与冒烟脚本（物理行数，含注释/空行，基线 `2b7c94c` → `91f2200`；不含官方代码、
 Fixture、锁文件和文档）。聚合 npm 包仍会间接安装 DSH 后端依赖，这不等于启用了后端。
 
-边界仍明确：优雅暂停不是中断进程，自动批准不是沙箱；未接的附件、Fork、动态插件等能力
+边界仍明确：优雅暂停不是中断进程，自动批准不是沙箱；未接的 Fork、动态插件等能力
 隐藏或明确拒绝。统计不把未知 Usage 记为零，输出速率不冒充 decode TPS，插件订阅匹配
 不冒充 handler 执行次数。详见[DSH 接线、验证与偏差](web-dsh-reference/README.md)。
 
@@ -350,7 +363,8 @@ Fixture、锁文件和文档）。聚合 npm 包仍会间接安装 DSH 后端依
 
 ```bash
 npm --prefix web install
-npm run workbench
+npm run web:build
+KNOT_WEB_ROOT=web/dist npm run workbench:api
 ```
 
 浏览器打开 `http://127.0.0.1:4317/`。如果 Host 已在终端 1 运行，先停下它，避免端口冲突。

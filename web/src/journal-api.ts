@@ -329,7 +329,8 @@ export async function runStudioCase(input: {
 }
 
 export async function submitMessage(sessionId: string, content: string): Promise<void> {
-  await post(`/api/workbench/sessions/${encodeURIComponent(sessionId)}/messages`, { content })
+  // This legacy UI holds follow-ups locally until idle; its immediate path is steering.
+  await post(`/api/workbench/sessions/${encodeURIComponent(sessionId)}/messages`, { content, mode: 'steer' })
 }
 
 export async function configureSession(

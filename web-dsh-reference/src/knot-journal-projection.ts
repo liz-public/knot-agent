@@ -1,7 +1,17 @@
 /** Disposable DSH history read model. Does not execute or mutate a Journal. */
-import type { SessionSnapshotDto } from '../../src/workbench/session.js'
+import type { SessionSnapshotDto, PendingInput, InputQueueVersion } from '../../src/workbench/session.js'
 import type { ReadEvent } from '../../src/workbench/read-journal.js'
 import { projectBusinessState } from './business-projection.ts'
+
+export function projectInbox(inputs: readonly PendingInput[] = [], version?: InputQueueVersion) {
+  return { ...(version ? { knotQueueVersion: version } : {}), 'next-step': [], 'next-turn': inputs.map(input => ({
+    id: input.id, role: 'user', source: { kind: 'user', ...(input.requestId ? { rpcId: input.requestId } : {}) },
+    content: [
+      ...(input.attachments ?? []).map(({ kind, path: _path, ...attachment }) => ({ type: kind, attachment })),
+      ...(input.content ? [{ type: 'text', text: input.content }] : []),
+    ],
+  })) }
+}
 
 export interface DshEventRecord {
   readonly type: 'event'
@@ -248,6 +258,7 @@ export function projectKnotSnapshot(snapshot: SessionSnapshotDto): ProjectedKnot
   stats.turns = completedTurns.size
   const business = projectBusinessState(snapshot)
   const values: Record<string, unknown> = {
+    inbox: projectInbox(snapshot.pendingInputs, snapshot.queueVersion),
     title: session.title,
     sessionStats: stats,
     knotEventCount: events.length,

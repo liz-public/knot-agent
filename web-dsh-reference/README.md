@@ -1,7 +1,7 @@
 # Knot Run — official DSH frontend integration
 
-Status: B1–B5 and S1–S5 are connected; code baseline **`91f2200`**, reviewed 2026-10-04.
-This is an Alpha integration, not a full DSH feature clone or the default root start command.
+Status: B1–B5 and S1–S5 are connected; attachments, command lifecycle and queue/steer delivery are added (2026-10-06).
+This is the default root Run frontend, still an Alpha integration rather than a full DSH feature clone.
 
 We load the published **DeepSeek Harness `0.2.0-rc.1` Web shell and Client plugins**.
 Client Cordis **`4.0.4`** is their presentation runtime. Knot remains the only Agent execution
@@ -12,18 +12,22 @@ not a statement that Workbench mode uses fake data.
 
 ## 1. Start the correct mode
 
-Run these commands from the repository root. Node must support `--experimental-strip-types`
-for the Client tests; Node 25 was used for the current verification.
+Run these commands from the repository root with Node 22.18 or newer.
 
 ```sh
 npm install
 npm --prefix web-dsh-reference install
 
+# Single-origin normal use: builds Host and shell, then serves both on 4317.
+npm start
+
+# Alternatively, development uses two terminals:
+
 # Terminal 1 — Knot Host, port 4317
 npm run workbench:api
 
 # Terminal 2 — real Knot Sessions in the official shell
-VITE_KNOT_DSH_MODE=workbench npm run dsh-reference:dev -- --port 4178 --strictPort
+npm run dsh-reference:dev -- --port 4178 --strictPort
 ```
 
 Open <http://127.0.0.1:4178/>. In **Settings → 模型 Provider**, configure a local
@@ -31,6 +35,8 @@ OpenAI-compatible or DeepSeek profile, then create a Session in **新建 Session
 The native sidebar New action uses Host defaults. A first visit without saved selection
 can also create a blank default Session; it does not start a model request or precommit
 inference/approval facts. Creating a writable Session requires a configured Provider.
+Search Provider availability is currently assembled at Host startup. After adding the first DeepSeek profile through the UI,
+restart the Host if you want `web_search`; there is no live tool-assembly reload.
 
 To change the API development proxy target:
 
@@ -40,21 +46,21 @@ VITE_KNOT_DSH_MODE=workbench KNOT_WORKBENCH_URL=http://127.0.0.1:4320 \
 ```
 
 The Vite proxy is a development configuration, **not** a production deployment proxy.
-A static build requires its own same-origin `/api/workbench` routing. It is not packaged
-as an Electron app, and the DSH shell is not served by `npm run workbench` yet.
+`npm start` serves the built shell and API from one Host, including the native binary-upload route.
+It is not packaged as an Electron app. No key is needed to open configuration; model calls need a configured Provider.
 
 ### Fixture mode — explicitly separate
 
 ```sh
-npm run dsh-reference:dev -- --port 4175 --strictPort
+VITE_KNOT_DSH_MODE=fixture npm run dsh-reference:dev -- --port 4175 --strictPort
 ```
 
-Open <http://127.0.0.1:4175/>. Without the Workbench mode variable, `RemoteMock` supplies
+Open <http://127.0.0.1:4175/>. Only the explicit Fixture switch lets `RemoteMock` supply
 captured DSH fixture responses. This mode is useful for native UI comparison, not for
 running Knot tools. Fixture images and other demonstrations do not imply Knot supports them.
 
 The earlier Knot Web remains available through `npm --prefix web install` followed by
-`npm run workbench`, at port 4317. Do not start a second Host on an occupied port.
+`npm run web:build` and `KNOT_WEB_ROOT=web/dist npm run workbench:api`, at port 4317. Do not start a second Host on an occupied port.
 
 ## 2. Architecture and ownership
 
@@ -127,8 +133,11 @@ an active Fixture backend.
 
 ### Online execution and user interaction
 
-- Native composer sends to the existing Host messages route. Running input uses Steering
-  through the native shortcut/input preference; queued follow-up requests are refused.
+- Native composer preserves DSH's queue/steer preference and shortcuts. Steering enters the running turn;
+  follow-up stays in the Host FIFO until the current turn completes. Native QueueDock supports edit/remove/promote.
+  Unsubmitted input is not in Journal and is not recovered after Host exit. Model failure retains, but does not auto-run, queued input.
+  Inbox-only updates arrive directly over SSE, without rereading full Journal. Because native inbox normally uses a durable-log watermark,
+  a version-checked Session Client extension accepts the Host's queue epoch/revision while retaining the original log seq (see NOTICE).
 - Reasoning, content and tool arguments stream without becoming Journal delta events.
   Final recorded content reconciles optimistic echoes and settles the display once.
 - Native Stop means **graceful pause after the current event**, not process abort. The
@@ -193,13 +202,22 @@ Tool links focus call/result facts; Context and tool views can export local JSON
 
 ## 4. Remaining deviation ledger
 
+Recovery audit (2026-10-06): loading a Session does not replay old tool effects, but a tool-call batch with missing results
+still projects an invalid next model request. Strict validation and a real DeepSeek request reproduce the HTTP 400.
+The complete-results control passes. `test/recovery-audit.test.ts` characterizes this gap; it does not repair it.
+No automatic rerun, invented success result or historical rewrite is implemented. The unknown-result policy needs review.
+
+Dependency audit at this checkpoint: root production dependencies report no advisory; the frontend dependency tree reports
+one high-severity `http-cache-semantics` advisory and four moderate advisories. This is a dependency report, not proof of an
+activated vulnerable Knot path. Review/update upstream dependencies before a broader release; no forced upgrade was applied.
+
 | Root cause | Current difference | Treatment |
 |---|---|---|
 | Product semantics | Graceful pause, auto approval, one-question Ask, independent persistent children, read-only Goal | Keep explicit; only expand with an agreed CASE requirement |
 | Presentation/wiring | Custom Provider/New Session forms; live Bash dock; native component wrappers | Prefer native primitives/slots; do not create a second business service |
 | Knot extension | Inspection and cover layout, partial custom i18n | Small usage-driven iteration; no claim of 1:1 DSH styling |
 | Missing facts | Historical TTFT/decode, old cache counts, applied edit diffs, lost stream prefixes | Unknown/unavailable, never fabricated |
-| Unconnected capabilities | Attachments, fork/rename/archive, Jobs, Plan, dynamic Cordis, sandbox presets | Hidden or explicitly refused; Fixture mode is not evidence of support |
+| Unconnected capabilities | Fork, full Jobs/Plan, dynamic Cordis, sandbox presets | Hidden or explicitly refused; attachments and session rename/archive/pin are connected |
 | Needs measurement | Reported approval-layout flashes and stream smoothness | Reproduce/profile before optimizing; tests do not prove rendering speed |
 | Maintenance | Aggregate dependency weight; historical names; two frontend entry points | Separate bounded cleanup; no kernel/CASE redesign |
 
@@ -214,9 +232,9 @@ These validate contracts/reconciliation, not every pixel or browser performance.
 ```sh
 npm test
 npm --prefix web-dsh-reference test
-VITE_KNOT_DSH_MODE=workbench npm run dsh-reference:build
-# Optional separate Fixture build
 npm run dsh-reference:build
+# Optional separate Fixture build
+VITE_KNOT_DSH_MODE=fixture npm run dsh-reference:build
 ```
 
 Disposable, model-free browser smoke Hosts:
