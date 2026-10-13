@@ -64,7 +64,7 @@ export const toolsPlugin = (tools: readonly ToolDefinition[]): Plugin => {
         const tool = byName.get(call.name)
         let result: ToolExecution
         if (tool === undefined) {
-          result = failedExecution('unknown_tool', `未知工具：${call.name}`)
+          result = failedExecution('unknown_tool', `未知工具：${call.name}。只能调用当前注册的工具：${[...byName.keys()].join(', ')}。`)
         } else {
           try {
             result = await tool.execute(call.arguments, {

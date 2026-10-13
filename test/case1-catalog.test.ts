@@ -18,6 +18,15 @@ test('catalog command names and toolIds are unique', () => {
   assert.equal(new Set(names).size, names.length)
   assert.equal(new Set(toolIds).size, toolIds.length)
 })
+test('named ask and follow-up choices recall the real optional flag', () => {
+  for (const query of ['请用Ask问我最喜欢的季节', '给我点选项吧']) {
+    const details = catalog.detailsFor(query)
+    assert.ok(details.names.includes('ask'))
+    assert.ok(details.content.includes('--choices'))
+    assert.deepEqual(resolve('ask "喜欢哪个季节？" --choices 春天,夏天,秋天,冬天').arguments,
+      { question: '喜欢哪个季节？', choices: '春天,夏天,秋天,冬天' })
+  }
+})
 
 test('the review snapshot matches the runtime catalog exactly', () => {
   const snapshot = JSON.parse(readFileSync('docs/case1/android-tool-catalog.metadata.json', 'utf8')) as {
@@ -52,7 +61,7 @@ test('catalog covers all P0 and P1 CLI commands', () => {
   const names = new Set(ANDROID_TOOL_CATALOG.map(item => item.name))
   for (const name of expected) assert.ok(names.has(name), `missing catalog command: ${name}`)
   assert.equal(expected.length, 54)
-  assert.equal(ANDROID_TOOL_CATALOG.length, 57)
+  assert.equal(ANDROID_TOOL_CATALOG.length, 58) // Includes cloud arithmetic.
 })
 
 test('the shared binder maps representative commands without business coercion', () => {

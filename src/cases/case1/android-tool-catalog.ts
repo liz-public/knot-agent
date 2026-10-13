@@ -18,6 +18,12 @@ const switchFlag = (name: string, description: string, flag?: string): CliArgume
 
 export const ANDROID_TOOL_CATALOG: readonly CliCommand[] = [
   command({
+    toolId: 'numeric_compute', name: 'calc', summary: '计算算术表达式 -> result',
+    description: '纯数值计算，使用浮点数，不用于精确金融计算。支持 + - * / % ^、括号与 sqrt abs sin cos tan ln log10 floor ceil round；三角函数使用弧度。',
+    examples: ['calc "(3+5)*2"', 'calc "sqrt(144)+21"'],
+    keywords: ['计算', '算一下', '等于多少', 'calc'],
+  }, [textPosition('expression', '算术表达式；函数名及运算符按说明使用。')]),
+  command({
     toolId: "contact", name: "contact", summary: "匹配联系人 -> candidates[]（不含号码）",
     description: "按姓名/称呼匹配通讯录。lookup 只查号不拨号；call 按姓名进入拨打流程（唯一命中可直拨，多候选返回列表后需 select）。候选列表不含号码，不要先查后dial；用户提供明确号码用 dial",
     examples: ["contact lookup 爸爸","contact lookup 李行素","contact call 张三","contact call 李哲"],
@@ -103,7 +109,7 @@ export const ANDROID_TOOL_CATALOG: readonly CliCommand[] = [
     ]),
   command({
     toolId: "get_device_status", name: "device.status", summary: "查设备状态 -> fields[]",
-    description: "只读查询本机状态。fields 可选：device|battery|storage|memory|network|bluetooth|brightness|volume|ringer|display|power|all，默认 all。仅用户明确询问设备状态时使用；调节亮度/音量/铃声时勿主动调用。",
+    description: "只读查询本机状态。fields 可选：device|battery|storage|memory|network|bluetooth|brightness|volume|ringer|display|power|all，默认 all。Device 通道另支持 lux|pressure_hpa|steps_since_boot（开机累计步数，非今日步数）。仅用户明确询问设备状态时使用；调节亮度/音量/铃声时勿主动调用。",
     examples: ["device.status","device.status battery,storage"],
     keywords: ["电量","设备状态"],
   }, [
@@ -189,10 +195,10 @@ export const ANDROID_TOOL_CATALOG: readonly CliCommand[] = [
     keywords: ["闹钟列表"],
   }, []),
   command({
-    toolId: "ask", name: "ask", summary: "询问用户 -> selected_option",
+    toolId: "ask", name: "ask", summary: "询问用户（可选 --choices）",
     description: "向用户提问并等待回答。有明确选项时传 --choices。",
     examples: ["ask \"打给哪一个？\" --choices 张三,李四","ask \"继续吗？\" --choices 是,否"],
-    keywords: ["询问","确认"],
+    keywords: ["询问","确认","ask","问我","选项"],
   }, [
       textPosition("question", "向用户提出的问题；包含空格时使用双引号。"),
       textFlag("choices", "逗号分隔的候选项。", false, "a,b,c")

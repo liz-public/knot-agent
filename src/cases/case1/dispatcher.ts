@@ -1,5 +1,6 @@
 import type { ToolExecution } from './tools.js'
 import type { ApprovalPort } from './approval-port.js'
+import { calculate } from './calculate.js'
 
 export interface DispatchRequest {
   readonly toolId: string
@@ -24,9 +25,10 @@ export type ToolHandler = (
 ) => Promise<ToolExecution> | ToolExecution
 
 export function createToolDispatcher(handlers: Readonly<Record<string, ToolHandler>>): ToolDispatcher {
+  const configured = { numeric_compute: (args: Record<string, unknown>) => calculate(typeof args['expression'] === 'string' ? args['expression'] : ''), ...handlers }
   return {
     async dispatch(request) {
-      const handler = handlers[request.toolId]
+      const handler = (configured as Readonly<Record<string, ToolHandler>>)[request.toolId]
       if (handler === undefined) {
         return {
           content: JSON.stringify({

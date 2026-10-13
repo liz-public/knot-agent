@@ -31,6 +31,16 @@ const failure = (error: string, hint: string): ToolExecution => ({
   content: JSON.stringify({ ok: false, error, hint }),
 })
 
+function commandDetails(command: CliCommand): string {
+  return [
+    `- ${command.name}: ${command.summary}`, `  ${command.description}`,
+    `  usage: ${renderUsage(command)}`,
+    ...command.arguments.map(argument => `  ${argument.name}: ${argument.description}`),
+    ...command.examples.map(example => `  example: ${example}`),
+    ...(command.help === undefined ? [] : [`  help: ${command.help}`]),
+  ].join('\n')
+}
+
 export function createCliCatalog(commands: readonly CliCommand[]): CliCatalog {
   const byName = new Map(commands.map(command => [command.name, command]))
   if (byName.size !== commands.length) throw new Error('duplicate CLI command')
@@ -38,16 +48,26 @@ export function createCliCatalog(commands: readonly CliCommand[]): CliCatalog {
     commands,
     usage: renderUsage,
     resolve(input) {
+      let command: CliCommand | undefined
       try {
         const parsed = parseCliCommand(input)
-        const command = byName.get(parsed.name)
+        if (parsed.name === 'help') {
+          if (parsed.flags.size || parsed.positional.length > 1) return failure('bad_arguments', 'usage: help [command]。示例：help shopping.search')
+          const name = parsed.positional[0]
+          const target = name === undefined ? undefined : byName.get(name)
+          if (name !== undefined && target === undefined) return failure('command_not_found', `未知命令 ${name}。用 help 查看目录。`)
+          return { content: JSON.stringify({ ok: true, help: target ? commandDetails(target)
+            : commands.map(item => `${item.name}: ${item.summary}`).join('\n') }) }
+        }
+        command = byName.get(parsed.name)
         if (command === undefined) {
-          return failure('command_not_found', `未知命令 ${parsed.name}。请从 bash 工具目录选择命令。`)
+          return failure('command_not_found', `未知命令 ${parsed.name}。请调用 bash 执行 help 查看当前命令目录。`)
         }
         return { command, arguments: bindCliArguments(parsed, command) }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        return failure('bad_arguments', `${message}。请按本轮动态上下文中的 usage 重试。`)
+        return failure('bad_arguments', `${message}。${command ? '\n' + commandDetails(command)
+          : '请修正命令语法；用 help <command> 查看用法。'}`)
       }
     },
     detailsFor(query) {
@@ -57,14 +77,7 @@ export function createCliCatalog(commands: readonly CliCommand[]): CliCatalog {
       )
       return {
         names: matched.map(command => command.name),
-        content: matched.map(command => [
-          `- ${command.name}: ${command.summary}`,
-          `  ${command.description}`,
-          `  usage: ${renderUsage(command)}`,
-          ...command.arguments.map(argument => `  ${argument.name}: ${argument.description}`),
-          ...command.examples.map(example => `  example: ${example}`),
-          ...(command.help === undefined ? [] : [`  help: ${command.help}`]),
-        ].join('\n')).join('\n'),
+        content: matched.map(commandDetails).join('\n'),
       }
     },
   }
@@ -78,7 +91,7 @@ export function createBashTool(catalog: CliCatalog, dispatcher: ToolDispatcher):
       type: 'function',
       function: {
         name: 'bash',
-        description: `执行一条 Android CLI 命令。参数含空格时使用双引号。可用命令：\n${compact}`,
+        description: `执行一条 CLI 命令。参数含空格时使用双引号。help 查看目录；help <command> 查看命令说明。可用命令：\n${compact}`,
         parameters: {
           type: 'object',
           properties: { command: { type: 'string', description: '一条 CLI 命令。' } },
@@ -92,7 +105,16 @@ export function createBashTool(catalog: CliCatalog, dispatcher: ToolDispatcher):
       if (typeof input !== 'string') return failure('invalid_command', 'command 必须是字符串。')
       const resolved = catalog.resolve(input)
       if ('content' in resolved) return resolved
-      return dispatcher.dispatch({ toolId: resolved.command.toolId, arguments: resolved.arguments, context })
+      const result = await dispatcher.dispatch({ toolId: resolved.command.toolId, arguments: resolved.arguments, context })
+      // Only declared argument errors need usage; business/permission failures do not.
+      let content: Record<string, unknown> | undefined
+      try { content = JSON.parse(result.content) as Record<string, unknown> } catch { return result }
+      if (!content || typeof content !== 'object') return result
+      if (content['ok'] === false && typeof content['error'] === 'string'
+        && /^(invalid_|missing_|bad_|arithmetic_error$)/.test(content['error'])) {
+        return { ...result, content: JSON.stringify({ ...content, usage_help: commandDetails(resolved.command) }) }
+      }
+      return result
     },
   }
 }

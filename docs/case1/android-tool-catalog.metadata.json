@@ -3,6 +3,33 @@
   "note": "审核用 Catalog 快照。usage 由 arguments 生成，不是独立事实来源；运行时事实来源为 android-tool-catalog.ts。",
   "tools": [
     {
+      "batch": 4,
+      "toolId": "numeric_compute",
+      "cliName": "calc",
+      "summary": "计算算术表达式 -> result",
+      "description": "纯数值计算，使用浮点数，不用于精确金融计算。支持 + - * / % ^、括号与 sqrt abs sin cos tan ln log10 floor ceil round；三角函数使用弧度。",
+      "usage": "calc <expression>",
+      "arguments": [
+        {
+          "name": "expression",
+          "description": "算术表达式；函数名及运算符按说明使用。",
+          "format": "positional",
+          "required": true,
+          "type": "text"
+        }
+      ],
+      "examples": [
+        "calc \"(3+5)*2\"",
+        "calc \"sqrt(144)+21\""
+      ],
+      "keywords": [
+        "计算",
+        "算一下",
+        "等于多少",
+        "calc"
+      ]
+    },
+    {
       "batch": 1,
       "toolId": "contact",
       "cliName": "contact",
@@ -310,7 +337,7 @@
       "toolId": "get_device_status",
       "cliName": "device.status",
       "summary": "查设备状态 -> fields[]",
-      "description": "只读查询本机状态。fields 可选：device|battery|storage|memory|network|bluetooth|brightness|volume|ringer|display|power|all，默认 all。仅用户明确询问设备状态时使用；调节亮度/音量/铃声时勿主动调用。",
+      "description": "只读查询本机状态。fields 可选：device|battery|storage|memory|network|bluetooth|brightness|volume|ringer|display|power|all，默认 all。Device 通道另支持 lux|pressure_hpa|steps_since_boot（开机累计步数，非今日步数）。仅用户明确询问设备状态时使用；调节亮度/音量/铃声时勿主动调用。",
       "usage": "device.status [<fields>]",
       "arguments": [
         {
@@ -625,7 +652,7 @@
       "batch": 2,
       "toolId": "ask",
       "cliName": "ask",
-      "summary": "询问用户 -> selected_option",
+      "summary": "询问用户（可选 --choices）",
       "description": "向用户提问并等待回答。有明确选项时传 --choices。",
       "usage": "ask <question> [--choices <a,b,c>]",
       "arguments": [
@@ -651,7 +678,10 @@
       ],
       "keywords": [
         "询问",
-        "确认"
+        "确认",
+        "ask",
+        "问我",
+        "选项"
       ]
     },
     {
