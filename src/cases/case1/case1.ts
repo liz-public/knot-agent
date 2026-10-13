@@ -4,9 +4,9 @@ import { JSONL_LOAD, JSONL_STORE_METADATA, jsonlLoadPlugin, jsonlStorePlugin } f
 import { controlledEventBoundary } from '../../plugins/controlled-boundary.js'
 import type { CompressHistoryOptions } from '../../agent/plugins/compress-history.js'
 import { ANDROID_TOOL_CATALOG } from './android-tool-catalog.js'
-import { createBashTool, createCliCatalog } from './cli.js'
+import { createBashTool, createCliCatalog, type CliCommand } from './cli.js'
 import type { ContentSource } from './content.js'
-import type { AppMatcher } from './context-contributions.js'
+import type { AppMatcher, ContextSource } from './context-contributions.js'
 import type { ToolDispatcher } from './dispatcher.js'
 import { applyCase1ApprovalPolicy } from './approval-policy.js'
 import type { ApprovalPort } from './approval-port.js'
@@ -25,6 +25,10 @@ import {
 } from '../../agent/session-configuration.js'
 
 export interface Case1Options {
+  readonly commands?: readonly CliCommand[]
+  readonly contextSources?: readonly ContextSource[]
+  readonly approvalOwner?: 'case1' | 'executor'
+  readonly includeToolState?: boolean
   readonly llm: Plugin
   readonly titleProvider?: LlmProviderSource
   readonly dispatcher: ToolDispatcher
@@ -53,8 +57,8 @@ function assembleCase1Agent(
   platformPlugins: readonly PluginNode[] = [],
 ) {
   const { journal, runUntilIdle } = runtime
-  const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
-  const dispatcher = applyCase1ApprovalPolicy(
+  const catalog = createCliCatalog(options.commands ?? ANDROID_TOOL_CATALOG)
+  const dispatcher = options.approvalOwner === 'executor' ? options.dispatcher : applyCase1ApprovalPolicy(
     options.dispatcher,
     options.approvalPort,
     () => projectSessionConfiguration(journal.read()).approvalMode ?? 'ask',
@@ -73,6 +77,8 @@ function assembleCase1Agent(
     boundary: boundary.plugin,
     compression: options.compression,
     appMatcher: options.appMatcher,
+    contextSources: options.contextSources,
+    includeToolState: options.includeToolState,
     catalog,
     contentSources: [shortcutSource([androidCallRule, androidFlashlightRule]), ...(options.contentSources ?? [])],
     llm: options.llm,

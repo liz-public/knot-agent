@@ -40,6 +40,16 @@ export interface WorkbenchServerOptions {
     assemblyId?: string
   }) => Promise<WorkbenchSession>
   readonly webRoot?: string
+  /** Hosted ingress selects an authenticated scope before any route or session lookup. */
+  readonly requestScope?: (request: IncomingMessage, url: URL) => Promise<{
+    readonly sessionRegistry: SessionRegistry
+    readonly createSession: NonNullable<WorkbenchServerOptions['createSession']>
+    readonly expiresAt?: number
+  }>
+}
+
+export class WorkbenchAccessError extends Error {
+  constructor(readonly status: number, readonly code: string) { super(code) }
 }
 
 const contentTypes: Readonly<Record<string, string>> = {
@@ -142,7 +152,7 @@ function providerDraft(body: Record<string, unknown>): ProviderProfileDraft {
 }
 
 export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
-  const registry = options.sessionRegistry ?? createSessionRegistry(options.sessions)
+  const defaultRegistry = options.sessionRegistry ?? createSessionRegistry(options.sessions)
   const terminals = createUserTerminals()
   const attachments = new Map<string, ReturnType<typeof createAttachmentStore>>()
   const attachmentStore = async (session: WorkbenchSession) => {
@@ -165,6 +175,9 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      const scope = await options.requestScope?.(request, url)
+      const registry = scope?.sessionRegistry ?? options.sessionRegistry ?? defaultRegistry
+      const createSession = scope?.createSession ?? options.createSession
       const encodedUpload = pathMatch(url.pathname, '/upload')
       if (request.method === 'POST' && (url.pathname === '/api/session/uploadFileBinary' || encodedUpload !== undefined)) {
         const id = encodedUpload ?? url.searchParams.get('sessionId') ?? ''
@@ -225,8 +238,11 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           response.write(`event: catalog\ndata: ${JSON.stringify({ kind: 'catalog.changed', emittedAt: new Date().toISOString() })}\n\n`)
         })
         const heartbeat = setInterval(() => response.write(': keepalive\n\n'), 15_000)
+        const expiry = scope?.expiresAt === undefined ? undefined
+          : setTimeout(() => response.end(), Math.max(0, scope.expiresAt * 1000 - Date.now()))
         request.once('close', () => {
           clearInterval(heartbeat)
+          if (expiry !== undefined) clearTimeout(expiry)
           unsubscribe()
         })
         return
@@ -361,12 +377,12 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
       }
 
       if (request.method === 'POST' && url.pathname === '/api/workbench/sessions') {
-        if (options.createSession === undefined) {
+        if (createSession === undefined) {
           sendJson(response, 405, { error: { code: 'read_only', message: 'Session creation is unavailable' } })
           return
         }
         const body = await readBody(request)
-        const session = await options.createSession({
+        const session = await createSession({
           ...(typeof body['title'] === 'string' ? { title: body['title'] } : {}),
           ...(typeof body['cwd'] === 'string' ? { cwd: body['cwd'] } : {}),
           ...(typeof body['projectId'] === 'string' ? { projectId: body['projectId'] } : {}),
@@ -510,20 +526,37 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
           })
           return
         }
+        // Claim the sole executor before opening SSE; observers never receive device commands.
+        const buffered: string[] = []
+        const unsubscribe = session.subscribe(event => {
+          const frame = `event: session\ndata: ${JSON.stringify({ ...event, emittedAt: new Date().toISOString() })}\n\n`
+          if (response.headersSent) response.write(frame)
+          else buffered.push(frame)
+        }, url.searchParams.get('deviceExecutor') === 'true')
         response.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
           'cache-control': 'no-store',
           connection: 'keep-alive',
         })
         response.write(': connected\n\n')
-        const unsubscribe = session.subscribe(event => {
-          response.write(`event: session\ndata: ${JSON.stringify({ ...event, emittedAt: new Date().toISOString() })}\n\n`)
-        })
+        for (const frame of buffered) response.write(frame)
         const heartbeat = setInterval(() => response.write(': keepalive\n\n'), 15_000)
         request.once('close', () => {
           clearInterval(heartbeat)
           unsubscribe()
         })
+        return
+      }
+
+      const deviceId = pathMatch(url.pathname, '/device-results')
+      if (request.method === 'POST' && deviceId !== undefined) {
+        const session = registry.get(deviceId)
+        const body = await readBody(request)
+        const result = body['result']
+        if (typeof body['operationId'] !== 'string' || !result || typeof result !== 'object' || Array.isArray(result)
+          || typeof (result as Record<string, unknown>)['ok'] !== 'boolean') throw new Error('Invalid device result')
+        const accepted = session?.deviceResult?.(body['operationId'], result as Record<string, unknown>) ?? false
+        sendJson(response, accepted ? 200 : 404, { accepted })
         return
       }
 
@@ -639,7 +672,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         const body = await readBody(request)
         const id = body['id']
         const value = body['value']
-        if (typeof id !== 'string' || typeof value !== 'string' || !session.respond(id, value)) {
+        if (typeof id !== 'string' || typeof value !== 'string' || !session.respond(id, value, body['cancelled'] === true)) {
           sendJson(response, 404, { error: { code: 'interaction_not_found', message: 'Interaction was not found' } })
           return
         }
@@ -649,6 +682,9 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
 
       sendJson(response, 404, { error: { code: 'not_found', message: 'Route was not found' } })
     } catch (error) {
+      if (error instanceof WorkbenchAccessError) {
+        sendJson(response, error.status, { error: { code: error.code, message: error.code } }); return
+      }
       if (error instanceof Error && 'code' in error && ['session/queue-item-not-found', 'session/steer-unavailable'].includes(String(error.code))) {
         sendJson(response, 400, { error: { code: error.code, message: error.message, details: {} } }); return
       }
@@ -670,7 +706,7 @@ export function createWorkbenchServer(options: WorkbenchServerOptions): Server {
         return
       }
       sendJson(response, 400, {
-        error: { code: 'bad_request', message: error instanceof Error ? error.message : String(error) },
+        error: { code: 'bad_request', message: options.requestScope ? 'bad_request' : error instanceof Error ? error.message : String(error) },
       })
     }
   })

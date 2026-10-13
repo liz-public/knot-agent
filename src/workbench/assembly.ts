@@ -27,7 +27,7 @@ export interface HostAskPort {
   ask(input: {
     readonly question: string
     readonly choices?: readonly string[]
-  }): Promise<{ readonly answer: string }>
+  }): Promise<{ readonly answer: string; readonly cancelled?: boolean }>
 }
 
 export interface ToolOutput {
@@ -54,6 +54,7 @@ export interface SessionRuntime {
 }
 
 export interface AssemblyInput {
+  readonly devicePort?: import('../cases/case1/device-port.js').DevicePort
   readonly cwd: string
   readonly journalPath: string
   readonly llm: LlmProviderSource

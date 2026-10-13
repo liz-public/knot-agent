@@ -6,7 +6,9 @@ import { projectSessionConfiguration, type SessionConfiguration } from '../agent
 import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
 import type { WorkbenchAssemblyDefinition } from './assembly.js'
 import { createAssemblyCatalog } from './assembly-catalog.js'
-import { case1Assembly } from './case1-assembly.js'
+import { createCase1Assembly } from './case1-assembly.js'
+import { createAdbCase1ToolRuntime, createMockCase1ToolRuntime } from '../cases/case1/tool-runtimes.js'
+import { createDeviceCase1ToolRuntime } from '../cases/case1/device-runtime.js'
 import { createCase2Assembly } from './case2-assembly.js'
 import { createWorkbenchServer } from './http-server.js'
 import { createLiveSession } from './live-session.js'
@@ -66,8 +68,13 @@ const searchProfileId = process.env['KNOT_WEB_SEARCH_PROVIDER_PROFILE_ID']
 const searchProfile = searchProfileId === undefined
   ? providerStore.list().find(profile => profile.configured && profile.createWebSearch !== undefined)
   : providerStore.get(searchProfileId)
+const toolBackend = process.env['KNOT_CASE1_TOOL_BACKEND'] ?? 'mock'
+if (!['mock', 'adb', 'device'].includes(toolBackend)) throw new Error('KNOT_CASE1_TOOL_BACKEND must be mock, adb or device')
 const assemblies = createAssemblyCatalog([
-  case1Assembly,
+  createCase1Assembly((askPort, input) => toolBackend === 'device'
+    ? createDeviceCase1ToolRuntime(input.devicePort!, undefined, askPort) : toolBackend === 'adb'
+    ? createAdbCase1ToolRuntime({ askPort, serial: process.env['KNOT_ADB_SERIAL'] })
+    : createMockCase1ToolRuntime({ askPort })),
   createCase2Assembly(searchProfile?.createWebSearch?.()),
 ])
 const runtimeProviderResolver: LlmProviderResolver = {
@@ -386,8 +393,9 @@ const server = createWorkbenchServer({
   createSession: newLiveSession,
   webRoot: process.env['KNOT_WEB_ROOT'] ?? join(process.cwd(), 'web-dsh-reference', 'dist'),
 })
-server.listen(port, '127.0.0.1', () => {
-  process.stdout.write(`Knot workbench: http://127.0.0.1:${port}\n`)
+const host = process.env['KNOT_WORKBENCH_HOST'] ?? '127.0.0.1'
+server.listen(port, host, () => {
+  process.stdout.write(`Knot workbench: http://${host}:${port} (case1 backend: ${toolBackend})\n`)
   process.stdout.write(`Sessions: ${registry.list().map(session => session.id).join(', ')}\n`)
 })
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => {

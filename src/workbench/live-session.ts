@@ -12,6 +12,7 @@ import type { PendingInput } from './session.js'
 import { randomUUID } from 'node:crypto'
 import { workbenchToolOutput } from './tool-output.js'
 import { sessionTitleView } from './session-title.js'
+import { createDeviceRequests } from './device-requests.js'
 
 export interface LiveSessionOptions {
   readonly id: string
@@ -32,6 +33,7 @@ export async function createLiveSession(
 ): Promise<WorkbenchSession> {
   const hub = createEventHub<LiveSessionEvent>()
   const interactions = createInteractionBroker(event => hub.emit(event))
+  const device = createDeviceRequests()
   const agent = await options.assembly.create({
     cwd: options.cwd,
     journalPath: options.journalPath,
@@ -40,6 +42,7 @@ export async function createLiveSession(
     toolOutput: workbenchToolOutput(event => hub.emit(event)),
     approvalPort: interactions.approval,
     askPort: interactions.ask,
+    devicePort: device.port,
     platformPlugins: [{
       plugin: journalChangePlugin(() => hub.emit({ kind: 'journal.changed' })),
       metadata: JOURNAL_CHANGE_METADATA,
@@ -119,13 +122,15 @@ export async function createLiveSession(
     ...(agent.close === undefined ? {} : { close: () => agent.close!() }),
     snapshot,
     summary: async () => (await snapshot()).session,
-    subscribe(listener) {
+    deviceResult: device.settle,
+    subscribe(listener, deviceExecutor = false) {
+      const detachDevice = deviceExecutor ? device.attach(request => listener({ kind: 'device.request', request })) : undefined
       const unsubscribe = hub.subscribe(listener)
       listener({ kind: 'interaction.snapshot', interactions: interactions.pending() })
       for (const interaction of interactions.pending()) {
         listener({ kind: 'interaction.request', interaction })
       }
-      return unsubscribe
+      return () => { detachDevice?.(); unsubscribe() }
     },
     submit(content, attachments, submission = {}) {
       if (runState === 'running' || runState === 'paused') {
@@ -167,7 +172,7 @@ export async function createLiveSession(
       agent.resume()
       setState('running')
     },
-    respond: (interactionId, value) => interactions.respond(interactionId, value),
+    respond: (interactionId, value, cancelled) => interactions.respond(interactionId, value, cancelled),
     configure: async configuration => {
       if (runState !== 'idle') throw new Error('session configuration can only change while idle')
       pendingConfiguration = {

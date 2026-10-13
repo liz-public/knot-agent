@@ -9,6 +9,27 @@ export interface ShortcutRule {
   match(query: string): ShortcutOutput | undefined
 }
 
+/** An explicit user choice, not a model routing decision or an approval. */
+export const androidSelectionRule: ShortcutRule = {
+  priority: 100,
+  match(query) {
+    const match = /^(?:select\s+([1-9]\d*)|选择第([1-9]\d*)项)$/.exec(query.trim())
+    if (!match) return undefined
+    const ordinal = Number(match[1] ?? match[2])
+    if (!Number.isSafeInteger(ordinal)) return undefined
+    return { kind: 'tool', name: 'bash', arguments: { command: `select ${ordinal}` } }
+  },
+}
+
+/** Exact user stop intent, including the native recording card button. Not approval. */
+export const androidRecordingStopRule: ShortcutRule = {
+  priority: 100,
+  match(query) {
+    const matched = /^停止录(音|屏)$/.exec(query.trim())
+    return matched ? { kind: 'tool', name: 'bash', arguments: { command: `record ${matched[1] === '音' ? 'audio' : 'screen'} stop` } } : undefined
+  },
+}
+
 export const androidCallRule: ShortcutRule = {
   priority: 110,
   match(query) {

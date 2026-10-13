@@ -47,6 +47,7 @@ export interface SessionSnapshotDto {
 }
 
 export type LiveSessionEvent =
+  | { readonly kind: 'device.request'; readonly request: import('./device-requests.js').DeviceRequest }
   | { readonly kind: 'journal.changed' }
   | { readonly kind: 'queue.changed'; readonly pendingInputs: readonly PendingInput[]; readonly queueVersion: InputQueueVersion }
   | { readonly kind: 'state.changed'; readonly runState: SessionRunState }
@@ -116,12 +117,13 @@ export interface WorkbenchSession {
   readonly id: string
   summary(): Promise<SessionSummaryDto>
   snapshot(): Promise<SessionSnapshotDto>
-  subscribe?(listener: (event: LiveSessionEvent) => void): () => void
+  subscribe?(listener: (event: LiveSessionEvent) => void, deviceExecutor?: boolean): () => void
+  deviceResult?(operationId: string, result: Record<string, unknown>): boolean
   submit?(content: string, attachments?: readonly AttachmentRef[], options?: SubmissionOptions): void
   updateQueued?(id: string, action: QueueAction): void
   pause?(): void
   resume?(): void
-  respond?(interactionId: string, value: string): boolean
+  respond?(interactionId: string, value: string, cancelled?: boolean): boolean
   configure?(configuration: SessionConfiguration): Promise<void>
   rename?(title: string): Promise<void>
   close?(): Promise<void>

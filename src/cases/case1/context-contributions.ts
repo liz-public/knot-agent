@@ -7,7 +7,7 @@ export interface AppMatch {
 
 /** Environment-neutral view used by the app matcher plugin. */
 export interface AppMatcher {
-  match(query: string): Promise<readonly AppMatch[]> | readonly AppMatch[]
+  match(query: string, context?: { readonly turnId: string }): Promise<readonly AppMatch[]> | readonly AppMatch[]
 }
 
 export interface ContextContribution {
@@ -17,12 +17,12 @@ export interface ContextContribution {
 }
 
 export type ContextSource = (
-  query: string,
+  query: string, context?: { readonly turnId: string },
 ) => Promise<ContextContribution | undefined> | ContextContribution | undefined
 
-export const appMatchSource = (matcher?: AppMatcher): ContextSource => async query => {
+export const appMatchSource = (matcher?: AppMatcher): ContextSource => async (query, context) => {
   if (matcher === undefined) return
-  const apps = await matcher.match(query)
+  const apps = await matcher.match(query, context)
   if (apps.length === 0) return
   const matchedPackages = apps.map(app => `${app.label}: ${app.packageName}`)
   return {

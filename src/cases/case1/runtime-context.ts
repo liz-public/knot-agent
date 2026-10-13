@@ -10,6 +10,7 @@ import {
 
 export interface RuntimeContextOptions {
   readonly now: () => Date
+  readonly includeToolState?: boolean
 }
 
 function activeState(events: readonly Event[]): Record<string, unknown> {
@@ -33,12 +34,12 @@ export const runtimeContextPlugin = (
     const message = event.data as UserMessage
     const contributions: ContextContribution[] = []
     for (const source of sources) {
-      const contribution = await source(message.content)
+      const contribution = await source(message.content, { turnId: message.turnId })
       if (contribution !== undefined) contributions.push(contribution)
     }
     const matchedPackages = contributions.flatMap(item => item.matchedPackages ?? [])
     const matchedCommands = contributions.flatMap(item => item.matchedCommands ?? [])
-    const state = activeState(journal.read())
+    const state = options.includeToolState === false ? {} : activeState(journal.read())
     const sections = [
       `当前时间: ${options.now().toISOString()}`,
       ...contributions.map(item => item.content).filter(Boolean),
