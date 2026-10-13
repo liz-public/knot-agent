@@ -2,6 +2,7 @@
 export interface MapApiConfig {
   readonly baseUrl: string
   readonly apiKey: string
+  readonly webKey?: string
 }
 
 export function readMapApiConfig(): MapApiConfig | undefined {
@@ -9,5 +10,6 @@ export function readMapApiConfig(): MapApiConfig | undefined {
   const apiKey = process.env['CASE1_MAP_API_KEY']?.trim()
   if (baseUrl === undefined || apiKey === undefined) return undefined
   if (baseUrl.length === 0 || apiKey.length === 0) return undefined
-  return { baseUrl: baseUrl.replace(/\/$/, ''), apiKey }
+  const webKey = process.env['CASE1_AMAP_WEB_KEY']?.trim()
+  return { baseUrl: baseUrl.replace(/\/$/, ''), apiKey, ...(webKey ? { webKey } : {}) }
 }

@@ -93,6 +93,40 @@ test('adb dial invokes CALL intent', async () => {
   assert.match(seen, /10086/)
 })
 
+test('formatted contact numbers are normalized and quoted for direct and selected dialing', async () => {
+  const commands: string[] = []
+  const executor: AdbExecutor = {
+    async shell(command) { commands.push(command); return '' },
+    async shellLines() { return ['Row: 0 display_name=测试联系人, data1=138 0013 8000'] },
+  }
+  const session = createAdbDeviceSession()
+  const bash = adbBash(executor, session, { approvalPort: { async request() { return 'allow' } } })
+  const direct = await bash.execute({ command: 'contact call 测试联系人' }, { turnId: 't', callId: 'a' })
+  await bash.execute({ command: 'contact lookup 测试联系人' }, { turnId: 't', callId: 'b' })
+  const selected = await bash.execute({ command: 'select 1' }, { turnId: 't', callId: 'c' })
+  assert.ok(commands.every(command => command.endsWith("-d 'tel:13800138000'")))
+  assert.equal(commands.length, 2)
+  assert.equal(JSON.parse(direct.content).ok, true)
+  assert.equal(JSON.parse(selected.content).ok, true)
+  assert.ok(!direct.content.includes('138'))
+})
+
+test('dial failure does not expose adb commands or contact numbers and keeps pending selection', async () => {
+  const executor: AdbExecutor = {
+    async shell(command) { throw new Error(`Command failed: adb shell ${command}`) },
+    async shellLines() { return ['Row: 0 display_name=测试联系人, data1=138 0013 8000'] },
+  }
+  const session = createAdbDeviceSession()
+  const dispatcher = createAdbDispatcher(executor, session)
+  const result = await dispatcher.dispatch({ toolId: 'contact', arguments: { sub: 'call', query: '测试联系人' }, context: { turnId: 't', callId: 'a' } })
+  assert.equal(JSON.parse(result.content).error, 'call_failed')
+  assert.ok(!result.content.includes('138'))
+  assert.ok(!result.content.includes('adb'))
+  await dispatcher.dispatch({ toolId: 'contact', arguments: { sub: 'lookup', query: '测试联系人' }, context: { turnId: 't', callId: 'b' } })
+  await dispatcher.dispatch({ toolId: 'select', arguments: { ordinal: 1 }, context: { turnId: 't', callId: 'c' } })
+  assert.equal(session.pending?.kind, 'contact')
+})
+
 test('adb ask returns answer through AskPort', async () => {
   const executor = mockExecutor({})
   const bash = adbBash(executor, createAdbDeviceSession(), {

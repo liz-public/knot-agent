@@ -70,7 +70,7 @@ export function createAdbAppIndex(executor: AdbExecutor): AppIndex {
 
   return {
     search,
-    match: search,
+    match: query => search(query),
     invalidate() { launchable = undefined },
   }
 }

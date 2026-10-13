@@ -3,6 +3,7 @@ import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
 import type { AdbDeviceSession } from '../session.js'
 import { executeMapSelect } from './navigation.js'
+import { requestDial } from '../intent-launch.js'
 
 /** Owns the shared `select` command; domains only create their pending selections. */
 export function selectionHandlers(
@@ -19,7 +20,7 @@ export function selectionHandlers(
       const picked = pending.candidates.find(item => item.ordinal_1based === ordinal)
       if (picked === undefined) return err('invalid_selection')
       if (picked.phone !== undefined) {
-        await executor.shell(`am start -a android.intent.action.CALL -d tel:${picked.phone}`)
+        if (!await requestDial(executor, picked.phone)) return err('call_failed', '系统未完成拨号请求。')
         session.pending = undefined
         return ok(
           { action: 'direct_dial', index_1based: ordinal, display_name: picked.display_name, source: 'contact' },

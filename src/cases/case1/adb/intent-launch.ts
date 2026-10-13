@@ -6,6 +6,17 @@ function launchSucceeded(output: string): boolean {
   return !/Error(?: type)?|Unable to resolve|No Activity found|Activity class .* does not exist|Exception/i.test(output)
 }
 
+/** Normalize system contact formatting; never return raw commands containing numbers to the model. */
+export async function requestDial(executor: AdbExecutor, phone: string): Promise<boolean> {
+  const normalized = phone.replace(/\s+/g, '')
+  if (!normalized) return false
+  try {
+    return await launchAction(executor, 'android.intent.action.CALL', [`-d ${shellQuote('tel:' + normalized)}`])
+  } catch {
+    return false
+  }
+}
+
 /** Launch a VIEW intent; returns false when the shell command fails. */
 export async function launchViewUri(
   executor: AdbExecutor,

@@ -1,7 +1,7 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
-import { readCachedLocation } from '../location.js'
+import { readCachedLocation, type CachedLocation } from '../location.js'
 import { fetchWeatherJson } from '../map-client.js'
 import type { MapApiConfig } from '../map-config.js'
 
@@ -36,8 +36,13 @@ export function weatherHandlers(
   executor: AdbExecutor,
   options: WeatherHandlerOptions = {},
 ): Readonly<Record<string, ToolHandler>> {
-  return {
-    async get_weather(arguments_) {
+  return { get_weather: createWeatherHandler(() => readCachedLocation(executor), options) }
+}
+
+/** Business and HTTP behavior shared by ADB and native-device execution. */
+export function createWeatherHandler(readLocation: () => Promise<CachedLocation | undefined>,
+  options: WeatherHandlerOptions = {}): ToolHandler {
+  return async arguments_ => {
       const missing = requireMapApi(options)
       if (missing !== undefined) return missing
       const modeRaw = typeof arguments_['mode'] === 'string' ? arguments_['mode'].trim().toLowerCase() : 'live'
@@ -58,7 +63,7 @@ export function weatherHandlers(
           : formatWeatherBody(body)
       }
 
-      const location = await readCachedLocation(executor)
+      const location = await readLocation()
       if (location === undefined) {
         return err('location_unavailable', '无法获取设备位置，请打开定位后重试。')
       }
@@ -69,6 +74,5 @@ export function weatherHandlers(
       return body === undefined
         ? err('weather_failed', '天气查询失败。')
         : formatWeatherBody(body)
-    },
   }
 }

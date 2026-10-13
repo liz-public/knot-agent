@@ -25,3 +25,9 @@ export function formatLocalDateTime(millis: number): string {
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
+
+export function localDateFields(date: Date): Record<string, string> {
+  const local = formatLocalDateTime(date.getTime())
+  return { local_date: local.slice(0, 10), local_time: local.slice(11),
+    time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+}

@@ -3,6 +3,7 @@ import { deleteContactByPhone, lookupContactByPhone, upsertContactByPhone } from
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
 import { parseContentRows } from '../parse.js'
+import { requestDial } from '../intent-launch.js'
 import type { AdbDeviceSession, ContactCandidate } from '../session.js'
 
 const MAX_CONTACT_CANDIDATES = 5
@@ -60,7 +61,7 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
       if (sub === 'call' && candidates.length === 1) {
         const only = candidates[0]!
         if (only.phone === undefined) return err('no_phone')
-        await executor.shell(`am start -a android.intent.action.CALL -d tel:${only.phone}`)
+        if (!await requestDial(executor, only.phone)) return err('call_failed', '系统未完成拨号请求。')
         session.pending = undefined
         return ok(
           { action: 'direct_dial', display_name: only.display_name },
@@ -78,8 +79,8 @@ export function telecomHandlers(executor: AdbExecutor, session: AdbDeviceSession
     },
     async dial(arguments_) {
       const phone = arguments_['phone']; if (typeof phone !== 'string' || phone.trim().length === 0) return err('empty_or_invalid_number')
-      const normalized = phone.replace(/\s+/g, ''); await executor.shell(`am start -a android.intent.action.CALL -d tel:${normalized}`)
-      return ok({ action: 'dial_requested', phone_number: normalized }, '已向系统发起拨号请求。')
+      if (!await requestDial(executor, phone)) return err('call_failed', '系统未完成拨号请求。')
+      return ok({ action: 'dial_requested' }, '已向系统发起拨号请求。')
     },
   }
 }

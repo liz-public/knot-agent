@@ -2,7 +2,7 @@ import type { AskPort } from '../../ask-port.js'
 import type { ToolHandler } from '../../dispatcher.js'
 import { parseAlarmRepeatWeekdays } from '../alarm.js'
 import type { AppIndex } from '../app-index.js'
-import { parseDateExpr } from '../datetime.js'
+import { localDateFields, parseDateExpr } from '../datetime.js'
 import type { AdbExecutor } from '../executor.js'
 import { err, ok } from '../json.js'
 import { shellQuote } from '../parse.js'
@@ -40,7 +40,11 @@ export function appHandlers(executor: AdbExecutor, options: AppHandlerOptions = 
       return ok({ action: 'alarm_set' }, '已向系统发起设置闹钟请求。')
     },
     async show_alarm_clocks() { await executor.shell('am start -a android.intent.action.SHOW_ALARMS'); return ok({ action: 'show_alarms_requested' }, '已向系统发起打开闹钟列表请求。') },
-    date(arguments_) { const expr = arguments_['expr']; const now = new Date(); if (typeof expr !== 'string' || expr.trim().length === 0) return ok({ iso: now.toISOString() }, '当前时间。'); const target = parseDateExpr(expr, now); return target === undefined ? err('bad_date') : ok({ expr: expr.trim(), iso: target.toISOString() }, '日期已解析。') },
-    async ask(arguments_) { if (options.askPort === undefined) return err('no_ask_port'); const question = arguments_['question']; const choices = typeof arguments_['choices'] === 'string' ? arguments_['choices'].split(',').map(item => item.trim()).filter(Boolean) : undefined; if (typeof question !== 'string') return err('empty_question'); const response = await options.askPort.ask({ question, ...(choices === undefined ? {} : { choices }) }); return ok({ answer: response.answer }, '已收到用户回答。') },
+    date(arguments_) {
+      const expr = arguments_['expr'], now = new Date()
+      const target = typeof expr === 'string' && expr.trim() ? parseDateExpr(expr, now) : now
+      return target ? ok(localDateFields(target), '日期已解析，时间为所示时区的本地时间。') : err('bad_date')
+    },
+    async ask(arguments_) { if (options.askPort === undefined) return err('no_ask_port'); const question = arguments_['question']; const choices = typeof arguments_['choices'] === 'string' ? arguments_['choices'].split(',').map(item => item.trim()).filter(Boolean) : undefined; if (typeof question !== 'string') return err('empty_question'); const response = await options.askPort.ask({ question, ...(choices === undefined ? {} : { choices }) }); return response.cancelled ? err('user_cancelled', '用户取消了回答。') : ok({ answer: response.answer }, '已收到用户回答。') },
   }
 }

@@ -275,7 +275,7 @@ export function createMockAndroidDispatcher(
         question: question.trim(),
         ...(choices === undefined ? {} : { choices }),
       })
-      return ok({ answer: response.answer }, '已收到用户回答。')
+      return response.cancelled ? err('user_cancelled', '用户取消了回答。') : ok({ answer: response.answer }, '已收到用户回答。')
     },
   })
 }

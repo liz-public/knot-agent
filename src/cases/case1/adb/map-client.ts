@@ -1,5 +1,38 @@
 import type { MapApiConfig } from './map-config.js'
 
+export interface PlaceAddress {
+  readonly province: string; readonly city: string; readonly district: string
+  readonly township: string; readonly street: string; readonly formatted_address: string
+}
+
+/** Android Location is WGS84. Convert only at the Amap boundary, never by altering native coordinates. */
+export async function reverseLocation(config: MapApiConfig | undefined, point: { latitude: number; longitude: number }):
+  Promise<{ ok: true; address: PlaceAddress } | { ok: false; error: string }> {
+  if (!config?.webKey) return { ok: false, error: 'amap_web_key_unconfigured' }
+  const get = async (path: string, params: Record<string, string>) => {
+    const url = new URL(`https://restapi.amap.com${path}`)
+    url.search = new URLSearchParams({ ...params, key: config.webKey!, output: 'JSON' }).toString()
+    const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+    if (!response.ok) throw new Error('amap_http_error')
+    return await response.json() as Record<string, any>
+  }
+  try {
+    const converted = await get('/v3/assistant/coordinate/convert', {
+      locations: `${point.longitude.toFixed(6)},${point.latitude.toFixed(6)}`, coordsys: 'gps' })
+    if (converted['status'] !== '1' || typeof converted['locations'] !== 'string') return { ok: false, error: 'coordinate_conversion_failed' }
+    const body = await get('/v3/geocode/regeo', { location: converted['locations'], extensions: 'base' })
+    if (body['status'] !== '1' || !body['regeocode']?.addressComponent) return { ok: false, error: 'reverse_geocode_failed' }
+    const reg = body['regeocode'], ac = reg.addressComponent
+    const text = (value: unknown) => typeof value === 'string' ? value : ''
+    const province = text(ac.province), city = text(ac.city) || (province.endsWith('市') ? province : '')
+    return { ok: true, address: { province, city, district: text(ac.district), township: text(ac.township),
+      street: text(ac.streetNumber?.street), formatted_address: text(reg.formatted_address) } }
+  } catch {
+    // A thrown fetch error can contain the authenticated URL. Never return its message.
+    return { ok: false, error: 'reverse_geocode_request_failed' }
+  }
+}
+
 export interface MapApiResponse {
   readonly ok: boolean
   readonly tips?: readonly Record<string, unknown>[]
@@ -22,7 +55,7 @@ export async function mapApiGet(
   params: Record<string, string>,
 ): Promise<MapApiResponse> {
   const query = Object.entries(params)
-    .filter(([, value]) => value.length > 0)
+    // An explicitly empty required field (nearby keywords) is not an omitted field.
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&')
   const url = `${config.baseUrl}${path}${query.length > 0 ? `?${query}` : ''}`
@@ -77,11 +110,16 @@ export async function fetchWeatherJson(
   config: MapApiConfig,
   params: Record<string, string>,
 ): Promise<Record<string, unknown> | undefined> {
+  return fetchMapJson(config, '/amap/weather', params)
+}
+
+export async function fetchMapJson(config: MapApiConfig, path: string,
+  params: Record<string, string>): Promise<Record<string, unknown> | undefined> {
   const query = Object.entries(params)
     .filter(([, value]) => value.length > 0)
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&')
-  const url = `${config.baseUrl}/amap/weather${query.length > 0 ? `?${query}` : ''}`
+  const url = `${config.baseUrl}${path}${query.length > 0 ? `?${query}` : ''}`
   try {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${config.apiKey}` },
