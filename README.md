@@ -256,7 +256,22 @@ CASE2 会在真实工作目录中读取、修改和执行文件，请在适当�
 
 Knot 已接入 **DSH 官方前端壳**，使用 DSH 的展示能力与 Knot Host 连接；Agent 运行、模型调用、工具执行和 Journal 推进仍由 Knot 承担，不启用 DSH 的 AgentLoop。前端依赖与许可说明见 [NOTICE](web-dsh-reference/NOTICE.md)。
 
-早期自有 Web 的[验证截图](docs/assets/knot-workbench.png)保留作历史记录，不代表当前 DSH 界面。
+**会话封面**：自选封面图，让不同会话更容易辨认；从同一份 Journal 查看配置、累计用量与任务概况，再继续对话。
+
+![会话封面：自选背景图、运行概况与模型生成构成](docs/assets/knot-session-cover.png)
+
+**上下文分析**：按模型调用查看真实输入的构成与变化，选择一次调用，继续检查当时的输入。
+
+![上下文分析：随模型调用变化的输入字符构成](docs/assets/knot-context-analysis.png)
+
+<details>
+<summary>插件与协议：查看参与者的职责、订阅与事实匹配</summary>
+
+![插件与协议：Assembly 插件职责、协议与订阅匹配统计](docs/assets/knot-plugins-protocols.png)
+
+</details>
+
+截图展示同一会话后续继续运行的状态，统计范围不同于上文的实验快照。早期自有 Web 的[验证截图](docs/assets/knot-workbench.png)也保留作历史记录。
 
 当前 Web Run 支持：
 

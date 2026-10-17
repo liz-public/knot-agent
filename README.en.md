@@ -256,7 +256,22 @@ CASE2 reads, modifies, and executes files in its working directory. Use an appro
 
 Knot connects the **official DSH frontend shell** to Knot Host. Agent execution, model calls, tools, and Journal progression remain Knot's responsibility; no DSH AgentLoop is activated. See the frontend [NOTICE](web-dsh-reference/NOTICE.md) for dependencies and attribution.
 
-An [earlier screenshot of Knot's own Web UI](docs/assets/knot-workbench.png) is retained as a historical record, not as the current DSH interface.
+**Session cover**: choose a cover image to make sessions recognizable. Review configuration, cumulative usage, and task status from the same Journal before continuing the conversation.
+
+![Session cover with a custom image, runtime overview, and model generation breakdown](docs/assets/knot-session-cover.png)
+
+**Context analysis**: see how actual model inputs change across calls, then select a call to inspect its reconstructed input.
+
+![Context analysis showing input character composition across model calls](docs/assets/knot-context-analysis.png)
+
+<details>
+<summary>Plugins and protocols: responsibilities, subscriptions, and matching facts</summary>
+
+![Assembly plugins with responsibilities, protocols, and subscription-match statistics](docs/assets/knot-plugins-protocols.png)
+
+</details>
+
+These screenshots show the same session after further use; their statistics cover more history than the experimental snapshot above. An [earlier screenshot of Knot's own Web UI](docs/assets/knot-workbench.png) is also retained as a historical record.
 
 Web Run currently supports:
 
