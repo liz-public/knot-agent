@@ -2,7 +2,7 @@
 
 Date: 2026-09-17
 
-Model: `qwen3-coder` through the configured Lingxi MAAS OpenAI-compatible endpoint. MAF and API reasoning were disabled. Credentials were supplied only through `KNOT_API_KEY` and were not stored in the repository.
+Model: `qwen3-coder` through a configured OpenAI-compatible endpoint. The provider-specific filter and API reasoning were disabled. Credentials were supplied only through `KNOT_API_KEY` and were not stored in the repository.
 
 The isolated fixture remains under the ignored local path:
 

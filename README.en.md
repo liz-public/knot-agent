@@ -1,67 +1,298 @@
 # Knot
 
-**A Journal-first agent runtime and workbench.**
+**An agent runtime and experimentation platform without a central AgentLoop.**
 
-[中文](README.md) · [Core concepts](docs/concepts.md) · [Plugin practices](docs/plugin-best-practices.md)
+Beyond a tiny Journal kernel, **capabilities are plugins**. Each plugin subscribes to events it cares about, does its job, and appends new events—or stays silent. No central loop coordinates every piece of business logic, yet the agent keeps running.
 
-Humans, models, tools, and software plugins tie facts into one append-only Journal. A plugin reacts to facts that already happened and either appends another fact or stays silent. Their assembly becomes the agent, instead of concentrating every concern in a growing AgentLoop.
+Plugins do not call one another or need their own separate business memory. Models, context, tools, approvals, storage, and platform capabilities cooperate around a shared history. The model is a participant, not a privileged center: rules, classifiers, small models, ordinary programs, and humans can all move things forward.
 
-> Knot is alpha software. CASE1, CASE2, and Web Run using the official DSH shell are executable today. Assembly authoring, Case/Eval, and export formats are not frozen public contracts. Real use takes priority over full DSH feature parity.
+That growing history is the **Journal**. It records more than what an agent did: it holds the business facts the agent runs on. Models receive context projected from it; plugins reconstruct the state they need; developers inspect execution, investigate failures, and build experiments from the same record.
 
-![Knot Workbench showing a CASE2 conversation and its Journal inspector](docs/assets/knot-workbench.png)
+**People, models, and software tie knots in a shared history. As events unfold, an agent's trajectory takes shape.**
 
-This image is retained as evidence of the earlier custom Web. See [Workbench](#workbench) and the [integration guide](web-dsh-reference/README.md) for the current DSH shell.
+> **The Journal remembers. The Agent is the trajectory.**
 
-## One model
+[中文](README.md) · [Core concepts and semantics](docs/concepts.md) · [Plugin best practices](docs/plugin-best-practices.md)
+
+> **Alpha**: Android assistant (CASE1), coding agent (CASE2), and Web Run using the official DSH frontend shell have been exercised. The focus is real usage and a better workbench; public plugin APIs and experiment capabilities are still evolving.
+
+![Plugins subscribe to existing facts and append new facts to the Journal timeline](docs/assets/journal-participants.svg)
+
+## Why another agent harness?
+
+An agent often starts as a simple loop: build context, call a model, execute tools, and feed the results back.
+
+Then come memory, approvals, permissions, compression, retries, subagents, session recovery, UI, and domain-specific behavior. More responsibilities move into the same AgentLoop. The center learns about every component, and independent changes become harder.
+
+Knot explores a different way to organize that growth.
+
+- **Flow is not hardcoded**: independent plugins react to events; the next step emerges from their responses.
+- **Business state is not scattered**: facts affecting subsequent behavior belong in the Journal, not hidden across plugin instances.
+- **Protocols replace direct calls**: a tool understands `tool.call` and produces `tool.result`. It need not know who continues afterward.
+- **Capabilities have no kernel privileges**: models, tools, guards, storage, and platform adapters all participate through assembly.
+
+Think of an organization: people act on what has happened and fulfill their own responsibilities without knowing how the whole company works. **Assemble the participants, and work moves forward.**
+
+## How an agent takes shape
+
+A typical Android assistant trajectory:
+
+```text
+user.message
+  → context.dynamic
+  → content.request
+  → llm.request
+  → llm.invoke
+  → llm.generated
+  → tool.call
+  → tool.result
+  → llm.request
+  → …
+  → assistant.message
+```
+
+It looks like an AgentLoop, but those arrows **are not in the Journal kernel**. Context reacts to a user message, a content source handles the request, tools execute calls, and flow reacts to results when more generation is needed.
 
 ```mermaid
 flowchart LR
-  H[Human]
-  M[Model]
-  T[Tools / Environment]
-  P[Software Plugins]
-  J[(Append-only Journal)]
-
-  H -->|append facts| J
-  M -->|append content / tool calls| J
-  T -->|append observations| J
-  P -->|append derived facts| J
-
-  J -->|project / subscribe| H
-  J -->|project context| M
-  J -->|trigger effects| T
-  J -->|event reactions| P
+  U[Human] <--> J[(Append-only Journal)]
+  C[Context / Flow] <--> J
+  R[Rules / Classifier] <--> J
+  M[Model / LLM] <--> J
+  T[Tools / Environment] <--> J
+  P[Storage / Platform] <--> J
 ```
+
+Participants cooperate through event protocols, not direct plugin calls. When no new events are produced, the Journal drain naturally becomes idle.
+
+### A plugin need not know another plugin exists
+
+```js
+const reply = journal => {
+  journal.subscribe('user.message', event => {
+    journal.append('assistant.message', {
+      content: `You said: ${event.data.content}`,
+    })
+  })
+}
+
+const print = journal => {
+  journal.subscribe('assistant.message', event => {
+    process.stdout.write(`${event.data.content}\n`)
+  })
+}
+```
+
+`reply` never calls `print`; `print` does not know `reply` exists. A real agent uses the same mechanism with more participants.
+
+Run the [single-file minimal example](examples/minimal.mjs):
+
+```bash
+npm install
+npm run example:minimal -- "hello"
+```
+
+### An LLM is one possible content source
+
+CASE1's content mechanism tries shortcut rules first and calls the model when no rule answers. A classifier, smaller model, or human decision can participate through the same event mechanism.
+
+Knot does not need a unique control center for model decisions. **Whoever can fulfill the responsibility can contribute the next fact.**
+
+## More than a trace
+
+A trace usually describes execution for later inspection. In Knot, **the Journal participates in execution**: plugins read history, model input is projected from it, and tool observations return to it.
 
 ```text
-Journal → Projection → Reaction → Effect → Journal
+                    ┌── Model context
+                    ├── Runtime state / Session recovery
+Append-only Journal ├── UI / Todo / Tool trajectory
+                    ├── Debug / Failure analysis
+                    └── Case / Eval / Dataset
 ```
 
-- The **Journal** is the authoritative append-only sequence of business facts.
-- A **Projection** derives model context, UI, todo state, or metrics without creating another source of truth.
-- A **Reaction** subscribes to events and decides whether to append another fact.
-- An **Effect** interacts with a model, tool, filesystem, user, or environment and records the completed observation.
-- An **Assembly** selects plugins and registration order, producing one concrete agent.
+Plugins own behavior; the Journal holds business facts. Assembly determines the participants, and history supplies the known conditions from which they continue.
 
-The kernel has no privileged business AgentLoop. Loops may exist, but they emerge from assembled event reactions and stop naturally when no reaction appends another event.
+That lets several activities share a common representation:
 
-## Why
+- **Execution and recovery**: rebuild a session's business views from recorded facts.
+- **Investigation**: inspect model inputs, tool results, and execution paths—not just final answers.
+- **Experiments**: extract a case from real history and investigate changes to a provider, rule, or assembly.
+- **Data production**: keep model inputs, human interventions, observations, and results connected.
 
-Complex agent harnesses tend to accumulate prompting, context, tools, permissions, retries, state machines, and UI behavior inside one control loop. The features work, but every change requires understanding the whole system, and failures become difficult to attribute.
+```mermaid
+flowchart TD
+  J[Same recorded history]
+  J --> A[Assembly / Model A]
+  J --> B[Assembly / Model B]
+  A --> T1[Trajectory A]
+  B --> T2[Trajectory B]
+```
 
-Knot organizes the problem differently:
+This illustrates the **experimental direction**, not a claim that arbitrary-node forks or controlled replay of all external effects are productized. See [core concepts](docs/concepts.md) for recovery, model nondeterminism, and side effects.
 
-1. Completed business facts enter the Journal.
-2. Each plugin owns one explainable reaction or effect boundary.
-3. Plugins do not call other plugin implementations; they collaborate through event protocols.
-4. Assembly owns semantic relationships, registration order, and completeness.
-5. Tests replace providers, tools, or output plugins through assembly.
+## Two very different agents, one kernel
 
-Observability, testability, replaceability, and local reasoning follow from that model. They are not extra kernel subsystems.
+The Android assistant and coding agent share the same **56-line Journal kernel**. What changes is the assembly: plugins, tools, context, and execution environment.
 
-## The entire kernel
+| | CASE1: Android assistant | CASE2: Coding agent |
+|---|---|---|
+| Workload | Frequent requests, short context, bounded actions | Long-running tasks, open workspace, many tool calls |
+| Capabilities | Intent-matched context, Bash/CLI, device execution | File editing, Shell, approvals, Todo/Goal, subagents |
+| Content sources | Rules and LLM | Long-context reasoning and successive tool use |
+| Validation | Consecutive requests on a USB-connected phone | Multi-stage development in a real repository |
 
-[`src/journal.ts`](src/journal.ts) is currently 56 lines, imports nothing, and knows nothing about models, tools, prompts, sessions, storage, trace, or UI.
+### CASE1: Android device assistant
+
+CASE1 does not put Android business logic in a central loop. The system prompt and Bash function schema stay stable; intent matching supplies relevant apps and CLI instructions for the current query. Catalog, parser, and dispatcher then route the command to a device handler.
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant J as Journal
+  participant C as Context + Flow
+  participant L as Content / LLM
+  participant T as Bash / Dispatcher
+  participant A as Android
+  U->>J: user.message
+  J->>C: user.message
+  C->>J: context.dynamic
+  J->>C: context.dynamic
+  C->>J: content.request
+  J->>L: content.request
+  L->>J: llm.generated + tool.call
+  J->>T: tool.call
+  T->>A: capability / CLI action
+  A-->>T: observation
+  T->>J: tool.result
+  J->>C: tool.result
+  C->>J: llm.request
+  J->>L: llm.request → llm.invoke
+  L->>J: llm.generated + assistant.message
+```
+
+**2026-09-25, one consecutive USB-device session:**
+
+| Metric | Result |
+|---|---:|
+| User requests / distinct CLI commands | **66 / 56** |
+| Expected tool paths reached | **65 / 66** |
+| Uncaught runtime exceptions | **0** |
+| Model generations | **133**, or 2.02 per request |
+| Input per model call | Mean **6,055 tokens**, maximum 10,638 |
+| Output per model call | Mean **27.8 tokens** |
+| Request duration, excluding deliberate waits | Mean **2.47 s**, P95 **5.09 s** |
+| Journal | **880 events / ~282 KB** |
+
+This record includes business failures: phone-number formatting, nearby search, and some ADB capabilities returned errors. Those errors became `tool.result` facts, allowing the model to explain, retry, or degrade without breaking the runtime.
+
+```bash
+npm run case1
+# After configuring a real Provider and connecting an Android device:
+npm run smoke:case1-adb
+```
+
+Without Provider environment configuration, `npm run case1` uses a mock model and mock tools and needs no API key.
+
+### CASE2: Coding agent
+
+CASE2 has a different workload: repository files, open-ended Shell commands, approvals, Ask, Todo, Goal, history compression, and persistent subagents.
+
+There is still no all-knowing coding AgentLoop. `CodingFlow` responds when another generation or a final response is needed; tools, guards, and storage remain separate. A subagent has its own Journal, model configuration, and working directory; the parent receives its result.
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant J as Parent Journal
+  participant W as Workspace Context
+  participant F as CodingFlow / Guards
+  participant L as ContextAssembler / LLM
+  participant T as Tools / Approval
+  participant S as Child Session Journal
+  U->>J: user.message
+  J->>W: first user.message
+  W->>J: context.fixed
+  J->>F: context.fixed / subsequent user.message
+  F->>J: llm.request
+  J->>L: llm.request → llm.invoke
+  L->>J: llm.generated + tool.call
+  J->>T: tool.call
+  opt spawn_agent
+    T->>S: child query
+    S-->>T: final summary
+  end
+  T->>J: tool.result
+  J->>F: tool.result
+  F->>J: llm.request
+  J->>L: llm.request → llm.invoke
+  L->>J: llm.generated
+  J->>F: candidate final response
+  F->>J: assistant.message after guards
+```
+
+**2026-09-20, a real development task:** `deepseek-flash` explored a 5G discrete-event simulator, added UE traffic and network-element capacity models, then implemented ingress flow control and periodic retries. One architecture investigation was delegated to a subagent. Tests grew from **40 to 67**, all passing.
+
+| Metric | Parent | Subagent |
+|---|---:|---:|
+| Model generations | 140 | 7 |
+| Tool calls | 145 | 15 |
+| Journal events | 783 | 47 |
+| Last model input | 151,364 tokens | 30,673 tokens |
+| JSONL size | ~1.03 MB | ~236 KB |
+
+The record demonstrates an open-ended coding workload on the same event model, while exposing practical optimization targets: context organization, tool-result budgets, and reasoning cost.
+
+```bash
+export KNOT_BASE_URL="https://example.com/v1"
+export KNOT_MODEL="model-name"
+export KNOT_API_KEY="..."
+npm run case2 -- "Inspect this project and run its tests"
+```
+
+CASE2 reads, modifies, and executes files in its working directory. Use an appropriate workspace.
+
+> These figures are historical engineering records from saved Journals and code snapshots, not standardized cross-project benchmarks. See the [CASE1 boundaries](docs/design/case1-active-boundaries.md) and [CASE2 design](docs/design/case2-coding-agent-spec.md).
+
+## Workbench: see how an agent runs
+
+Knot connects the **official DSH frontend shell** to Knot Host. Agent execution, model calls, tools, and Journal progression remain Knot's responsibility; no DSH AgentLoop is activated. See the frontend [NOTICE](web-dsh-reference/NOTICE.md) for dependencies and attribution.
+
+An [earlier screenshot of Knot's own Web UI](docs/assets/knot-workbench.png) is retained as a historical record, not as the current DSH interface.
+
+Web Run currently supports:
+
+- Session creation, selection, and recovery; streamed content, reasoning, tool calls, and results.
+- Native approval, Ask, Todo, read-only Goal, child-session navigation, and queue/steer input.
+- Files, images, workspace path references, and process tools for background commands.
+- Chat / Trajectory, raw Journal, tool analytics, context analysis, and plugins/protocols views.
+- Session Overview with configuration, usage, Todo/Goal, and a query directory.
+
+```text
+DSH Web / Client Cordis
+          ↓  projection + RPC/SSE
+       Knot Host
+          ↓
+       Assembly
+          ↓
+  Plugins ↔ Journal
+```
+
+### Quick start
+
+Requires **Node.js 22.18+**.
+
+```bash
+npm install
+npm --prefix web-dsh-reference install
+npm start
+```
+
+Open <http://127.0.0.1:4317/>, configure a DeepSeek or OpenAI-compatible Provider in **Settings → 模型 Provider**, and create a Session.
+
+Credentials saved through Settings stay in the local `.knot/` configuration. Provider responses are redacted, and keys are not written to the Journal. See the [frontend integration guide](web-dsh-reference/README.md) and [`.env.example`](.env.example).
+
+## Tiny kernel, assembled capabilities
+
+[`src/journal.ts`](src/journal.ts) is **56 lines with no imports**. It knows nothing about models, tools, prompts, sessions, approvals, or UI.
 
 ```ts
 type Event = { readonly type: string; readonly data: unknown }
@@ -75,431 +306,61 @@ interface Journal {
 }
 ```
 
-Its current guarantees are append-only facts, at-most-once invocation of each matching subscriber during a normal drain, breadth-first Journal order, serial registration order for subscribers of one event, legal zero-subscriber events, unchanged error propagation, and non-reentrant `runUntilIdle`. A thrown handler aborts that drain immediately; the kernel neither fills missed deliveries nor retries them.
+Start with three concepts:
 
-CASE1 and CASE2 use the same kernel without business-specific privileges. See [Core concepts](docs/concepts.md) for the complete model.
+- **Journal**: the shared history of business facts.
+- **Plugin**: a participant that subscribes, acts, and appends facts—or stays silent.
+- **Assembly**: the participants and their arrangement that form a particular agent.
 
-## How an agent emerges
+Projection, reaction, effects, delivery order, exception handling, state ownership, and safety have precise contracts, but need not be mastered before reading the introduction. See [concepts and semantics](docs/concepts.md).
 
-A typical CASE1 tool trajectory is shown below. CASE2 requests the LLM directly, without content-source arbitration:
+## From execution to experiments
 
-```text
-user.message
-  → context.dynamic
-  → content.request
-  → llm.request
-  → llm.generated
-  → tool.call
-  → tool.result
-  → llm.request
-  → assistant.message
-```
-
-These arrows are not a built-in workflow. Each step comes from a plugin subscription and its produced facts. Rules, small models, or static sources may replace an LLM as a content source; the model is not the only content-producing role.
-
-Plugins have no direct implementation dependencies, but business preconditions still exist. A `tool.call` needs an executor and an `llm.request` needs a provider. Protocols express relationships; Assembly is responsible for composing a set that works.
-
-## Executable evidence
-
-CASE1 and CASE2 exercise the same kernel from opposite directions. CASE1 is a
-high-frequency, short-context agent with a constrained action space. CASE2 is a
-long-horizon agent operating in an open environment through many tool calls.
-Neither receives a business-specific privilege from the 56-line Journal.
-
-| Case | Real scenario | What it exercises | Result |
-|---|---|---|---|
-| **CASE1** | Terminal-control assistant driving a USB-connected phone | dynamic tool context, one Bash entry point, a business CLI, pending candidate state, Mock/ADB dispatchers | 66 consecutive requests covered 56 CLI commands; 65/66 followed the expected route; no uncaught error |
-| **CASE2** | DeepSeek-driven coding agent | open workspace, approval and interaction, Todo/Goal guards, long tool chains, an independent Subagent Journal | completed a multi-stage extension of a 5G discrete-event simulator; all 67 tests passed |
-| **CASE3** | Planned unified assistant entry | one entry Journal routing work to persistent project or domain Journals | not implemented and excluded from the verified claims |
-
-> The following numbers come from saved Journals and the corresponding code
-> snapshots. They are engineering experiment records, not a standardized
-> cross-project benchmark. Model, language, feature scope, and counting method
-> all affect the result.
-
-### CASE1 — real terminal-control assistant
-
-CASE1 reproduces the essential behavior of comparable Android terminal
-assistants without moving an Android implementation into another AgentLoop.
-The stable system prompt and Bash function schema remain fixed. Each user query
-matches only the relevant applications and detailed CLI usages. One Catalog,
-Parser, and Dispatcher sends a command to either a Mock or ADB handler. Pending
-candidate state stays inside the tool domain and is exposed to the next turn
-through dynamic context.
-
-The main plugins each retain one responsibility:
-
-| Plugin | Subscribes → produces | Responsibility |
-|---|---|---|
-| `RuntimeContext` | `user.message` → `context.dynamic` | combine application/tool-intent matching as ordinary ContextSource functions; no `context.contribution` relay events |
-| `AgentFlow` | `context.dynamic` / `tool.result` → `content.request` / `llm.request` | advance generation without executing a model or tool |
-| `Content` + sources | `content.request` → reply / `llm.request` | one plugin selects the first matching ordinary source in assembly order |
-| `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | project model input and produce one complete decision |
-| `Tools` | `tool.call` → `tool.result` | execute the single Bash function, then route its CLI through Parser, Dispatcher, and a focused handler |
-| `CompressHistory` / `Output` | generation / reply → checkpoint / presentation | create history checkpoints and publish final output without entering orchestration |
-
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant J as Journal
-  participant C as Context plugins
-  participant F as AgentFlow
-  participant L as Content / LLM
-  participant B as Bash + Dispatcher
-  participant A as Android / ADB
-
-  U->>J: user.message
-  J->>C: match app + tool intent
-  C->>J: context.dynamic
-  J->>F: context.dynamic
-  F->>J: content.request
-  J->>L: llm.request → llm.invoke
-  L->>J: llm.generated + tool.call(bash)
-  J->>B: CLI command
-  B->>A: selected handler effect
-  A-->>B: observation / failure
-  B->>J: tool.result
-  J->>F: tool.result
-  F->>J: llm.request
-  J->>L: continue with the same turn context
-  L->>J: assistant.message
-```
-
-On 2026-09-25, one device smoke Session executed 66 consecutive user requests.
-The runner deliberately waited five seconds between requests so that the phone
-could be observed. Model latency depends on the configured API.
-
-| Metric | Result |
-|---|---:|
-| User requests / distinct CLI commands covered | 66 / 56 |
-| Requests following the expected tool route | 65 / 66; one recovery retried after a failure |
-| Uncaught runtime errors | 0 |
-| Journal events / JSONL size | 880 / about 282 KB |
-| Model generations | 133, or 2.02 per user request |
-| Input tokens per model call | mean 6,055; median 6,508; maximum 10,638 |
-| Output tokens per model call | mean 27.8; median 25 |
-| Request duration, excluding the deliberate wait | mean 2.47 s; P95 5.09 s; maximum 11.69 s |
-
-The experiment preserves failures as evidence. Contact-number formatting,
-nearby search, and several ADB capabilities produced business errors, but each
-error returned as a `tool.result`, allowing the model to explain, retry, or
-degrade without breaking the Journal drain. The final complete model input was
-still 10,638 tokens after 66 turns, so a 32K configured window did not require
-compaction. A linear estimate using 200K usable tokens suggests more than 1,300
-similar requests in one Session. Earlier experience with this dynamic-context
-strategy measured cache hit rates above 72%; that figure was not measured by
-this smoke run. The central result is that intent-matched tool instructions and
-short tool results can maintain high information density.
-
-#### CASE1 code-size snapshot
-
-Compared with modules serving similar responsibilities in a comparable agent
-product:
-
-| Scope | Knot CASE1 | Android baseline | Knot share | Size difference |
-|---|---:|---:|---:|---:|
-| Agent stack, excluding UI | 5,636 | 29,544 | 19.1% | about 5.2× smaller |
-| Tool execution, ADB + Catalog | 2,962 | 17,590 | 16.8% | about 5.9× smaller |
-| Runtime, Journal + plugins | 2,393 | about 10,653 | about 22% | about 4.5× smaller |
-| Test code | 2,012 | 21,939 | 9.2% | about 10.9× smaller |
-
-The significance of this snapshot is not language choice. It is that Catalog,
-context matching, CLI parsing, Dispatcher, and handlers each have one source of
-truth, so reproducing the same core behavior requires materially less business
-code.
-
-```bash
-npm install
-npm run case1
-```
-
-The default command uses a deterministic mock provider and Android-shaped mock
-tools, with no API key required. With an ADB device and Provider configured,
-`npm run smoke:case1-adb` replays the consecutive device smoke suite.
-
-### CASE2 — coding agent
-
-CASE2 does not define a coding state machine. `CodingFlow` advances from user
-messages and tool results, then applies Steering, Todo, and Goal guards before
-committing a final response. File operations, approval, Ask, Todo, Goal, and
-Subagent are ordinary tools. A Subagent is a persistent Session with its own
-Journal, model configuration, and workspace; its parent receives only the
-committed summary.
-
-| Plugin | Subscribes → produces | Responsibility |
-|---|---|---|
-| `WorkspaceContext` | first `user.message` → `context.fixed` | fix the workspace and root `AGENTS.md` / `CLAUDE.md` in context; reuse existing facts on restore, without automatic file-change tracking |
-| `CodingFlow` | user / fixed-context / tool / generation events → next request or reply | wait for initial fixed context, advance the task, and apply guards before committing completion |
-| `ContextAssembler` / `LLMProvider` | `llm.request` → `llm.invoke` → generated facts | project Journal facts into model input and invoke the model |
-| `Tools` | `tool.call` → `tool.result` | run read/write/edit/bash/ask/todo/goal/spawn_agent; the Host assembles search from a configured DeepSeek search source; tool policy reads committed Journal configuration |
-| `CompressHistory` | `llm.generated` → checkpoint events | create a semantic checkpoint only when the context threshold is reached |
-| `JSONL` / `Output` / `ControlledBoundary` | facts → storage / UI / pause | assemble platform behavior as plugins or Host ports |
-
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant J as Parent Journal
-  participant W as Workspace context
-  participant F as CodingFlow + Guards
-  participant L as LLM
-  participant T as Tools / Approval
-  participant S as Child Session Journal
-
-  U->>J: user.message
-  J->>W: load workspace constraints
-  W->>J: context.fixed (only when absent)
-  J->>F: context.fixed ready / subsequent user.message
-  F->>J: llm.request
-  J->>L: llm.invoke → projected messages + tool schemas
-  L->>J: reasoning + content + tool.call
-  J->>T: read / edit / bash / ask / todo / goal
-  T->>J: tool.result
-  J->>F: continue or run completion guards
-  opt delegated investigation
-    T->>S: create persistent Subagent Session
-    S->>S: independent Journal + tools + LLM
-    S-->>T: final summary
-    T->>J: spawn_agent tool.result
-  end
-  F->>J: assistant.message
-```
-
-On 2026-09-20, `deepseek-flash` inspected and incrementally extended a real 5G
-discrete-event simulation workspace. It first understood the existing DES,
-then added UE traffic models and network-element capacity specifications, and
-finally implemented ingress flow control and periodic retry. One architecture
-investigation was delegated to an independent Subagent. The test suite grew
-from 40 to 67 tests, all passing.
-
-| Metric | Parent Session | Subagent Session |
-|---|---:|---:|
-| User / steering inputs | 4 | 1 delegated task |
-| Journal events | 783 | 47 |
-| JSONL size | about 1.03 MB | about 236 KB |
-| Model generations | 140 | 7 |
-| Individual tool calls | 145 | 15 |
-| Main tool distribution | edit 84 / bash 28 / read 21 | read 13 / bash 2 |
-| Final model input | 151,364 tokens | 30,673 tokens |
-| Mean model input | 97,821 tokens | 18,819 tokens |
-| Median model output | 315 tokens | 133 tokens |
-
-The Parent Session reported 94,073 cumulative output tokens, including
-DeepSeek's long reasoning; that is not the amount of user-visible text. The run
-demonstrates that long-horizon work, parallel tools, and a persistent Subagent
-can share the same event model. It also shows that CASE2 should next optimize
-model-visible context, tool-result budgets, and reasoning cost rather than add
-more Journal-kernel behavior.
-
-#### CASE2 and Pi historical code-size snapshot
-
-These counts come from local repository snapshots. Pi's loop, harness, session,
-and product layers are different boundaries, so the table reports each instead
-of presenting any single count as the definitive comparison. The UI counts describe
-the earlier custom Web, before DSH integration, not the current total frontend size.
-Current adapter counts are listed under [Workbench](#workbench).
-
-| Scope | Knot | Pi baseline | Observation |
-|---|---:|---:|---|
-| Agent brain: orchestration + tools + persistence | about 2,572 | loop about 1,861; harness about 10,800; harness + session about 30K | Knot is about 40% larger than the loop alone, but 76%–91% smaller than the complete harness boundaries |
-| Agent brain + LLM clients | about 2,572, including OpenAI / DeepSeek | about 1,861 + 24,384 | Knot's current Provider layer is thin and supports fewer variants |
-| Runnable coding product, excluding the LLM package | about 7,372 | about 95K | about 12.9× smaller in this snapshot |
-| Web / terminal UI increment | about 1,859 | about 18K TUI | about 9.7× smaller in this snapshot; product capabilities are not identical |
-| Tests | about 8.7K | Pi agent tests 12K+ | test scopes differ; this only describes maintenance volume |
-
-Less code is not the objective and does not prove better outcomes. The more
-important signal is that CASE2 already contains real tools, persistence, Flow,
-guards, approval, Web Run, and Subagent, while each concern still has an
-independent, explainable, replaceable boundary. The reduction follows from
-lower responsibility entropy.
-
-```bash
-export KNOT_BASE_URL="https://example.com/v1"
-export KNOT_MODEL="model-name"
-export KNOT_API_KEY="..." # when required by the service
-npm run case2 -- "inspect this workspace and run its tests"
-```
-
-CASE2 can inspect, modify, and verify files in a real workspace. Its CLI uses an OpenAI-compatible provider; the mock provider is used by tests and reproducible Case assemblies. Workbench providers can be managed in the UI or loaded from the Host environment.
-
-## Workbench
-
-Two frontends currently use the same Knot Host: **the official DSH shell connected to real Workbench is the default entry**, while the earlier custom Web retains the minimal Studio Case/Run surface. They have separate browser UI preferences but can access the same persistent Sessions.
-
-### DSH shell: current Run
-
-Install once:
-
-```bash
-npm install
-npm --prefix web-dsh-reference install
-```
-
-Start in separate terminals:
-
-```bash
-# Terminal 1: Knot Host API
-npm run workbench:api
-
-# Terminal 2: DSH frontend with real Knot data
-npm run dsh-reference:dev -- --port 4178 --strictPort
-```
-
-Requires Node.js 22.18 or newer. After both installs, `npm start` builds and serves the real DSH/Workbench UI at `http://127.0.0.1:4317/`.
-No API key is required to open Settings; configure a DeepSeek or OpenAI-compatible Provider before creating a runnable Session.
-Credentials stay in local `.knot/` storage, not the Journal or frontend configuration. An optional `.env` is loaded when present; see [.env.example](.env.example).
-
-For the two-terminal development setup above, open `http://127.0.0.1:4178/`. Development and builds now default to real Workbench mode; only explicit `VITE_KNOT_DSH_MODE=fixture` selects the isolated Fixture.
-
-- create, select, and restore Sessions;
-- stream content, reasoning, tool calls, and tool output;
-- use native approval, Ask, Todo and child navigation, with read-only native Goal presentation;
-- change the next submitted model, reasoning effort and approval policy while idle;
-- use native queued follow-up or steering; edit/remove/promote pending messages before they enter Journal;
-- select/drop files, select/drop/paste images, and reference workspace paths with `@`; compatible Providers receive actual image bytes;
-- manage background commands through bounded `bash`, incremental `process.wait` and normal-termination `process.stop`;
-- use native Chat / Trajectory beside Journal, tool analytics, context analysis and plugin/protocol tabs;
-- inspect a read-only Session cover with configuration, Usage, Todo/Goal and original queries that link back to Chat.
+Sessions, Journals, model context, tool trajectories, and basic Case/Run capabilities provide a starting point for a shared development workflow:
 
 ```text
-DSH Web / Client Cordis → presentation and RPC/SSE adapter → Knot Host
-                                                               ↓
-                                                  Assembly → plugins → Journal
+Real task → Saved Journal → Observed failure
+                                  ↓
+                 Inspect context and tool results
+                                  ↓
+                  Extract a case / Change assembly
+                                  ↓
+                    Validate a new trajectory
 ```
 
-Client Cordis runs the DSH presentation layer, not Knot business plugins. No DSH Host, AgentLoop or tool execution backend is activated. B1–B5 and S1–S5 add about **2,279 lines** of owned production integration and **1,220 lines** of tests/smoke scripts (physical lines including comments/blanks, `2b7c94c` → `91f2200`; excluding official code, fixtures, lockfile and docs). Aggregate npm packages still install backend dependencies transitively; installation does not mean execution.
+The direction is not to build unrelated debugger, eval runtime, and dataset infrastructures. It is to let execution, observation, experiments, and analysis **share a common representation of facts**. Arbitrary historical forks, controlled effect replay, and full dataset evaluation remain future work.
 
-Graceful pause does not abort a process, and auto approval is not a sandbox. Attachments and queue/steer delivery are connected; unconnected fork and dynamic-plugin operations are hidden or explicitly refused. Missing usage is not zero, output rate is not decode TPS, and subscription matches are not handler executions. See the [integration and deviation guide](web-dsh-reference/README.md).
+## Current boundaries
 
-### Earlier Web and Studio
+The philosophy and implementation scope are distinct:
 
-```bash
-npm --prefix web install
-npm run web:build
-KNOT_WEB_ROOT=web/dist npm run workbench:api
-```
+- **State and the outside world**: business facts belong in the Journal; connections, processes, and caches are execution resources. Devices still own device state. Some in-memory workflow state remains to be consolidated.
+- **Recovery and experiments**: sessions can be loaded and historical model inputs rebuilt. This does not restore external systems, automatically repeat uncertain effects, or guarantee identical model answers. Full experiment comparison and Dataset Eval are not productized.
+- **Safety**: approvals are not a sandbox; pausing is not process termination. More complete failure recovery and runtime protections remain work in progress.
+- **Ecosystem**: internal `definePlugin` / `defineAssembly` serve real assemblies, but public APIs are not frozen and there is no plugin marketplace.
 
-Open `http://127.0.0.1:4317/`. Stop a Host already running in terminal 1 before using this command, to avoid a port conflict.
+## Knots and trajectories
 
-Studio retains real Assembly descriptions, Projects/Cases, Mock/real Runs, basic event assertions and observed Flow lists. Generation/Publish/Validation have been removed. There is no executable source snapshot, visual plugin editor, Dataset Eval or experiment comparison. The DSH shell has no Studio editor; further visual-composition expansion is paused.
+“Knot” comes from keeping records by tying knots. Models leave generations, tools leave observations, rules leave judgments, and people leave clarifications and decisions. They need not share implementations to continue along the same history.
 
-## Model configuration
+“Trajectory” is another favorite image, partly inspired by Falcom's *Trails in the Sky*: something happens, different characters respond from their own positions, and the world has changed when you return.
 
-Workbench currently uses Host-side Provider Profiles. Credentials are never returned to the browser or written to the Journal.
+That is the collaboration Knot explores: **no participant knows the whole story, yet their local actions can move it forward.**
 
-In the DSH shell, **Settings → 模型 Provider** supports adding, editing, testing, deleting and setting a default profile. Environment profiles are read-only. Testing requires confirmation and makes a real model request. Profiles default to local `.knot/providers.json` with `0600` permissions; Host environment can override its location. Keys are sent only when created/updated and never returned, journaled or stored in browser storage.
+**The Journal remembers. The Agent is the trajectory.**
 
-Official DeepSeek example:
+## Documentation and participation
 
-```bash
-export DEEPSEEK_API_KEY="..."
-export KNOT_DEEPSEEK_MODEL="deepseek-flash"       # optional
-export KNOT_DEEPSEEK_THINKING="enabled"           # optional
-export KNOT_DEEPSEEK_REASONING_EFFORT="high"      # optional
-npm run workbench:api
-```
-
-Generic OpenAI-compatible CASE1/CLI example:
-
-```bash
-export KNOT_BASE_URL="https://example.com/v1"
-export KNOT_API_KEY="..."
-export KNOT_MODEL="model-name"
-npm run case1
-```
-
-An empty Session has no precommitted model/approval facts. UI changes remain pending until the next `submit()` appends changed `inference.configured` / `approval.policy.configured` facts; unchanged values are not repeated. Restore uses the latest Journal configuration, or Host defaults when absent, not old descriptor configuration fields. OS keychain integration and remote multi-user deployment remain unimplemented.
-
-## Concept relationships
-
-```text
-Project
-├── Assembly / Agent definition
-│   └── plugins, tools, prompt, policies
-├── Cases
-│   ├── input, fixture, assertions, eval settings
-│   └── Runs
-└── Sessions
-    ├── Assembly identity (not a code snapshot)
-    ├── Journal
-    └── parent / child relationship
-```
-
-- **Project:** the durable development, validation, and export boundary.
-- **Assembly:** an executable agent definition.
-- **Case:** a reproducible test or experiment, not the agent itself.
-- **Session:** one Assembly execution and its Journal.
-- **Run:** the Session and evaluation evidence produced by executing a Case.
-
-Generation was an explored publishing concept, not a current feature. A Session records Assembly identity, which does not restore historical source code or replay external effects. See [Core concepts](docs/concepts.md).
-
-## Plugins and ecosystem
-
-A plugin is still the smallest possible TypeScript function:
-
-```ts
-type Plugin = (journal: Journal) => void
-```
-
-Installation is one function call. A plugin may keep private mechanical state in a closure, while business facts belong in the Journal and external state belongs to its real external owner.
-
-Knot has no marketplace. Thin internal `definePlugin` / `defineAssembly` helpers keep CASE1/CASE2 executable declarations, registration order and inspection metadata single-sourced. They are not frozen public ecosystem APIs. DSH Client plugins are presentation extensions, not Journal plugins.
-
-The expected minimum shareable unit is:
-
-```text
-implementation + metadata + focused test or Case
-```
-
-not merely code that can be loaded without evidence that its composition is correct. See [Plugin practices](docs/plugin-best-practices.md).
-
-## Proven and still under test
-
-Executable Cases currently demonstrate that:
-
-- one 56-line Journal kernel supports two materially different agents;
-- trace, JSONL, context, tools, LLMs, and guards need no kernel privilege;
-- mock and real providers can preserve the same business boundaries;
-- Web and Host connect through ports without entering the Journal kernel;
-- adding one domain plugin need not create direct dependencies in other plugins.
-
-Still to be measured publicly:
-
-- whether the current code-size snapshot holds as features grow and actually reduces long-term maintenance cost;
-- event dispatch throughput, latency, and memory;
-- context duplication, cache hit rate, and useful information density;
-- task success and path efficiency across model/Assembly combinations;
-- long-term compatibility of Assembly, Plugin, Case, and export formats.
-
-Knot does not claim to invent event queues, event sourcing, or plugins. It asks whether applying those principles rigorously to an agent harness can produce a small, explainable, executable system that moves from experiments to delivery.
-
-## Test
+- [Core concepts and semantics](docs/concepts.md)
+- [Plugin design and best practices](docs/plugin-best-practices.md)
+- [DSH frontend integration](web-dsh-reference/README.md)
+- [Workbench product model](docs/product/workbench-product-model.md)
+- [Workbench user stories](docs/product/workbench-user-stories.md)
+- [CASE1 boundaries](docs/design/case1-active-boundaries.md)
+- [CASE2 coding agent design](docs/design/case2-coding-agent-spec.md)
 
 ```bash
 npm test
 ```
 
-Tests replace real providers, tools, and output boundaries through assembly rather than maintaining a separate test runtime.
-
-## Contributing
-
-The most useful contributions currently bring evidence rather than abstraction:
-
-- a real Agent Case;
-- a Provider adapter;
-- a plugin with a focused test;
-- a reproducible context or tool failure;
-- a model/harness comparison experiment;
-- a real Workbench Run/Studio product slice.
-
-Read [`AGENTS.md`](AGENTS.md) first. Start from an end-to-end trajectory, clear responsibilities, and an observed boundary. Do not pay for a boundary that does not exist yet.
-
-## Documentation
-
-- [Core concepts and relationships](docs/concepts.md)
-- [Plugin design and practices](docs/plugin-best-practices.md)
-- [DSH integration and current boundaries](web-dsh-reference/README.md)
-- [Current Workbench product model](docs/product/workbench-product-model.md)
-- [Workbench capability ledger](docs/product/workbench-user-stories.md)
-- [Accepted CASE1 boundaries](docs/design/case1-active-boundaries.md)
-- [CASE2 coding agent design](docs/design/case2-coding-agent-spec.md)
-- [Minimal-kernel review response](docs/reviews/minimal-kernel-review-response.md)
+Contribute a real agent case, a reproducible context/tool failure, a focused plugin, or a model/assembly comparison. Read [`AGENTS.md`](AGENTS.md) first: **start from real trajectories and observed problems before adding mechanisms.**

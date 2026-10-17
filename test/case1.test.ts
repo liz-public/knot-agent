@@ -254,8 +254,8 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
         model: 'qwen3-coder',
         contextWindow: 32768,
         extraBody: {
-          model_provider: 'maas',
-          _lingxi_maf_enabled: false,
+          model_provider: 'fixture-provider',
+          _vendor_filter_enabled: false,
           reasoning: { enabled: false },
         },
       }),
@@ -266,8 +266,8 @@ test('CASE1 OpenAI provider preserves vendor fields and maps function calls', as
 
     assert.deepEqual(replies, ['已为您拨通李行素的电话。'])
     assert.equal(bodies.length, 2)
-    assert.equal(bodies[0]?.['model_provider'], 'maas')
-    assert.equal(bodies[0]?.['_lingxi_maf_enabled'], false)
+    assert.equal(bodies[0]?.['model_provider'], 'fixture-provider')
+    assert.equal(bodies[0]?.['_vendor_filter_enabled'], false)
     assert.deepEqual(bodies[0]?.['reasoning'], { enabled: false })
     assert.equal((bodies[0]?.['tools'] as unknown[]).length, 1)
     const secondMessages = bodies[1]?.['messages'] as Array<{

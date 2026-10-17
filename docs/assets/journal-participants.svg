@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title description">
+  <title id="title">Journal 记事，插件履职，响应形成轨迹</title>
+  <desc id="description">一条从左向右增长的追加式事件时间轴。上下文、输入投影、模型、流程和工具插件订阅已有事实，并将响应追加为新事实。只读插件订阅事件用于持久化和观测。虚线箭头表示订阅，实线箭头表示追加；没有插件之间的直接调用。图中展示部分订阅关系与一段简化的工具调用轨迹。</desc>
+  <defs>
+    <linearGradient id="journal-surface" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f0f5fa"/>
+      <stop offset="1" stop-color="#f7f5fc"/>
+    </linearGradient>
+    <marker id="arrow-context" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 Z" fill="#23826e"/></marker>
+    <marker id="arrow-projection" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 Z" fill="#b27922"/></marker>
+    <marker id="arrow-model" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 Z" fill="#7854bd"/></marker>
+    <marker id="arrow-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 Z" fill="#3974ab"/></marker>
+    <marker id="arrow-tools" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 Z" fill="#c36535"/></marker>
+    <marker id="arrow-neutral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 Z" fill="#597086"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif; fill: #203247; }
+      .heading { font-size: 35px; font-weight: 650; letter-spacing: 1px; }
+      .subheading { font-size: 23px; fill: #627389; }
+      .card-title { font-size: 25px; font-weight: 650; }
+      .body { font-size: 21px; fill: #52657a; }
+      .code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 21px; }
+      .label { font-size: 20px; font-weight: 550; }
+      .event { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 22px; font-weight: 550; text-anchor: middle; }
+      .subscribe { fill: none; stroke-width: 2.6; stroke-dasharray: 7 6; stroke-linecap: round; }
+      .append { fill: none; stroke-width: 3; stroke-linecap: round; }
+      .card { stroke-width: 1.2; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="900" rx="24" fill="#ffffff"/>
+  <text x="50" y="68" class="heading">Journal 记事，插件履职</text>
+  <text x="50" y="106" class="subheading">共同事实 · 独立职责 · 自然成环</text>
+  <g aria-label="箭头图例">
+    <path d="M 1030 60 H 1090" class="subscribe" stroke="#597086" marker-end="url(#arrow-neutral)"/>
+    <text x="1110" y="67" class="label">订阅事实</text>
+    <path d="M 1030 102 H 1090" class="append" stroke="#597086" marker-end="url(#arrow-neutral)"/>
+    <text x="1110" y="109" class="label">追加新事实</text>
+  </g>
+
+  <g aria-label="上下文插件">
+    <rect x="50" y="170" width="300" height="150" rx="18" class="card" fill="#eef8f3" stroke="#bedccc"/>
+    <rect x="70" y="191" width="5" height="27" rx="2" fill="#23826e"/>
+    <text x="90" y="214" class="card-title">上下文插件</text>
+    <text x="74" y="253" class="code">user.message</text>
+    <text x="74" y="289" class="body">提供本轮相关信息</text>
+  </g>
+  <g aria-label="输入投影插件">
+    <rect x="400" y="170" width="280" height="150" rx="18" class="card" fill="#fdf7ed" stroke="#e9d8b7"/>
+    <rect x="420" y="191" width="5" height="27" rx="2" fill="#b27922"/>
+    <text x="440" y="214" class="card-title">输入投影插件</text>
+    <text x="424" y="253" class="code">llm.request</text>
+    <text x="424" y="289" class="body">从 Journal 构造输入</text>
+  </g>
+  <g aria-label="模型插件">
+    <rect x="830" y="170" width="330" height="150" rx="18" class="card" fill="#f4effc" stroke="#d8cbeb"/>
+    <rect x="850" y="191" width="5" height="27" rx="2" fill="#7854bd"/>
+    <text x="870" y="214" class="card-title">模型 / 内容生成插件</text>
+    <text x="854" y="253" class="code">llm.invoke</text>
+    <text x="854" y="289" class="body">产生内容或行动决策</text>
+  </g>
+
+  <rect x="32" y="388" width="1376" height="170" rx="20" fill="url(#journal-surface)"/>
+  <path d="M 62 432 H 1380" fill="none" stroke="#27455f" stroke-width="3" marker-end="url(#arrow-neutral)"/>
+
+  <!-- Journal → plugin: read / subscribe to an existing fact. -->
+  <path d="M 110 418 C 110 365 130 368 130 324" class="subscribe" stroke="#23826e" marker-end="url(#arrow-context)"/>
+  <path d="M 440 418 V 324" class="subscribe" stroke="#b27922" marker-end="url(#arrow-projection)"/>
+  <path d="M 605 418 C 605 353 862 384 862 324" class="subscribe" stroke="#7854bd" marker-end="url(#arrow-model)"/>
+
+  <!-- Plugin → Journal: a new fact is appended, never a rewrite. -->
+  <path d="M 285 321 C 285 362 275 365 275 417" class="append" stroke="#23826e" marker-end="url(#arrow-context)"/>
+  <path d="M 627 321 C 627 364 605 369 605 417" class="append" stroke="#b27922" marker-end="url(#arrow-projection)"/>
+  <path d="M 972 321 C 972 360 770 364 770 417" class="append" stroke="#7854bd" marker-end="url(#arrow-model)"/>
+  <path d="M 1095 321 C 1095 367 935 369 935 417" class="append" stroke="#7854bd" marker-end="url(#arrow-model)"/>
+  <text x="139" y="363" class="label" style="fill:#23826e">订阅</text>
+  <text x="299" y="363" class="label" style="fill:#23826e">追加</text>
+  <text x="1375" y="340" class="label" text-anchor="end">新的事实</text>
+  <text x="1375" y="370" class="label" text-anchor="end">追加到队尾</text>
+  <path d="M 1358 381 V 414" fill="none" stroke="#597086" stroke-width="1.5"/>
+
+  <g aria-label="已追加的事件序列">
+    <circle cx="110" cy="432" r="12" fill="#e2edf9" stroke="#3974ab" stroke-width="3"/>
+    <circle cx="275" cy="432" r="12" fill="#d8eee1" stroke="#23826e" stroke-width="3"/>
+    <circle cx="440" cy="432" r="12" fill="#e2edf9" stroke="#3974ab" stroke-width="3"/>
+    <circle cx="605" cy="432" r="12" fill="#f4e6c9" stroke="#b27922" stroke-width="3"/>
+    <circle cx="770" cy="432" r="12" fill="#e8def7" stroke="#7854bd" stroke-width="3"/>
+    <circle cx="935" cy="432" r="12" fill="#e8def7" stroke="#7854bd" stroke-width="3"/>
+    <circle cx="1100" cy="432" r="12" fill="#f7e3d8" stroke="#c36535" stroke-width="3"/>
+    <circle cx="1265" cy="432" r="12" fill="#e2edf9" stroke="#3974ab" stroke-width="3"/>
+    <circle cx="1358" cy="432" r="12" fill="#ffffff" stroke="#597086" stroke-width="2.5" stroke-dasharray="4 4"/>
+    <g class="event">
+      <text x="110" y="480">user.<tspan x="110" dy="28">message</tspan></text>
+      <text x="275" y="480">context.<tspan x="275" dy="28">dynamic</tspan></text>
+      <text x="440" y="480">llm.<tspan x="440" dy="28">request</tspan></text>
+      <text x="605" y="480">llm.<tspan x="605" dy="28">invoke</tspan></text>
+      <text x="770" y="480">llm.<tspan x="770" dy="28">generated</tspan></text>
+      <text x="935" y="480">tool.<tspan x="935" dy="28">call</tspan></text>
+      <text x="1100" y="480">tool.<tspan x="1100" dy="28">result</tspan></text>
+      <text x="1265" y="480">assistant.<tspan x="1265" dy="28">message</tspan></text>
+    </g>
+    <text x="59" y="543" class="label">Journal · 追加式事件队列</text>
+    <text x="936" y="543" class="body">··· 继续生成，直到回复完成</text>
+  </g>
+
+  <!-- Lower paths begin below event labels so they do not cross the text. -->
+  <path d="M 110 558 V 616" class="subscribe" stroke="#597086" marker-end="url(#arrow-neutral)"/>
+  <path d="M 275 558 C 275 592 425 581 425 616" class="subscribe" stroke="#3974ab" marker-end="url(#arrow-flow)"/>
+  <path d="M 630 619 C 630 580 440 584 440 558" class="append" stroke="#3974ab" marker-end="url(#arrow-flow)"/>
+  <path d="M 935 558 C 935 593 1045 582 1045 616" class="subscribe" stroke="#c36535" marker-end="url(#arrow-tools)"/>
+  <path d="M 1230 619 C 1230 583 1100 592 1100 558" class="append" stroke="#c36535" marker-end="url(#arrow-tools)"/>
+  <path d="M 110 446 V 457 M 275 446 V 457 M 440 446 V 457 M 935 446 V 457 M 1100 446 V 457" fill="none" stroke="#a4b5c4" stroke-width="1.5"/>
+  <text x="128" y="597" class="label">订阅 *</text>
+  <text x="654" y="597" class="label" style="fill:#3974ab">追加</text>
+  <text x="1250" y="597" class="label" style="fill:#c36535">追加</text>
+
+  <g aria-label="只读订阅插件">
+    <rect x="50" y="620" width="240" height="155" rx="18" class="card" fill="#f3f6f9" stroke="#d5dfe8"/>
+    <text x="74" y="663" class="card-title">只读订阅插件</text>
+    <text x="74" y="702" class="body">JSONL · Trace · 统计</text>
+    <text x="74" y="739" class="body">记录或展示，不推进业务</text>
+  </g>
+  <g aria-label="流程插件">
+    <rect x="370" y="620" width="330" height="155" rx="18" class="card" fill="#eef4fb" stroke="#c9dbee"/>
+    <rect x="390" y="641" width="5" height="27" rx="2" fill="#3974ab"/>
+    <text x="410" y="663" class="card-title">流程插件</text>
+    <text x="394" y="702" class="body">上下文就绪 / 工具返回</text>
+    <text x="394" y="739" class="body">提出下一次生成请求</text>
+  </g>
+  <g aria-label="工具插件">
+    <rect x="1000" y="620" width="330" height="155" rx="18" class="card" fill="#fdf2ec" stroke="#eed2c2"/>
+    <rect x="1020" y="641" width="5" height="27" rx="2" fill="#c36535"/>
+    <text x="1040" y="663" class="card-title">工具插件</text>
+    <text x="1024" y="702" class="code">tool.call</text>
+    <text x="1024" y="739" class="body">执行行动，记录真实结果</text>
+  </g>
+
+  <path d="M 50 812 H 1390" stroke="#e5ebf1" stroke-width="1"/>
+  <text x="50" y="851" font-size="23" font-weight="600">插件之间没有直接调用；它们通过 Journal 共享事实。</text>
+  <text x="50" y="882" class="body">展示部分订阅关系。每次响应追加到当时的队尾，不修改过去；沿着这些响应，轨迹自然形成。</text>
+</svg>

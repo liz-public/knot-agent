@@ -9,6 +9,7 @@ test('all settings authorizations return an end-turn hint, not success or denial
     assert.equal(reply.ok, false)
     assert.equal(reply.error, 'system_access_required')
     assert.ok(reply.hint.includes(label))
+    assert.match(reply.hint, /当前连接的助手应用/)
     assert.match(reply.hint, /原操作尚未执行/)
     assert.match(reply.hint, /本轮结束，不要重试工具/)
   }

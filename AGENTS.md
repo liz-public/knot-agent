@@ -217,7 +217,7 @@ CASE1 的候选列表属于第一类：`contact call` 让**设备**生成并持�
   4. 每次模型输入都能从 Journal + manifest **字节一致**地重建（如果 case 有窗口）；
   5. 昂贵 provider 在前序命中时**一次都没被调用**（如果 case 有多个 provider）；
   6. 外部状态分歧后能自我纠正（如果 case 有外部有状态工具）；
-  7. 真实 provider 的厂商字段（`model_provider`、`_lingxi_maf_enabled`、`reasoning`）原样透传。
+  7. Provider 的厂商扩展字段原样透传，不在适配器中解释其业务含义；通用测试使用合成字段（如 `_vendor_filter_enabled`），不绑定特定企业服务。
 
 ---
 
