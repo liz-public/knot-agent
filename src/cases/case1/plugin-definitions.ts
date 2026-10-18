@@ -52,7 +52,7 @@ const business: readonly PluginDefinition<BuildContext>[] = [
 
 export const case1PluginDefinitions: readonly PluginDefinition<BuildContext>[] = [boundary, ...business]
 
-export function describeCase1Plugins(tools: readonly ToolDefinition[]) {
+export function describeCase1Plugins(tools: readonly Pick<ToolDefinition, 'schema'>[]) {
   return case1PluginDefinitions.map(definition => definition.metadata.id === 'tools'
     ? { metadata: definition.metadata, inspect: () => ({ tools: pluginTools(tools) }) }
     : { metadata: definition.metadata, ...(definition.inspect === undefined ? {} : { inspect: definition.inspect }) })

@@ -83,23 +83,27 @@ export function createCliCatalog(commands: readonly CliCommand[]): CliCatalog {
   }
 }
 
-export function createBashTool(catalog: CliCatalog, dispatcher: ToolDispatcher): ToolDefinition {
+export function bashToolSchema(catalog: CliCatalog): ToolDefinition['schema'] {
   const compact = catalog.commands.map(command => `${command.name}: ${command.summary}`).join('\n')
   return {
-    name: 'bash',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'bash',
-        description: `执行一条 CLI 命令。参数含空格时使用双引号。help 查看目录；help <command> 查看命令说明。可用命令：\n${compact}`,
-        parameters: {
-          type: 'object',
-          properties: { command: { type: 'string', description: '一条 CLI 命令。' } },
-          required: ['command'],
-          additionalProperties: false,
-        },
+    type: 'function',
+    function: {
+      name: 'bash',
+      description: `执行一条 CLI 命令。参数含空格时使用双引号。help 查看目录；help <command> 查看命令说明。可用命令：\n${compact}`,
+      parameters: {
+        type: 'object',
+        properties: { command: { type: 'string', description: '一条 CLI 命令。' } },
+        required: ['command'],
+        additionalProperties: false,
       },
     },
+  }
+}
+
+export function createBashTool(catalog: CliCatalog, dispatcher: ToolDispatcher): ToolDefinition {
+  return {
+    name: 'bash',
+    schema: bashToolSchema(catalog),
     async execute(arguments_, context) {
       const input = arguments_['command']
       if (typeof input !== 'string') return failure('invalid_command', 'command 必须是字符串。')

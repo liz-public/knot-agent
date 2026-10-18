@@ -1,7 +1,6 @@
 import { ANDROID_TOOL_CATALOG } from '../cases/case1/android-tool-catalog.js'
 import { createPersistentCase1Agent } from '../cases/case1/case1.js'
-import { createBashTool, createCliCatalog } from '../cases/case1/cli.js'
-import { createToolDispatcher } from '../cases/case1/dispatcher.js'
+import { bashToolSchema, createCliCatalog } from '../cases/case1/cli.js'
 import { llmPlugin } from '../agent/plugins/llm.js'
 import { describeCase1Plugins } from '../cases/case1/plugin-definitions.js'
 import { createMockCase1ToolRuntime, type Case1ToolRuntime } from '../cases/case1/tool-runtimes.js'
@@ -14,7 +13,7 @@ import { JOURNAL_CHANGE_METADATA } from './journal-bridge.js'
 import { SESSION_TITLE_METADATA } from '../agent/plugins/session-title.js'
 
 const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
-const bash = createBashTool(catalog, createToolDispatcher({}))
+const bash = { schema: bashToolSchema(catalog) }
 
 function pluginsFor() {
   const definitions = describeCase1Plugins([bash])
