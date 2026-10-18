@@ -6,6 +6,7 @@ import { createCliCatalog } from '../src/cases/case1/cli.js'
 import { DEVICE_RECORDING_COMMAND } from '../src/cases/case1/device-recording-handlers.js'
 import { createToolDispatcher } from '../src/cases/case1/dispatcher.js'
 import { mockLlmPlugin } from '../src/cases/case1/llm-mock.js'
+import { androidCallRule } from '../src/cases/case1/shortcuts.js'
 test('passive context excludes unknown data and never labels boot steps as today', () => {
   assert.deepEqual(deviceContextFacts({ health: { unavailable: 'permission_required' }, environment: { steps_since_boot: { value: 9000 } } }), [])
   assert.deepEqual(deviceContextFacts({ device: { battery: { percent: 16, status: 2 } }, health: { today_steps: 0 } }), ['电量16%（偏低），正在充电', '健康记录今日步数0'])
@@ -36,4 +37,10 @@ test('assembly puts native background into the first request context and support
   const registry = JSON.stringify(observed.find(event => event.type === 'tool.registry')!.data)
   assert.match(registry, /record:/)
   assert.doesNotMatch(registry, /confirm|cancel/)
+})
+
+test('call shortcuts reject references with or without a screen, but retain names and numbers', () => {
+  for (const target of ['这个人','那个人','他','她','对方','这个联系人','这位','那个号码','这家店','刚才那个人','屏幕上的这个人','页面中的这个号码'])
+    assert.equal(androidCallRule.match(`给${target}打电话`), undefined, target)
+  for (const target of ['张三','李哲','爸爸','13800138000']) assert.ok(androidCallRule.match(`给${target}打电话`), target)
 })

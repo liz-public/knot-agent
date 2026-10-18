@@ -38,6 +38,8 @@ export const androidCallRule: ShortcutRule = {
     )
     const name = matched?.[1]?.trim()
     if (name === undefined || name.length === 0) return undefined
+    // 指代不是联系人检索词；无论是否有屏幕材料，都交给正常模型处理。
+    if (/^(?:(?:刚才|刚刚)的?|(?:屏幕|页面|图片|照片|图)(?:上|里|中)?的?)?(?:[这那](?:个|位|家)?(?:人|联系人|号码|手机号|店|商家|餐厅|公司|同事|朋友)?|他|她|对方|我|自己)$/.test(name)) return undefined
     return {
       kind: 'tool',
       name: 'bash',
