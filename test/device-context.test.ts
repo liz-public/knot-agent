@@ -3,7 +3,7 @@ import test from 'node:test'
 import { deviceContextFacts, deviceContextSource } from '../src/cases/case1/device-context.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
 import { createCliCatalog } from '../src/cases/case1/cli.js'
-import { DEVICE_RECORDING_COMMAND } from '../src/cases/case1/device-recording-handlers.js'
+import { ANDROID_TOOL_CATALOG } from '../src/cases/case1/android-tool-catalog.js'
 import { createToolDispatcher } from '../src/cases/case1/dispatcher.js'
 import { mockLlmPlugin } from '../src/cases/case1/llm-mock.js'
 import { androidCallRule } from '../src/cases/case1/shortcuts.js'
@@ -25,9 +25,9 @@ test('unavailable passive context does not invent a background fact', async () =
   const source = deviceContextSource({ async request() { return { ok: false, error: 'permission_denied' } } })
   assert.equal(await source('query', { turnId: 'turn' }), undefined)
 })
-test('assembly puts native background into the first request context and supports explicit catalog', async () => {
+test('assembly puts native background into the first request context and uses the shared catalog', async () => {
   const observed: { type: string; data: unknown }[] = []
-  const agent = createCase1Agent({ commands: [DEVICE_RECORDING_COMMAND], dispatcher: createToolDispatcher({}),
+  const agent = createCase1Agent({ dispatcher: createToolDispatcher({}),
     llm: mockLlmPlugin(), trace: event => observed.push(event),
     contextSources: [deviceContextSource({ async request() { return { ok: true, device: { battery: { percent: 16 } } } } })],
   })

@@ -1,5 +1,5 @@
 import type { ToolExecution } from './tools.js'
-import type { ApprovalPort } from './approval-port.js'
+import type { ApprovalPort } from '../../agent/interactions.js'
 import { calculate } from './calculate.js'
 
 export interface DispatchRequest {

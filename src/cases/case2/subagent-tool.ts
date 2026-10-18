@@ -9,33 +9,35 @@ export interface SubagentFactory {
   }): Promise<{ summary: string; sessionId?: string }>
 }
 
+export const SPAWN_AGENT_SCHEMA = {
+  type: 'function',
+  function: {
+    name: 'spawn_agent',
+    description: 'Run one focused task in an independent child agent and wait for its summary.',
+    parameters: {
+      type: 'object',
+      properties: {
+        task: { type: 'string' },
+        model: {
+          type: 'string',
+          description: 'Optional configured model name or provider profile id. Omit to inherit the parent model.',
+        },
+        reasoningEffort: {
+          type: 'string',
+          enum: ['none', 'low', 'high', 'max'],
+          description: 'Optional reasoning effort. Omit to inherit the parent session.',
+        },
+      },
+      required: ['task'],
+      additionalProperties: false,
+    },
+  },
+}
+
 export function spawnAgentTool(cwd: string, factory: SubagentFactory): ToolDefinition {
   return {
     name: 'spawn_agent',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'spawn_agent',
-        description: 'Run one focused task in an independent child agent and wait for its summary.',
-        parameters: {
-          type: 'object',
-          properties: {
-            task: { type: 'string' },
-            model: {
-              type: 'string',
-              description: 'Optional configured model name or provider profile id. Omit to inherit the parent model.',
-            },
-            reasoningEffort: {
-              type: 'string',
-              enum: ['none', 'low', 'high', 'max'],
-              description: 'Optional reasoning effort. Omit to inherit the parent session.',
-            },
-          },
-          required: ['task'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: SPAWN_AGENT_SCHEMA,
     async execute(arguments_) {
       const task = arguments_['task']
       const model = arguments_['model']

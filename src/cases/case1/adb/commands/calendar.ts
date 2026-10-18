@@ -1,7 +1,7 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import { deleteCalendarEvent, listCalendarEvents, upsertCalendarEvent } from '../calendar.js'
 import type { AdbExecutor } from '../executor.js'
-import { err } from '../json.js'
+import { err } from '../../tool-result.js'
 
 export function calendarHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {
   return {

@@ -4,12 +4,12 @@ import { JSONL_LOAD, JSONL_STORE_METADATA, jsonlLoadPlugin, jsonlStorePlugin } f
 import { controlledEventBoundary } from '../../plugins/controlled-boundary.js'
 import type { CompressHistoryOptions } from '../../agent/plugins/compress-history.js'
 import { ANDROID_TOOL_CATALOG } from './android-tool-catalog.js'
-import { createBashTool, createCliCatalog, type CliCommand } from './cli.js'
+import { createBashTool, createCliCatalog } from './cli.js'
 import type { ContentSource } from './content.js'
 import type { AppMatcher, ContextSource } from './context-contributions.js'
 import type { ToolDispatcher } from './dispatcher.js'
 import { applyCase1ApprovalPolicy } from './approval-policy.js'
-import type { ApprovalPort } from './approval-port.js'
+import type { ApprovalPort } from '../../agent/interactions.js'
 import type { OutputSinks } from '../../agent/plugins/output.js'
 import { buildCase1PluginNodes } from './plugin-definitions.js'
 import { SESSION_START, USER_MESSAGE } from './protocol.js'
@@ -25,7 +25,6 @@ import {
 } from '../../agent/session-configuration.js'
 
 export interface Case1Options {
-  readonly commands?: readonly CliCommand[]
   readonly contextSources?: readonly ContextSource[]
   readonly approvalOwner?: 'case1' | 'executor'
   readonly includeToolState?: boolean
@@ -57,7 +56,7 @@ function assembleCase1Agent(
   platformPlugins: readonly PluginNode[] = [],
 ) {
   const { journal, runUntilIdle } = runtime
-  const catalog = createCliCatalog(options.commands ?? ANDROID_TOOL_CATALOG)
+  const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
   const dispatcher = options.approvalOwner === 'executor' ? options.dispatcher : applyCase1ApprovalPolicy(
     options.dispatcher,
     options.approvalPort,
@@ -91,11 +90,16 @@ function assembleCase1Agent(
   }])])
   for (const node of nodes) node.plugin(journal)
 
+  // All entry operations share this drain; only the assembly owns delivery.
+  function drainPending(): Promise<void> {
+    return drain ??= runUntilIdle().finally(() => { drain = undefined })
+  }
+
   async function start(): Promise<void> {
-    if (started) return
+    if (started) { await drain; return }
     started = true
     journal.append(SESSION_START, {})
-    await runUntilIdle()
+    await drainPending()
   }
 
   function nextTurnId(prefix: 'turn' | 'steer'): string {
@@ -110,20 +114,19 @@ function assembleCase1Agent(
 
   async function submit(content: string, configuration?: SessionConfiguration, attachments?: readonly AttachmentRef[]): Promise<void> {
     if (running) throw new Error('CASE1 agent is already running')
-    await start()
     running = true
-    if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
-    const first = turnIds.size === 0
-    const turnId = nextTurnId('turn')
-    journal.append(USER_MESSAGE, { turnId, content, ...(attachments?.length ? { attachments } : {}) })
-    if (first && options.titleProvider !== undefined && projectSessionTitle(journal.read()) === undefined) {
-      journal.append(TITLE_REQUEST, { turnId })
-    }
     try {
-      drain = runUntilIdle()
       await drain
+      await start()
+      if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
+      const first = turnIds.size === 0
+      const turnId = nextTurnId('turn')
+      journal.append(USER_MESSAGE, { turnId, content, ...(attachments?.length ? { attachments } : {}) })
+      if (first && options.titleProvider !== undefined && projectSessionTitle(journal.read()) === undefined) {
+        journal.append(TITLE_REQUEST, { turnId })
+      }
+      await drainPending()
     } finally {
-      drain = undefined
       running = false
     }
   }
@@ -139,7 +142,7 @@ function assembleCase1Agent(
     submit,
     async rename(title: string) {
       journal.append(SESSION_TITLE_CONFIGURED, { title, source: 'user' })
-      await (drain ?? runUntilIdle())
+      await drainPending()
     },
     steer,
     pause: () => { if (running) boundary.control.pause() },

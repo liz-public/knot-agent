@@ -7,7 +7,7 @@ import {
 import { contentSearchTarget, isContentSearchProvider } from '../content-deeplinks.js'
 import type { AdbExecutor } from '../executor.js'
 import { launchViewUri } from '../intent-launch.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { isPackageInstalled } from '../packages.js'
 
 export function discoveryHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {

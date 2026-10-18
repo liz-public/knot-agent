@@ -61,7 +61,7 @@ test('catalog covers all P0 and P1 CLI commands', () => {
   const names = new Set(ANDROID_TOOL_CATALOG.map(item => item.name))
   for (const name of expected) assert.ok(names.has(name), `missing catalog command: ${name}`)
   assert.equal(expected.length, 54)
-  assert.equal(ANDROID_TOOL_CATALOG.length, 58) // Includes cloud arithmetic.
+  assert.equal(ANDROID_TOOL_CATALOG.length, 59) // Includes cloud arithmetic.
 })
 
 test('the shared binder maps representative commands without business coercion', () => {

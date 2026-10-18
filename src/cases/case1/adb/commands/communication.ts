@@ -1,7 +1,7 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import { queryCallLog } from '../call-log.js'
 import type { AdbExecutor } from '../executor.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { parseContentRows, shellQuote } from '../parse.js'
 
 export function communicationHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {

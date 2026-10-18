@@ -1,7 +1,5 @@
 import { createPersistentCase2Agent } from '../cases/case2/case2.js'
-import { case2PluginDefinitions } from '../cases/case2/plugin-definitions.js'
-import { case2ToolDefinitions } from '../cases/case2/tool-definitions.js'
-import { pluginTools } from '../assembly-definition.js'
+import { case2PluginDefinitions, describeCase2Tools } from '../cases/case2/plugin-definitions.js'
 import type { WebSearchProvider } from '../agent/providers/deepseek-search.js'
 import type { PermissionPolicy } from '../cases/case2/tool-interaction.js'
 import { JSONL_STORE_METADATA } from '../plugins/jsonl.js'
@@ -23,11 +21,7 @@ export function createCase2Assembly(webSearch?: WebSearchProvider) {
   const definitions = webSearch === undefined ? case2PluginDefinitions : case2PluginDefinitions.map(definition =>
     definition.metadata.id !== 'tools' ? definition : {
       ...definition,
-      inspect: () => ({ tools: pluginTools(case2ToolDefinitions({
-        cwd: '/', webSearch,
-        askPort: { ask: async () => ({ answer: '' }) },
-        subagentFactory: { run: async () => ({ summary: '' }) },
-      })) }),
+      inspect: () => ({ tools: describeCase2Tools(true) }),
     })
   const plugins = [
     definitions[0]!,
@@ -46,7 +40,7 @@ export function createCase2Assembly(webSearch?: WebSearchProvider) {
       journalPath: input.journalPath,
       llm: input.llm,
       titleProvider: input.llm,
-      liveOutput: { open: meta => input.liveOutput.open(meta) },
+      liveOutput: input.liveOutput,
       toolOutput: input.toolOutput,
       output: { content: () => undefined },
       permissionPolicy: defaultPermissionPolicy,

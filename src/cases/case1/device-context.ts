@@ -1,4 +1,4 @@
-import type { DevicePort } from './device-port.js'
+import type { DevicePort } from '../../device/port.js'
 import type { ContextSource } from './context-contributions.js'
 
 /** Passive context contribution, not a model-selected tool. No inferred actions or permissions. */

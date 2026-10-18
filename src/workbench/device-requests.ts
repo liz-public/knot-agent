@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { DevicePort } from '../cases/case1/device-port.js'
+import type { DevicePort } from '../device/port.js'
 
 export interface DeviceRequest {
   readonly operationId: string

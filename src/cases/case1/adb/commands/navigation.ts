@@ -1,6 +1,6 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import type { AdbExecutor } from '../executor.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import type { ToolExecution } from '../../tools.js'
 import { readCachedLocation } from '../location.js'
 import type { MapApiConfig } from '../map-config.js'

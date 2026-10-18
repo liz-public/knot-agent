@@ -1,6 +1,6 @@
 import type { AdbExecutor } from './executor.js'
 import { formatLocalDateTime, parseDateExpr, startOfLocalDay } from './datetime.js'
-import { err, ok } from './json.js'
+import { err, ok } from '../tool-result.js'
 import { parseContentRows, shellQuote } from './parse.js'
 
 async function writableCalendarId(executor: AdbExecutor): Promise<string | undefined> {

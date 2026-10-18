@@ -1,11 +1,11 @@
-import type { DevicePort } from './device-port.js'
+import type { DevicePort } from '../../device/port.js'
 import type { ToolHandler } from './dispatcher.js'
 import type { MapApiConfig } from './adb/map-config.js'
 import { searchInputTips, searchNearby } from './adb/map-client.js'
 import { createAmapDirectNavUri, createAmapRouteUri, createAmapShowOnMapUri, enrichTipsWithDistance,
   filterInputTips, formatLonLat, llmPlacesSummary, normalizeTravelMode, POI_TYPE_TO_CODE } from './adb/map-geo.js'
 import type { MapPlaceTip } from './adb/session.js'
-import { err, ok } from './adb/json.js'
+import { err, ok } from './tool-result.js'
 import { deviceResult } from './device-result.js'
 
 /** Cloud owns map search and URI configuration; the device owns the actionable list. */

@@ -1,7 +1,7 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import { deleteContactByPhone, lookupContactByPhone, upsertContactByPhone } from '../contacts.js'
 import type { AdbExecutor } from '../executor.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { parseContentRows } from '../parse.js'
 import { requestDial } from '../intent-launch.js'
 import type { AdbDeviceSession, ContactCandidate } from '../session.js'

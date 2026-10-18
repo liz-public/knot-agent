@@ -1,5 +1,5 @@
 import type { ToolExecution } from './tools.js'
-import { err, ok } from './adb/json.js'
+import { err, ok } from './tool-result.js'
 
 /** One projection of a native outcome into a business tool result. Native arguments never leak by default. */
 export function deviceResult(result: Record<string, unknown>, value: Record<string, unknown>, hint: string): ToolExecution {

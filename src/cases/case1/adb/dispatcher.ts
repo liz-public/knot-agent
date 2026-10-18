@@ -1,4 +1,4 @@
-import type { AskPort } from '../ask-port.js'
+import type { AskPort } from '../../../agent/interactions.js'
 import { createToolDispatcher, type ToolDispatcher } from '../dispatcher.js'
 import type { AppIndex } from './app-index.js'
 import { appHandlers } from './commands/apps.js'

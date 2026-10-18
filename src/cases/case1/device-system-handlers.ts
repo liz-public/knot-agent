@@ -1,8 +1,8 @@
-import type { DevicePort } from './device-port.js'
+import type { DevicePort } from '../../device/port.js'
 import type { ToolHandler } from './dispatcher.js'
 import { deviceResult } from './device-result.js'
 import { parseDeviceStatusFields, unknownDeviceStatusFields } from './adb/device-status.js'
-import { err, ok } from './adb/json.js'
+import { err, ok } from './tool-result.js'
 
 /** CLI decoding is cloud business; Android receives typed native parameters and reports observed values. */
 export function deviceSystemHandlers(port: DevicePort): Readonly<Record<string, ToolHandler>> {

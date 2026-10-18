@@ -1,6 +1,6 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import type { AdbExecutor } from '../executor.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { extractScreenText } from '../screen-xml.js'
 
 export function screenHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {

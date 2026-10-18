@@ -83,26 +83,63 @@ function result(data: Record<string, unknown>): ToolExecution {
   return { content: JSON.stringify(data) }
 }
 
+export const CODING_TOOL_SCHEMAS = {
+  read: {
+    type: 'function',
+    function: {
+      name: 'read',
+      description: 'Read a UTF-8 text file from the workspace. Returns at most 2000 lines or 50 KiB; use offset and limit to continue.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          offset: { type: 'integer', minimum: 1, description: '1-based first line to read.' },
+          limit: { type: 'integer', minimum: 1, description: 'Maximum lines to read.' },
+        },
+        required: ['path'],
+        additionalProperties: false,
+      },
+    },
+  },
+  write: {
+    type: 'function',
+    function: {
+      name: 'write',
+      description: 'Create or replace a UTF-8 text file in the workspace.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string' },
+        },
+        required: ['path', 'content'],
+        additionalProperties: false,
+      },
+    },
+  },
+  edit: {
+    type: 'function',
+    function: {
+      name: 'edit',
+      description: 'Replace one exact, unique text occurrence in a workspace file.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          oldText: { type: 'string' },
+          newText: { type: 'string' },
+        },
+        required: ['path', 'oldText', 'newText'],
+        additionalProperties: false,
+      },
+    },
+  }
+}
+
 export function codingTools(cwd: string, output?: ToolOutput, processes: CommandProcesses = createCommandProcesses(cwd, output)): readonly ToolDefinition[] {
   const read: ToolDefinition = {
     name: 'read',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'read',
-        description: 'Read a UTF-8 text file from the workspace. Returns at most 2000 lines or 50 KiB; use offset and limit to continue.',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string' },
-            offset: { type: 'integer', minimum: 1, description: '1-based first line to read.' },
-            limit: { type: 'integer', minimum: 1, description: 'Maximum lines to read.' },
-          },
-          required: ['path'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: CODING_TOOL_SCHEMAS.read,
     async execute(arguments_) {
       const path = textArgument(arguments_, 'path')
       const offset = positiveIntegerArgument(arguments_, 'offset')
@@ -115,22 +152,7 @@ export function codingTools(cwd: string, output?: ToolOutput, processes: Command
 
   const write: ToolDefinition = {
     name: 'write',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'write',
-        description: 'Create or replace a UTF-8 text file in the workspace.',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string' },
-            content: { type: 'string' },
-          },
-          required: ['path', 'content'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: CODING_TOOL_SCHEMAS.write,
     async execute(arguments_) {
       const path = textArgument(arguments_, 'path')
       const content = textArgument(arguments_, 'content')
@@ -143,23 +165,7 @@ export function codingTools(cwd: string, output?: ToolOutput, processes: Command
 
   const edit: ToolDefinition = {
     name: 'edit',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'edit',
-        description: 'Replace one exact, unique text occurrence in a workspace file.',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string' },
-            oldText: { type: 'string' },
-            newText: { type: 'string' },
-          },
-          required: ['path', 'oldText', 'newText'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: CODING_TOOL_SCHEMAS.edit,
     async execute(arguments_) {
       const path = textArgument(arguments_, 'path')
       const oldText = textArgument(arguments_, 'oldText')

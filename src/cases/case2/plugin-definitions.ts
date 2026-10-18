@@ -13,7 +13,13 @@ import { outputPlugin, type OutputSinks } from '../../agent/plugins/output.js'
 import { toolsPlugin, type ToolDefinition } from '../../agent/plugins/tools.js'
 import { codingFlowPlugin } from './coding-flow.js'
 import { CASE2_SYSTEM_PROMPT, codingSystemPromptPlugin } from './system-prompt.js'
-import { case2ToolDefinitions } from './tool-definitions.js'
+import { ASK_SCHEMA } from './tool-interaction.js'
+import { SPAWN_AGENT_SCHEMA } from './subagent-tool.js'
+import { WEB_SEARCH_SCHEMA } from '../../agent/tools/web-search.js'
+import { CODING_TOOL_SCHEMAS } from './coding-tools.js'
+import { COMMAND_TOOL_SCHEMAS } from './command-tools.js'
+import { TODO_SCHEMA } from './todo-tool.js'
+import { GOAL_SCHEMA } from './goal-tool.js'
 import { workspaceContextPlugin } from './workspace-context.js'
 
 interface BuildContext {
@@ -31,11 +37,17 @@ const boundary = definePlugin<BuildContext>({
   create: context => context.boundary,
 })
 
-const describedTools = pluginTools(case2ToolDefinitions({
-  cwd: '/',
-  askPort: { ask: async () => ({ answer: '' }) },
-  subagentFactory: { run: async () => ({ summary: '' }) },
-}))
+// Catalog describes optional capabilities; each Session's tool.registry records its bound set.
+export function describeCase2Tools(webSearch = false) {
+  return pluginTools([
+    ...Object.values(CODING_TOOL_SCHEMAS).map(schema => ({ schema })),
+    ...Object.values(COMMAND_TOOL_SCHEMAS).map(schema => ({ schema })),
+    { schema: TODO_SCHEMA }, { schema: GOAL_SCHEMA },
+    { schema: SPAWN_AGENT_SCHEMA },
+    ...(webSearch ? [{ schema: WEB_SEARCH_SCHEMA }] : []),
+    { schema: ASK_SCHEMA },
+  ])
+}
 
 const business: readonly PluginDefinition<BuildContext>[] = [
   definePlugin({ metadata: { id: 'system-prompt', name: 'CodingSystemPrompt', category: 'context', responsibility: 'Install the stable coding instruction once.', listens: ['session.start'], emits: ['system.prompt'], source: 'src/cases/case2/system-prompt.ts' }, create: () => codingSystemPromptPlugin(CASE2_SYSTEM_PROMPT), inspect: () => ({ systemPrompts: [CASE2_SYSTEM_PROMPT] }) }),
@@ -44,7 +56,7 @@ const business: readonly PluginDefinition<BuildContext>[] = [
   { metadata: { id: 'coding-flow', name: 'CodingFlow', category: 'flow', responsibility: 'Advance a coding turn after stable context is ready and guard completion.', listens: ['user.message', 'context.fixed', 'tool.result', 'llm.generated'], emits: ['llm.request', 'assistant.message'], source: 'src/cases/case2/coding-flow.ts' }, create: () => codingFlowPlugin() },
   { metadata: { id: 'context-assembler', name: 'ContextAssembler', category: 'content', responsibility: 'Project Journal facts into a provider-neutral request.', listens: ['llm.request'], emits: ['history.compress.request', 'llm.invoke'], source: 'src/agent/plugins/context-assembler.ts' }, create: () => contextAssemblerPlugin() },
   { metadata: { id: 'llm', name: 'LLMProvider', category: 'content', responsibility: 'Produce one complete model decision.', listens: ['llm.invoke'], emits: ['llm.generated', 'assistant.reasoning', 'tool.call'], source: 'src/agent/plugins/llm.ts' }, create: context => llmPlugin(context.llm, context.liveOutput, { commitAssistantMessage: false }) },
-  definePlugin({ metadata: { id: 'tools', name: 'Tools', category: 'effect', responsibility: 'Register the current tool set at a turn boundary and execute tool-call batches.', listens: ['session.start', 'user.message', 'tool.call'], emits: ['tool.registry', 'tool.result'], source: 'src/agent/plugins/tools.ts' }, create: context => toolsPlugin(context.tools), inspect: () => ({ tools: describedTools }) }),
+  definePlugin({ metadata: { id: 'tools', name: 'Tools', category: 'effect', responsibility: 'Register the current tool set at a turn boundary and execute tool-call batches.', listens: ['session.start', 'user.message', 'tool.call'], emits: ['tool.registry', 'tool.result'], source: 'src/agent/plugins/tools.ts' }, create: context => toolsPlugin(context.tools), inspect: () => ({ tools: describeCase2Tools() }) }),
   { metadata: { id: 'output', name: 'Output', category: 'presentation', responsibility: 'Publish committed assistant replies.', listens: ['assistant.reasoning', 'assistant.message'], emits: [], source: 'src/agent/plugins/output.ts' }, create: context => outputPlugin(context.output ?? { content: () => undefined }) },
 ]
 

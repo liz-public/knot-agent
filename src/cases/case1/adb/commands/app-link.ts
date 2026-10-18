@@ -1,7 +1,7 @@
 import type { ToolExecution } from '../../tools.js'
 import type { AdbExecutor } from '../executor.js'
 import { launchViewUri } from '../intent-launch.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { isPackageInstalled } from '../packages.js'
 
 export async function openInstalledApp(

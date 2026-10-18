@@ -26,36 +26,38 @@ function parseTodos(value: unknown): readonly TodoItem[] {
   })
 }
 
+export const TODO_SCHEMA = {
+  type: 'function',
+  function: {
+    name: 'todo.write',
+    description: 'Replace the current task list with the complete updated list.',
+    parameters: {
+      type: 'object',
+      properties: {
+        todos: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              content: { type: 'string' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
+            },
+            required: ['id', 'content', 'status'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['todos'],
+      additionalProperties: false,
+    },
+  },
+}
+
 export function todoTool(): ToolDefinition {
   return {
     name: 'todo.write',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'todo.write',
-        description: 'Replace the current task list with the complete updated list.',
-        parameters: {
-          type: 'object',
-          properties: {
-            todos: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  id: { type: 'string' },
-                  content: { type: 'string' },
-                  status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] },
-                },
-                required: ['id', 'content', 'status'],
-                additionalProperties: false,
-              },
-            },
-          },
-          required: ['todos'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: TODO_SCHEMA,
     execute(arguments_) {
       const todos = parseTodos(arguments_['todos'])
       return {

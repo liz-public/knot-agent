@@ -1,6 +1,6 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import type { AdbExecutor } from '../executor.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { readCachedLocation, type CachedLocation } from '../location.js'
 import { fetchWeatherJson } from '../map-client.js'
 import type { MapApiConfig } from '../map-config.js'

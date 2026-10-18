@@ -1,7 +1,7 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import type { AdbExecutor } from '../executor.js'
 import { launchAction } from '../intent-launch.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { resolveSettingsPage, suggestSettingsPages } from '../settings-catalog.js'
 
 export function settingsHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {

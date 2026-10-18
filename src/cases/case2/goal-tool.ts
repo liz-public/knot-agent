@@ -22,26 +22,28 @@ function parseGoal(arguments_: Record<string, unknown>): GoalState {
   return { objective, successCriteria, status }
 }
 
+export const GOAL_SCHEMA = {
+  type: 'function',
+  function: {
+    name: 'goal.write',
+    description: 'Replace the current explicit goal, its success criteria, and completion status.',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective: { type: 'string' },
+        successCriteria: { type: 'array', items: { type: 'string' } },
+        status: { type: 'string', enum: ['active', 'completed'] },
+      },
+      required: ['objective', 'successCriteria', 'status'],
+      additionalProperties: false,
+    },
+  },
+}
+
 export function goalTool(): ToolDefinition {
   return {
     name: 'goal.write',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'goal.write',
-        description: 'Replace the current explicit goal, its success criteria, and completion status.',
-        parameters: {
-          type: 'object',
-          properties: {
-            objective: { type: 'string' },
-            successCriteria: { type: 'array', items: { type: 'string' } },
-            status: { type: 'string', enum: ['active', 'completed'] },
-          },
-          required: ['objective', 'successCriteria', 'status'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: GOAL_SCHEMA,
     execute(arguments_) {
       const goal = parseGoal(arguments_)
       return {

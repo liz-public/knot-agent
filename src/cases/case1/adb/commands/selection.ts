@@ -1,6 +1,6 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import type { AdbExecutor } from '../executor.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import type { AdbDeviceSession } from '../session.js'
 import { executeMapSelect } from './navigation.js'
 import { requestDial } from '../intent-launch.js'

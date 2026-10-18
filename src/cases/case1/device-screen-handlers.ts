@@ -1,7 +1,7 @@
-import type { DevicePort } from './device-port.js'
+import type { DevicePort } from '../../device/port.js'
 import type { ToolHandler } from './dispatcher.js'
 import { deviceResult } from './device-result.js'
-import { err } from './adb/json.js'
+import { err } from './tool-result.js'
 
 export function deviceScreenHandlers(port: DevicePort): Readonly<Record<string, ToolHandler>> {
   return {

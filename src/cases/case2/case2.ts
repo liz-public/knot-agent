@@ -96,29 +96,33 @@ function assembleCase2Agent(
     return turnId
   }
 
+  // All entry operations share this drain; only the assembly owns delivery.
+  function drainPending(): Promise<void> {
+    return drain ??= runUntilIdle().finally(() => { drain = undefined })
+  }
+
   async function start(): Promise<void> {
-    if (started) return
+    if (started) { await drain; return }
     started = true
     journal.append(SESSION_START, {})
-    await runUntilIdle()
+    await drainPending()
   }
 
   async function submit(content: string, configuration?: SessionConfiguration, attachments?: readonly AttachmentRef[]): Promise<void> {
     if (running) throw new Error('CASE2 agent is already running')
-    await start()
     running = true
-    if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
-    const first = messageIds.size === 0
-    const turnId = nextMessageId('turn')
-    journal.append(USER_MESSAGE, { turnId, content, ...(attachments?.length ? { attachments } : {}) })
-    if (first && options.titleProvider !== undefined && projectSessionTitle(journal.read()) === undefined) {
-      journal.append(TITLE_REQUEST, { turnId })
-    }
     try {
-      drain = runUntilIdle()
       await drain
+      await start()
+      if (configuration !== undefined) appendSessionConfiguration(journal, configuration)
+      const first = messageIds.size === 0
+      const turnId = nextMessageId('turn')
+      journal.append(USER_MESSAGE, { turnId, content, ...(attachments?.length ? { attachments } : {}) })
+      if (first && options.titleProvider !== undefined && projectSessionTitle(journal.read()) === undefined) {
+        journal.append(TITLE_REQUEST, { turnId })
+      }
+      await drainPending()
     } finally {
-      drain = undefined
       running = false
     }
   }
@@ -135,7 +139,7 @@ function assembleCase2Agent(
     submit,
     async rename(title: string) {
       journal.append(SESSION_TITLE_CONFIGURED, { title, source: 'user' })
-      await (drain ?? runUntilIdle())
+      await drainPending()
     },
     steer,
     pause: () => { if (running) boundary.control.pause() },

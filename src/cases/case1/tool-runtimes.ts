@@ -3,16 +3,14 @@ import { createAdbDispatcher } from './adb/dispatcher.js'
 import { createAdbExecutor } from './adb/executor.js'
 import { readMapApiConfig } from './adb/map-config.js'
 import { createAdbDeviceSession } from './adb/session.js'
-import type { AskPort } from './ask-port.js'
+import type { AskPort } from '../../agent/interactions.js'
 import type { ContentSource } from './content.js'
-import type { CliCommand } from './cli.js'
 import { createStaticAppMatcher, type AppMatcher, type ContextSource } from './context-contributions.js'
 import type { ToolDispatcher } from './dispatcher.js'
 import { createMockAndroidDispatcher } from './mock-android-tools.js'
 import { createAndroidDeviceSession } from './tools.js'
 
 export interface Case1ToolRuntime {
-  readonly commands?: readonly CliCommand[]
   readonly contextSources?: readonly ContextSource[]
   readonly contentSources?: readonly ContentSource[]
   readonly approvalOwner?: 'case1' | 'executor'

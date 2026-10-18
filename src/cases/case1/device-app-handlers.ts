@@ -1,13 +1,12 @@
-import type { DevicePort } from './device-port.js'
+import type { DevicePort } from '../../device/port.js'
 import type { ToolHandler } from './dispatcher.js'
 import { deviceResult } from './device-result.js'
-import { err } from './adb/json.js'
+import { err } from './tool-result.js'
 import { parseAlarmRepeatWeekdays } from './adb/alarm.js'
 import { resolveSettingsPage, suggestSettingsPages } from './adb/settings-catalog.js'
 import { CTRIP_PACKAGE, ctripTicketInquireUri, ctripTicketListUri } from './adb/ctrip-uri.js'
 import { marketStoreSearchUri, samsungGalaxyStoreSearchUri, SAMSUNG_GALAXY_STORE_PACKAGE } from './adb/app-store.js'
-import { meetingTarget } from './adb/commands/meeting.js'
-import { FOOD_APPS, SHOP_APPS, foodUri, shoppingUri, trackingUri } from './adb/commands/commerce.js'
+import { meetingTarget, FOOD_APPS, SHOP_APPS, foodUri, shoppingUri, trackingUri } from './app-links.js'
 
 type Context = Parameters<ToolHandler>[1]
 type Target = { id: string; packageName: string }

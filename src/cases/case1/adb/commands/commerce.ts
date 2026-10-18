@@ -1,7 +1,7 @@
 import type { ToolHandler } from '../../dispatcher.js'
 import type { AdbExecutor } from '../executor.js'
 import { launchViewUri } from '../intent-launch.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { isPackageInstalled, listInstalledPackages, pickInstalledProvider } from '../packages.js'
 
 const EXPRESS_TRACKING_RE = /^[A-Za-z0-9]{6,32}$/
@@ -9,33 +9,7 @@ const ALIPAY_PACKAGE = 'com.eg.android.AlipayGphone'
 const ALIPAY_EXPRESS_URI = 'alipays://platformapi/startapp?appId=20000754'
 const KUAIDI100_HOME = 'https://m.kuaidi100.com'
 
-export const FOOD_APPS = [
-  { id: 'dianping', packageName: 'com.dianping.v1' },
-  { id: 'meituan', packageName: 'com.sankuai.meituan' },
-] as const
-
-export const SHOP_APPS = [
-  { id: 'taobao', packageName: 'com.taobao.taobao' },
-  { id: 'jd', packageName: 'com.jingdong.app.mall' },
-  { id: 'pdd', packageName: 'com.xunmeng.pinduoduo' },
-] as const
-
-/** Pure target construction, shared by the ADB and native-device business handlers. */
-export function foodUri(provider: string, keyword: string): string {
-  return keyword.length === 0
-    ? (provider === 'dianping' ? 'dianping://foodmain' : 'imeituan://www.meituan.com/food/homepage')
-    : (provider === 'dianping' ? `dianping://shoplist?keyword=${encodeURIComponent(keyword)}` : `imeituan://www.meituan.com/search/?q=${encodeURIComponent(keyword)}`)
-}
-export function shoppingUri(provider: string, keyword: string): string {
-  if (provider === 'taobao') return `taobao://s.taobao.com/search?q=${encodeURIComponent(keyword)}`
-  if (provider === 'jd') return `openapp.jdmobile://virtual?params=${encodeURIComponent(JSON.stringify({
-    des: 'productList', keyWord: keyword, from: 'search', category: 'jump', sourcePage: 'HomePage', sourceDetail: 'SearchBox', save: '1',
-  }))}`
-  return `pinduoduo://com.xunmeng.pinduoduo/search_result.html?search_key=${encodeURIComponent(keyword)}`
-}
-export function trackingUri(number: string): string {
-  return `https://m.kuaidi100.com/app/query/?coname=contact_demo&nu=${encodeURIComponent(number)}`
-}
+import { FOOD_APPS, SHOP_APPS, foodUri, shoppingUri, trackingUri } from '../../app-links.js'
 
 export function commerceHandlers(executor: AdbExecutor): Readonly<Record<string, ToolHandler>> {
   return {

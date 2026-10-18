@@ -1,3 +1,4 @@
+import type { ApprovalPort, AskPort } from '../../agent/interactions.js'
 import type { ToolDefinition, ToolExecution } from '../../agent/plugins/tools.js'
 
 export type PermissionDecision = 'allow' | 'deny' | 'ask'
@@ -9,19 +10,7 @@ export interface PermissionPolicy {
   }): PermissionDecision
 }
 
-export interface ApprovalPort {
-  request(input: {
-    toolName: string
-    arguments: Readonly<Record<string, unknown>>
-  }): Promise<'allow' | 'deny'>
-}
-
-export interface AskPort {
-  ask(input: {
-    question: string
-    choices?: readonly string[]
-  }): Promise<{ answer: string }>
-}
+export type { ApprovalPort, AskPort } from '../../agent/interactions.js'
 
 function denied(toolName: string): ToolExecution {
   return {
@@ -32,6 +21,23 @@ function denied(toolName: string): ToolExecution {
       hint: 'The user denied this action. Do not claim it succeeded.',
     }),
   }
+}
+
+export const ASK_SCHEMA = {
+  type: 'function',
+  function: {
+    name: 'ask',
+    description: 'Ask the user one question and wait for the answer.',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: { type: 'string' },
+        choices: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['question'],
+      additionalProperties: false,
+    },
+  },
 }
 
 export function permissionTools(
@@ -60,22 +66,7 @@ export function permissionTools(
 export function askTool(port: AskPort): ToolDefinition {
   return {
     name: 'ask',
-    schema: {
-      type: 'function',
-      function: {
-        name: 'ask',
-        description: 'Ask the user one question and wait for the answer.',
-        parameters: {
-          type: 'object',
-          properties: {
-            question: { type: 'string' },
-            choices: { type: 'array', items: { type: 'string' } },
-          },
-          required: ['question'],
-          additionalProperties: false,
-        },
-      },
-    },
+    schema: ASK_SCHEMA,
     async execute(arguments_) {
       const question = arguments_['question']
       const choices = arguments_['choices']

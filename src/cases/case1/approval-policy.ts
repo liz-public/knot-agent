@@ -1,4 +1,4 @@
-import type { ApprovalPort } from './approval-port.js'
+import type { ApprovalPort } from '../../agent/interactions.js'
 import {
   withApprovalPolicy,
   type ApprovalPolicy,

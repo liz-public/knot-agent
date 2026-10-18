@@ -1,46 +1,15 @@
+import type { ApprovalPort, AskPort } from '../agent/interactions.js'
+import type { ToolOutput } from '../cases/case2/command-process.js'
 import type {
   PluginInspection,
   PluginMetadata,
   PluginNode,
   PluginToolDescription,
 } from '../assembly-definition.js'
-import type { LlmProviderSource } from '../agent/plugins/llm.js'
+import type { LiveOutput, LlmProviderSource } from '../agent/plugins/llm.js'
 import type { SessionConfiguration } from '../agent/session-configuration.js'
 import type { AttachmentRef } from '../agent/protocol.js'
 import type { SubagentFactory } from '../cases/case2/subagent-tool.js'
-
-export interface GenerationOutput {
-  open(meta: { readonly requestId: string; readonly turnId: string; readonly purpose: string }): {
-    write(update: unknown): void | Promise<void>
-    close(): void | Promise<void>
-  } | undefined
-}
-
-export interface HostApprovalPort {
-  request(input: {
-    readonly toolName: string
-    readonly arguments: Readonly<Record<string, unknown>>
-  }): Promise<'allow' | 'deny'>
-}
-
-export interface HostAskPort {
-  ask(input: {
-    readonly question: string
-    readonly choices?: readonly string[]
-  }): Promise<{ readonly answer: string; readonly cancelled?: boolean }>
-}
-
-export interface ToolOutput {
-  open(meta: {
-    readonly turnId: string
-    readonly callId: string
-    readonly toolName: string
-    readonly command: string
-  }): {
-    write(update: { readonly stream: 'stdout' | 'stderr'; readonly text: string }): void | Promise<void>
-    close(result: { readonly exitCode: number }): void | Promise<void>
-  } | undefined
-}
 
 export interface SessionRuntime {
   submit(content: string, configuration?: SessionConfiguration, attachments?: readonly AttachmentRef[]): Promise<void>
@@ -54,14 +23,14 @@ export interface SessionRuntime {
 }
 
 export interface AssemblyInput {
-  readonly devicePort?: import('../cases/case1/device-port.js').DevicePort
+  readonly devicePort?: import('../device/port.js').DevicePort
   readonly cwd: string
   readonly journalPath: string
   readonly llm: LlmProviderSource
-  readonly liveOutput: GenerationOutput
+  readonly liveOutput: LiveOutput
   readonly toolOutput: ToolOutput
-  readonly approvalPort: HostApprovalPort
-  readonly askPort: HostAskPort
+  readonly approvalPort: ApprovalPort
+  readonly askPort: AskPort
   readonly platformPlugins: readonly PluginNode[]
   readonly subagentFactory?: SubagentFactory
 }

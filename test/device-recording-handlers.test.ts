@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEVICE_RECORDING_COMMAND, deviceRecordingHandlers } from '../src/cases/case1/device-recording-handlers.js'
+import { deviceRecordingHandlers } from '../src/cases/case1/device-recording-handlers.js'
+import { ANDROID_TOOL_CATALOG } from '../src/cases/case1/android-tool-catalog.js'
 import { createCliCatalog } from '../src/cases/case1/cli.js'
 const context = { turnId: 'turn', callId: 'call' }
 test('record has one typed device command, no approval or business metadata downlink', async () => {
-  const catalog = createCliCatalog([DEVICE_RECORDING_COMMAND])
+  const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
   const parsed = catalog.resolve('record screen start --seconds 60')
   assert.ok(!('content' in parsed))
   const calls: unknown[] = []

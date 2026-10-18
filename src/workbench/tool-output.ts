@@ -1,4 +1,4 @@
-import type { ToolOutput } from './assembly.js'
+import type { ToolOutput } from '../cases/case2/command-process.js'
 import type { LiveSessionEvent } from './session.js'
 
 export const workbenchToolOutput = (

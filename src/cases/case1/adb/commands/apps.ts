@@ -1,10 +1,10 @@
-import type { AskPort } from '../../ask-port.js'
+import type { AskPort } from '../../../../agent/interactions.js'
 import type { ToolHandler } from '../../dispatcher.js'
 import { parseAlarmRepeatWeekdays } from '../alarm.js'
 import type { AppIndex } from '../app-index.js'
 import { localDateFields, parseDateExpr } from '../datetime.js'
 import type { AdbExecutor } from '../executor.js'
-import { err, ok } from '../json.js'
+import { err, ok } from '../../tool-result.js'
 import { shellQuote } from '../parse.js'
 
 export interface AppHandlerOptions { readonly askPort?: AskPort; readonly appIndex?: AppIndex }

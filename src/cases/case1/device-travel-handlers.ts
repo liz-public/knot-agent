@@ -1,6 +1,6 @@
-import type { DevicePort } from './device-port.js'
+import type { DevicePort } from '../../device/port.js'
 import type { ToolHandler } from './dispatcher.js'
-import { err } from './adb/json.js'
+import { err } from './tool-result.js'
 import { deviceResult } from './device-result.js'
 import { resolveCtripPlace } from './travel/ctrip-suggest.js'
 import { ctripFlightListUri, ctripHotelListUri, ctripTrainListUri, CTRIP_PACKAGE } from './adb/ctrip-uri.js'

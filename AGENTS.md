@@ -112,6 +112,8 @@ src/cases/caseN/
 - **插件不导入其他插件的实现**。可以导入：协议（`protocol.ts`）、纯函数库（`projection.ts`、谓词）。
 - **协议不属于内核**，内核不导入协议。跨 case 的事件放 `src/agent/protocol.ts`，领域扩展才放 case 内的 `protocol.ts`；两者都只能有常量和类型。
 - **只有被两个真实 case 共同使用的能力才进 `src/agent/`**。不为未来 case 预留 registry、lifecycle 或抽象层。
+- 设备执行契约在 `src/device/port.ts`，交互契约在 `src/agent/interactions.ts`；Case 与 Host 都消费契约，不互相重复声明。设备能力不是内核能力。
+- CASE1 的 CLI Catalog 由领域拥有，Dispatcher 只实现命令，不增删命令定义。执行环境不支持时返回 `unsupported_tool`。审核 JSON 是该 Catalog 的快照，不是第二份运行时来源。
 - **装配期只注册订阅，不产生业务事件。** 全部插件安装完成后，装配层才追加第一个 seed 事件。
 - 装配表里插件的**顺序有语义**（注册顺序 = 优先级），改顺序等于改行为。
 
@@ -226,6 +228,12 @@ CASE1 的候选列表属于第一类：`contact call` 让**设备**生成并持�
 ### 持久 Session 的两个读模型
 
 持久 Case 在恢复时把 JSONL 载入内存 Journal，用于继续执行；Workbench 另行读取同一 JSONL，用于展示 `observedAt` 等 Journal 外元数据和支持只读 Session。前者是**执行读模型**，后者是**展示读模型**，不是两份业务状态。不要为了消除文件的二次读取而向 `SessionRuntime` 暴露可写 Journal，或把存储加载塞进内核。只有真实长 Session 的启动性能证明这里成为瓶颈后，才重新设计一次加载、多方投影的存储边界。
+
+### 检查面与执行面
+
+插件元数据跟随创建插件的声明，工具检查直接读取执行工具使用的 Schema，不创建假端口、假执行器或命令资源。Assembly Catalog 描述可装配的能力；具体 Session 已绑定的工具以 `tool.registry` 为准，不能把可选子 Agent 等能力描述成每个 Session 都已启用。详见 [装配与入口边界](docs/assembly-boundaries.md)。
+
+启动、提交与重命名共用装配层持有的 drain。Host 负责用户输入排队、交互与展示，不通过额外 drain 或业务状态补偿运行时。Host 的发送队列状态与运行时的实际执行状态不是同一份事实；不要在这一轮引入通用 Runtime/Manager。
 
 ### 一次性标题服务
 

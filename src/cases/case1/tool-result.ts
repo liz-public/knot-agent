@@ -1,4 +1,4 @@
-import type { ToolExecution } from '../tools.js'
+import type { ToolExecution } from './tools.js'
 
 export const ok = (
   data: Record<string, unknown>,

@@ -1,7 +1,7 @@
-import type { DevicePort } from './device-port.js'
+import type { DevicePort } from '../../device/port.js'
 import type { Case1ToolRuntime } from './tool-runtimes.js'
 import { createToolDispatcher } from './dispatcher.js'
-import { err, ok } from './adb/json.js'
+import { err, ok } from './tool-result.js'
 import { contentSearchTarget, isContentSearchProvider } from './adb/content-deeplinks.js'
 import { createWeatherHandler } from './adb/commands/weather.js'
 import { readMapApiConfig } from './adb/map-config.js'
@@ -14,13 +14,12 @@ import { deviceAppHandlers } from './device-app-handlers.js'
 import { deviceSystemHandlers } from './device-system-handlers.js'
 import { deviceContactHandlers } from './device-contact-handlers.js'
 import { deviceRecordHandlers } from './device-record-handlers.js'
-import type { AskPort } from './ask-port.js'
+import type { AskPort } from '../../agent/interactions.js'
 import { deviceTravelHandlers } from './device-travel-handlers.js'
 import { deviceMapHandlers } from './device-map-handlers.js'
 import { androidSelectionRule, androidRecordingStopRule, shortcutSource } from './shortcuts.js'
 import { deviceScreenHandlers } from './device-screen-handlers.js'
-import { ANDROID_TOOL_CATALOG } from './android-tool-catalog.js'
-import { DEVICE_RECORDING_COMMAND, deviceRecordingHandlers } from './device-recording-handlers.js'
+import { deviceRecordingHandlers } from './device-recording-handlers.js'
 import { deviceContextSource } from './device-context.js'
 
 /** Cloud business handlers invoke narrow native capabilities; no shell/ADB emulation. */
@@ -41,7 +40,6 @@ export function createDeviceCase1ToolRuntime(port: DevicePort, mapApi = readMapA
   }
   const asApps = (result: Record<string, unknown>) => result['apps'] as AppMatch[]
   return {
-    commands: [...ANDROID_TOOL_CATALOG, DEVICE_RECORDING_COMMAND],
     contextSources: [deviceContextSource(port)],
     approvalOwner: 'executor',
     includeToolState: false,
