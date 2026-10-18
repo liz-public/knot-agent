@@ -31,6 +31,23 @@ test('unknown function reports the registered tools without hardcoding bash', as
   assert.match(JSON.stringify(journal.read().find(e => e.type === 'tool.result')?.data), /custom/)
 })
 
+test('wrong CLI function names only receive the registered execution entry and never dispatch', async () => {
+  const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
+  let executions = 0
+  const tool = createBashTool(catalog, { async dispatch() { executions++; return { content: '{}' } } })
+  const { journal, runUntilIdle } = createJournal()
+  toolsPlugin([tool])(journal)
+  journal.append('tool.call', { turnId: 't', calls: ['flight.query', 'qrcode.pay', 'app.open'].map((name, index) => ({ name, callId: `bad-${index}`, arguments: {} })) })
+  await runUntilIdle()
+  const data = journal.read().find(event => event.type === 'tool.result')!.data as { results: { content: string }[] }
+  for (const result of data.results) {
+    const error = JSON.parse(result.content)
+    assert.equal(error.error, 'unknown_tool')
+    assert.match(error.message, /只能调用当前注册的工具：bash/)
+  }
+  assert.equal(executions, 0)
+})
+
 test('help and invalid arguments use the same catalog details and never dispatch', async () => {
   const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
   const tool = createBashTool(catalog, { dispatch() { throw new Error('must not dispatch') } })
