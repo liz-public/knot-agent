@@ -22,10 +22,10 @@ test('notification authorization produces a retry-after-grant hint, not an empty
 })
 test('calendar uses device timezone, rejects invalid dates and nonexistent DST wall times', () => {
   assert.equal(startOfDeviceDay(now, 'Asia/Shanghai'), Date.parse('2026-10-10T16:00:00Z'))
-  assert.equal(parseDeviceDate('2026-10-12 09:00', now, 'Asia/Shanghai'), Date.parse('2026-10-12T01:00:00Z'))
-  assert.equal(parseDeviceDate('明天', now, 'Asia/Shanghai'), now + 86400000)
+  assert.equal(parseDeviceDate('2026-10-12T09:00', now, 'Asia/Shanghai'), Date.parse('2026-10-12T01:00:00Z'))
+  assert.equal(parseDeviceDate('+d1T11:15', now, 'Asia/Shanghai'), now + 86400000)
   for (const input of ['2026-02-30', '2026-13-01', '2026-10-12 25:00']) assert.equal(parseDeviceDate(input, now, 'Asia/Shanghai'), undefined)
-  assert.equal(parseDeviceDate('2026-03-08 02:30', now, 'America/New_York'), undefined)
+  assert.equal(parseDeviceDate('2026-03-08T02:30', now, 'America/New_York'), undefined)
   const spring = Date.parse('2026-03-08T12:00:00Z')
   assert.equal(startOfDeviceDay(spring, 'America/New_York', 1) - startOfDeviceDay(spring, 'America/New_York'), 23 * 3600000)
 })
@@ -49,7 +49,7 @@ test('calendar mutation sends native fields only and preserves execution-time de
     requests.push({ capability, args })
     return capability === 'clock.read' ? { ok: true, epochMillis: now, timeZone: 'Asia/Shanghai' } : { ok: false, error: 'user_denied' }
   } })
-  await handlers['calendar_create_or_update_event']!({ title: 'fixture', date_expr: '2026-10-12 09:00' }, context)
+  await handlers['calendar_create_or_update_event']!({ title: 'fixture', date_expr: '2026-10-12T09:00' }, context)
   assert.equal(requests[1].args.beginMillis, Date.parse('2026-10-12T01:00:00Z'))
   assert.equal(requests[1].args.date_expr, undefined)
   const denied = await handlers['calendar_delete_event']!({ event_id: 12 }, context)
@@ -62,7 +62,7 @@ test('invalid arguments and clock failure do not execute writes', async () => {
   assert.equal(JSON.parse((await handlers['calendar_delete_event']!({ event_id: -1 }, context)).content).error, 'need_event_id')
   assert.equal(JSON.parse((await handlers['list_notifications']!({ limit: 0 }, context)).content).error, 'invalid_limit')
   assert.equal(calls, 0)
-  assert.equal(JSON.parse((await handlers['calendar_create_or_update_event']!({ title: 'fixture', date_expr: '明天' }, context)).content).error, 'device_unavailable')
+  assert.equal(JSON.parse((await handlers['calendar_create_or_update_event']!({ title: 'fixture', date_expr: '+d1T09:00' }, context)).content).error, 'device_unavailable')
   assert.equal(calls, 1)
 })
 test('ask uses Workbench input, never native permissions or an approval tool', async () => {

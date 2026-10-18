@@ -9,11 +9,10 @@ import { reverseLocation } from './adb/map-client.js'
 import type { MapApiConfig } from './adb/map-config.js'
 
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
-const dateInPlace = (value: string) => /^(?:今天|明天|后天|\+\d+d|\d{2,4}-\d{2}(?:-\d{2})?)$/.test(value)
+const dateInPlace = (value: string) => /^(?:[+-][dmw]\d+(?:d\d+)?|\d{4}-\d{2}-\d{2})$/.test(value)
 export function travelDate(expr: string, now: number, zone: string, daysAfter = 0): string | undefined {
-  const p = zonedParts(now, zone)
-  const full = /^\d{2}-\d{2}$/.test(expr) ? `${p['year']}-${expr}` : expr
-  const epoch = full ? parseDeviceDate(full, now, zone) : now
+  if (expr.includes('T')) return undefined
+  const epoch = expr ? parseDeviceDate(expr, now, zone) : now
   if (epoch === undefined) return undefined
   const day = zonedParts(epoch, zone)
   const shifted = new Date(Date.UTC(day['year']!, day['month']! - 1, day['day']! + daysAfter))

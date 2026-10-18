@@ -41,7 +41,7 @@ export const runtimeContextPlugin = (
     const matchedCommands = contributions.flatMap(item => item.matchedCommands ?? [])
     const state = options.includeToolState === false ? {} : activeState(journal.read())
     const sections = [
-      `当前时间: ${options.now().toISOString()}`,
+      `当前时间: ${options.now().toLocaleString('sv-SE', { hour12: false })} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`,
       ...contributions.map(item => item.content).filter(Boolean),
       Object.keys(state).length === 0
         ? ''

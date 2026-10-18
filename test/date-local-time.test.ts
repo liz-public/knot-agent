@@ -8,7 +8,7 @@ test('date reports local date/time with an explicit server timezone, including m
   const rows = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', code],
     { env: { ...process.env, TZ: 'Asia/Shanghai' }, encoding: 'utf8' }))
   assert.deepEqual(rows, [
-    { local_date: '2026-10-13', local_time: '11:12:59', time_zone: 'Asia/Shanghai' },
-    { local_date: '2026-10-14', local_time: '04:00:00', time_zone: 'Asia/Shanghai' },
+    { local_date: '2026-10-13', local_time: '11:12:59', weekday: '二', time_zone: 'Asia/Shanghai' },
+    { local_date: '2026-10-14', local_time: '04:00:00', weekday: '三', time_zone: 'Asia/Shanghai' },
   ])
 })

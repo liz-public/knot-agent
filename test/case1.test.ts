@@ -884,7 +884,7 @@ test('the common catalog remains visible when a dispatcher lacks the capability'
   const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
   const tool = createBashTool(catalog, createMockAndroidDispatcher(session))
 
-  assert.deepEqual(catalog.detailsFor('帮我看下日程').names, ['calendar.list'])
+  assert.deepEqual(catalog.detailsFor('帮我看下日程').names, ['calendar.list', 'calendar.set'])
   const result = await tool.execute({ command: 'calendar.list 7' }, { turnId: 'direct', callId: 'missing' })
   assert.match(result.content, /unsupported_tool/)
   assert.match(result.content, /list_calendar_events/)

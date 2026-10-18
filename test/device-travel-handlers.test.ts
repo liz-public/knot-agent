@@ -11,8 +11,8 @@ function mockFetch(t: any, respond: (url: URL, body: any) => unknown) {
 }
 function ctrip(rows: unknown[]) { return { Result: true, Response: { searchResults: rows } } }
 test('travel dates remain phone-local and province normalization is only a name policy', () => {
-  assert.equal(travelDate('10-12', now, 'Asia/Shanghai'), '20261012')
-  assert.equal(travelDate('明天', now, 'Asia/Shanghai', 2), '20261014')
+  assert.equal(travelDate('2026-10-12', now, 'Asia/Shanghai'), '20261012')
+  assert.equal(travelDate('+d1', now, 'Asia/Shanghai', 2), '20261014')
   assert.equal(travelDate('2026-02-30', now, 'Asia/Shanghai'), undefined)
   assert.equal(normalizeCtripPlace('辽宁省'), '沈阳')
   assert.equal(normalizeCtripPlace('广西壮族自治区'), '南宁')
@@ -27,11 +27,11 @@ test('flights resolve capital through Ctrip and use cityIds for domestic and int
   const handlers = deviceTravelHandlers({ async request(capability, args) {
     calls.push({ capability, args }); return capability === 'clock.read' ? { ok: true, epochMillis: now, timeZone: 'Asia/Shanghai' } : { ok: true, installed: true }
   } })
-  await handlers['query_flight']!({ depart: '北京', arrive: '辽宁', when: '明天' }, context)
+  await handlers['query_flight']!({ depart: '北京', arrive: '辽宁', when: '+d1' }, context)
   const domestic = new URL(calls.at(-1).args.uri)
   assert.equal(domestic.pathname, '/flight_inland_singlelist'); assert.equal(domestic.searchParams.get('c3'), '451')
   assert.equal(domestic.searchParams.get('acityid'), '451'); assert.ok(queries.includes('沈阳'))
-  await handlers['query_flight']!({ depart: '北京', arrive: '东京', when: '明天', round: true }, context)
+  await handlers['query_flight']!({ depart: '北京', arrive: '东京', when: '+d1', round: true }, context)
   const intl = new URL(calls.at(-1).args.uri)
   assert.equal(intl.pathname, '/flight_int_tolist'); assert.equal(intl.searchParams.get('c3'), '228')
   assert.equal(intl.searchParams.get('c5'), '20261015')
@@ -45,10 +45,10 @@ test('station names and hotel landmarks come from the same online authority', as
   const handlers = deviceTravelHandlers({ async request(capability, args) {
     calls.push({ capability, args }); return capability === 'clock.read' ? { ok: true, epochMillis: now, timeZone: 'Asia/Shanghai' } : { ok: true, installed: true }
   } })
-  await handlers['query_train']!({ depart: '济南西站', arrive: '上海虹桥站', when: '明天' }, context)
+  await handlers['query_train']!({ depart: '济南西站', arrive: '上海虹桥站', when: '+d1' }, context)
   assert.equal(new URL(calls.at(-1).args.uri).searchParams.get('c1'), '济南西')
   assert.equal(new URL(calls.at(-1).args.uri).searchParams.get('c2'), '上海虹桥')
-  await handlers['query_hotel']!({ city: '上海', area: '陆家嘴', when: '明天', nights: 2 }, context)
+  await handlers['query_hotel']!({ city: '上海', area: '陆家嘴', when: '+d1', nights: 2 }, context)
   const hotel = new URL(calls.at(-1).args.uri)
   assert.equal(hotel.searchParams.get('c3'), '2'); assert.equal(hotel.searchParams.get('c10'), '31.2')
   assert.equal(hotel.searchParams.get('c2'), '20261014')

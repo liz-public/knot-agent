@@ -63,6 +63,7 @@ export async function upsertCalendarEvent(
     readonly eventId?: number
   },
 ) {
+  if (!input.dateExpr.includes('T')) return err('missing_time', '日程需要THH:mm时刻。')
   const startMs = parseDateExpr(input.dateExpr)?.getTime()
   if (startMs === undefined || !Number.isFinite(startMs)) {
     return err('bad_start_time', '无法解析日期/时刻。')

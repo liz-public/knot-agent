@@ -18,18 +18,29 @@ export function startOfDeviceDay(epoch: number, timeZone: string, daysFromToday 
 }
 export function parseDeviceDate(text: string, now: number, timeZone: string): number | undefined {
   const p = zonedParts(now, timeZone)
-  const relative = text === '明天' ? 1 : text === '后天' ? 2 : /^\+(\d+)d$/.exec(text)?.[1]
-  if (relative !== undefined) return wallToEpoch(Date.UTC(p['year']!, p['month']! - 1, p['day']! + Number(relative), p['hour']!, p['minute']!, p['second']!), timeZone)
-  const plain = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(text)
-  if (plain) {
-    const year = Number(plain[1]), month = Number(plain[2]), day = Number(plain[3])
-    const hour = Number(plain[4] ?? 0), minute = Number(plain[5] ?? 0), second = Number(plain[6] ?? 0)
-    const wall = Date.UTC(year, month - 1, day, hour, minute, second), date = new Date(wall)
-    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
-      || hour > 23 || minute > 59 || second > 59) return undefined
-    const epoch = wallToEpoch(wall, timeZone), actual = zonedParts(epoch, timeZone)
-    return actual['hour'] === hour && actual['minute'] === minute ? epoch : undefined
+  const match = /^(\d{4}-\d{2}-\d{2}|[+-]d\d+|[+-][mw]\d+d\d+)(?:T(\d{2}):(\d{2}))?$/.exec(text)
+  if (!match) return undefined
+  const [datePart, hour, minute] = [match[1]!, Number(match[2] ?? 0), Number(match[3] ?? 0)]
+  let year: number, month: number, day: number
+  if (/^\d/.test(datePart)) [year, month, day] = datePart.split('-').map(Number) as [number, number, number]
+  else {
+    const relative = /^([+-])([dmw])(\d+)(?:d(\d+))?$/.exec(datePart)!
+    const offset = Number(relative[3]) * (relative[1] === '+' ? 1 : -1)
+    if (!Number.isSafeInteger(offset)) return undefined
+    const base = new Date(Date.UTC(p['year']!, p['month']! - 1, p['day']!))
+    const targetDay = Number(relative[4])
+    if (relative[2] === 'd') base.setUTCDate(base.getUTCDate() + offset)
+    else if (relative[2] === 'm') { base.setUTCDate(1); base.setUTCMonth(base.getUTCMonth() + offset) }
+    else {
+      if (targetDay < 1 || targetDay > 7) return undefined
+      base.setUTCDate(base.getUTCDate() - (base.getUTCDay() + 6) % 7 + offset * 7 + targetDay - 1)
+    }
+    year = base.getUTCFullYear(); month = base.getUTCMonth() + 1
+    day = relative[2] === 'm' ? targetDay : base.getUTCDate()
   }
-  const parsed = Date.parse(text)
-  return Number.isFinite(parsed) ? parsed : undefined
+  const wall = Date.UTC(year, month - 1, day, hour, minute), date = new Date(wall)
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
+    || hour > 23 || minute > 59) return undefined
+  const epoch = wallToEpoch(wall, timeZone), actual = zonedParts(epoch, timeZone)
+  return actual['hour'] === hour && actual['minute'] === minute ? epoch : undefined
 }

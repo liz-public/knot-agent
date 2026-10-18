@@ -172,11 +172,11 @@ export const ANDROID_TOOL_CATALOG: readonly CliCommand[] = [
   }, []),
   command({
     toolId: "date", name: "date", summary: "日期时间 -> local_date/local_time",
-    description: "获取当前时间或解析时间表达式。无参返回当前设备时间。支持 +3d、明天、06-15 14:00、2026-06-15 等表达式。",
-    examples: ["date","date 明天","date +3d","date \"2026-06-13 14:00\""],
-    keywords: ["几点","星期几"],
+    description: "获取当前日期时间，或解析ISO/相对日期；返回日期、时刻、星期和时区。",
+    examples: ["date","date +d3"],
+    keywords: ["几点","星期","日期","时间","几号","哪天"],
   }, [
-      textPosition("expr", "日期时间表达式；包含空格时使用双引号。", false)
+      textPosition("expr", "ISO或相对日期，可接THH:mm；省略查当前时间。", false)
     ]),
   command({
     toolId: "set_alarm_clock", name: "alarm.set", summary: "设闹钟",
@@ -293,11 +293,11 @@ export const ANDROID_TOOL_CATALOG: readonly CliCommand[] = [
   command({
     toolId: "calendar_create_or_update_event", name: "calendar.set", summary: "建/改日程",
     description: "创建或更新日程。date_expr 格式同 date 命令。",
-    examples: ["calendar.set 团队会议 \"2026-06-13 14:00\"","calendar.set 周会 \"2026-06-13 09:00\" --duration 1.5"],
-    keywords: ["会议","提醒"],
+    examples: ["calendar.set 周会 +w1d3T15:00 --duration 1 --location 会议室", "calendar.set 复诊 2026-11-03T09:30", "calendar.set 周会 +d2T10:00 --id 610"],
+    keywords: ["会议","提醒","日程","周会"],
   }, [
       textPosition("title", "日程标题；包含空格时使用双引号。"),
-      textPosition("date_expr", "日期时间表达式；包含空格时使用双引号。"),
+      textPosition("date_expr", "ISO或相对日期，需接THH:mm时刻。"),
       textFlag("duration_hours", "持续小时数。", false, "hours", "duration"),
       textFlag("location", "日程地点；包含空格时使用双引号。", false, "地点"),
       textFlag("event_id", "要更新的日程 ID。", false, "event_id", "id")
@@ -438,41 +438,41 @@ export const ANDROID_TOOL_CATALOG: readonly CliCommand[] = [
     ]),
   command({
     toolId: "query_flight", name: "flight.query", summary: "机票查询",
-    description: "查询航班，可指定出发城市、到达城市、出发日期、返程日期、舱位、排序方式，支持往返查询，出发城市默认是定位城市。",
-    examples: ["flight.query 广州","flight.query 上海 --when 06-15 --round --return 06-22"],
-    keywords: ["机票"],
+    description: "查询航班，支持往返；日期仅到天，不支持时段筛选。出发城市默认定位城市。",
+    examples: ["flight.query 广州 --depart 北京 --when +d1", "flight.query 上海 --when 2026-11-03 --round --return 2026-11-06"],
+    keywords: ["机票","航班","飞机"],
   }, [
       textPosition("arrive", "到达城市或机场。"),
       textFlag("depart", "出发城市或机场。", false, "出发"),
-      textFlag("when", "出发日期表达式。", false, "date_expr"),
+      textFlag("when", "ISO或相对出发日期，不含时刻。", false, "date_expr"),
       switchFlag("round", "查询往返航班。"),
-      textFlag("return_date", "返程日期表达式。", false, "date_expr", "return"),
+      textFlag("return_date", "ISO或相对返程日期，不含时刻。", false, "date_expr", "return"),
       enumFlag("cabin", "舱位。", ["economy","premium_economy","business","first","business_first"]),
       enumFlag("sort", "排序方式。", ["earliest","latest","cheapest","priciest"])
     ]),
   command({
     toolId: "query_hotel", name: "hotel.query", summary: "酒店查询",
-    description: "查询酒店，可指定入住城市、酒店品牌或名称、商圈或地标、入住日期、入住晚数、排序方式。",
-    examples: ["hotel.query 上海","hotel.query 上海 --area 太古里 --when 明天"],
+    description: "查询酒店，可指定城市、品牌、商圈、入住日期、晚数和排序；日期仅到天。",
+    examples: ["hotel.query 上海 --when +d1 --nights 2 --area 外滩", "hotel.query 杭州 --when 2026-11-03 --brand 全季"],
     keywords: ["酒店"],
   }, [
       textPosition("city", "入住城市。", false),
       textFlag("keyword", "酒店品牌或名称。", false, "品牌/店名"),
       textFlag("area", "商圈或地标。", false, "商圈/地标"),
-      textFlag("when", "入住日期表达式。", false, "date_expr"),
+      textFlag("when", "ISO或相对入住日期，不含时刻。", false, "date_expr"),
       textFlag("nights", "入住晚数。", false, "N"),
       textFlag("brand", "酒店品牌。", false, "品牌"),
       enumFlag("sort", "排序方式。", ["price_asc","price_desc","distance","star_desc","score_desc"])
     ]),
   command({
     toolId: "query_train", name: "train.query", summary: "火车票查询",
-    description: "查询火车票，可指定到达城市、出发城市、出发日期、是否高铁，出发城市默认是定位城市。",
-    examples: ["train.query 上海虹桥","train.query 北京 --when 明天 --high_speed"],
-    keywords: ["火车票"],
+    description: "查询火车票，可指定城市、日期和是否高铁；日期仅到天，不支持时段筛选，出发默认定位城市。",
+    examples: ["train.query 上海虹桥 --depart 北京南 --when +w1d3 --high_speed", "train.query 杭州 --when 2026-11-03"],
+    keywords: ["火车票","高铁","动车"],
   }, [
       textPosition("arrive", "到达城市或车站。"),
       textFlag("depart", "出发城市或车站。", false, "出发"),
-      textFlag("when", "出发日期表达式。", false, "date_expr"),
+      textFlag("when", "ISO或相对出发日期，不含时刻。", false, "date_expr"),
       switchFlag("high_speed", "仅查询高铁或动车。")
     ]),
   command({

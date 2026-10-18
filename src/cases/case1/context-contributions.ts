@@ -35,7 +35,9 @@ export const toolIntentMatchSource = (catalog: CliCatalog): ContextSource => que
   const match = catalog.detailsFor(query)
   if (match.names.length === 0) return
   return {
-    content: `本轮相关 CLI 详细用法:\n${match.content}`,
+    content: `本轮相关 CLI 详细用法:\n${match.content}` +
+      (match.names.some(name => ['date', 'calendar.set', 'flight.query', 'train.query', 'hotel.query'].includes(name))
+        ? '\n\n日期填写：绝对日期用YYYY-MM-DD；相对日期直接用DSL，不心算成ISO。天偏移+dN/-dN；月偏移+mNdD/-mNdD（下个月3号+m1d3）；周偏移+wNdD/-wNdD（本周0、下周1、下下周2，周一1到周日7）。时刻接THH:mm，无空格，如+m1d3T17:00。携程仅日期，日历需时刻。' : ''),
     matchedCommands: match.names,
   }
 }

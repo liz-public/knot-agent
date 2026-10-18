@@ -1,17 +1,8 @@
+import { parseDeviceDate } from '../device-clock.js'
+
 export function parseDateExpr(expr: string, now = new Date()): Date | undefined {
-  const text = expr.trim()
-  if (text.length === 0) return undefined
-  if (text === '明天') return new Date(now.getTime() + 86_400_000)
-  if (text === '后天') return new Date(now.getTime() + 2 * 86_400_000)
-  const relativeDays = /^\+(\d+)d$/.exec(text)
-  if (relativeDays !== null) {
-    const days = Number(relativeDays[1])
-    if (!Number.isFinite(days)) return undefined
-    return new Date(now.getTime() + days * 86_400_000)
-  }
-  const parsed = Date.parse(text)
-  if (!Number.isFinite(parsed)) return undefined
-  return new Date(parsed)
+  const epoch = parseDeviceDate(expr.trim(), now.getTime(), Intl.DateTimeFormat().resolvedOptions().timeZone)
+  return epoch === undefined ? undefined : new Date(epoch)
 }
 
 export function startOfLocalDay(now = new Date()): number {
@@ -29,5 +20,6 @@ export function formatLocalDateTime(millis: number): string {
 export function localDateFields(date: Date): Record<string, string> {
   const local = formatLocalDateTime(date.getTime())
   return { local_date: local.slice(0, 10), local_time: local.slice(11),
+    weekday: ['日', '一', '二', '三', '四', '五', '六'][date.getDay()]!,
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone }
 }

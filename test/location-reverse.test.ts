@@ -48,7 +48,7 @@ test('travel default city uses the same cloud reverse helper, not device locatio
       : capability === 'clock.read' ? { ok: true, epochMillis: Date.parse('2026-10-13T03:00:00Z'), timeZone: 'Asia/Shanghai' }
       : { ok: true, installed: true }
   } }, config)
-  await handlers['query_train']!({ arrive: '北京', when: '明天' }, { turnId: 'turn', callId: 'call' })
+  await handlers['query_train']!({ arrive: '北京', when: '+d1' }, { turnId: 'turn', callId: 'call' })
   assert.equal(calls.filter(c => c.capability === 'location.read').length, 1)
   assert.equal(calls.some(c => c.capability === 'location.reverse'), false)
   assert.equal(new URL(calls.at(-1).args.uri).searchParams.get('c1'), '北京')

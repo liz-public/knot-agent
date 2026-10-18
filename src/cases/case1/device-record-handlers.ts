@@ -53,6 +53,7 @@ export function deviceRecordHandlers(port: DevicePort): Readonly<Record<string, 
       const title = args['title'], expr = args['date_expr'], duration = Number(args['duration_hours'] ?? 1)
       if (typeof title !== 'string' || !title.trim()) return err('need_title')
       if (typeof expr !== 'string' || !expr.trim()) return err('need_date_expr')
+      if (!expr.includes('T')) return err('missing_time', '日程需要THH:mm时刻。')
       if (!Number.isFinite(duration) || duration <= 0) return err('invalid_duration')
       const time = await clock(context)
       if (time['ok'] !== true) return deviceResult(time, {}, '')
