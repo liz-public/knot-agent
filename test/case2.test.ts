@@ -63,6 +63,30 @@ function waitingTool(started: ReturnType<typeof deferred>, release: ReturnType<t
   }
 }
 
+test('CASE2 edit writes replacement text literally and keeps exact unique-match guards', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-edit-literal-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const path = join(cwd, 'sample.txt')
+  const edit = codingTools(cwd).find(tool => tool.name === 'edit')!
+  const context = { turnId: 'turn', callId: 'edit' }
+  for (const newText of ['$&', '$$', '$`', "$'", '$1 $<name>', 'line 1\n$& 中文 $$\nline 3', '']) {
+    await writeFile(path, 'prefix\nold-value\nsuffix', 'utf8')
+    const result = JSON.parse((await edit.execute({ path: 'sample.txt', oldText: 'old-value', newText }, context)).content)
+    assert.equal(result.ok, true)
+    assert.equal(await readFile(path, 'utf8'), `prefix\n${newText}\nsuffix`)
+  }
+  for (const [content, oldText, error] of [
+    ['original', '', 'old_text_empty'],
+    ['original', 'missing', 'old_text_not_unique'],
+    ['old-value and old-value', 'old-value', 'old_text_not_unique'],
+  ]) {
+    await writeFile(path, content!, 'utf8')
+    const result = JSON.parse((await edit.execute({ path: 'sample.txt', oldText, newText: '$&' }, context)).content)
+    assert.equal(result.error, error)
+    assert.equal(await readFile(path, 'utf8'), content)
+  }
+})
+
 test('CASE2 read exposes bounded, resumable pages', async t => {
   const cwd = await mkdtemp(join(tmpdir(), 'knot-case2-read-page-'))
   t.after(() => rm(cwd, { recursive: true, force: true }))

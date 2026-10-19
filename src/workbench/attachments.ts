@@ -76,9 +76,10 @@ export function createAttachmentStore(workspace: string, sessionId: string) {
     if (!metadata.width || !metadata.height || metadata.width > IMAGE_LIMITS.maxImageDimension || metadata.height > IMAGE_LIMITS.maxImageDimension) {
       throw invalid('Invalid or oversized image dimensions', 'IMAGE_DIMENSION_TOO_LARGE')
     }
-    const scale = Math.min(1, Math.sqrt(2048 * 2048 / (metadata.width * metadata.height)))
-    const normalized = await decoder.rotate().resize({ width: Math.max(1, Math.floor(metadata.width * scale)),
-      height: Math.max(1, Math.floor(metadata.height * scale)), fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer({ resolveWithObject: true })
+    const { width, height } = metadata.autoOrient
+    const scale = Math.min(1, Math.sqrt(2048 * 2048 / (width * height)))
+    const normalized = await decoder.rotate().resize({ width: Math.max(1, Math.floor(width * scale)),
+      height: Math.max(1, Math.floor(height * scale)), fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer({ resolveWithObject: true })
     const name = nameOf(typeof part.name === 'string' ? part.name : 'image.webp')
     const ref = await saveFile((async function* () { yield normalized.data })(), name.replace(/\.[^.]+$/, '') + '.webp')
     return { ...ref, kind: 'image', name, mediaType: 'image/webp', width: normalized.info.width, height: normalized.info.height }

@@ -177,7 +177,7 @@ export function codingTools(cwd: string, output?: ToolOutput, processes: Command
       if (occurrences !== 1) {
         return result({ ok: false, error: 'old_text_not_unique', occurrences, path })
       }
-      await writeFile(absolute, content.replace(oldText, newText), 'utf8')
+      await writeFile(absolute, content.replace(oldText, () => newText), 'utf8')
       return result({ ok: true, path })
     },
   }

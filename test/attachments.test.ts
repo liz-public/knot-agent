@@ -40,6 +40,42 @@ test('native upload receipts are Session-scoped; image normalization is durable 
   await assert.rejects(store.read(image), /changed|match|integrity/i)
 })
 
+test('image normalization preserves oriented dimensions without shrinking small EXIF images', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-image-orientation-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const store = createAttachmentStore(cwd, 's')
+  for (const orientation of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const input = await sharp({ create: { width: 1200, height: 300, channels: 3, background: '#336699' } })
+      .withMetadata({ orientation }).jpeg().toBuffer()
+    const image = (await store.admit([{ type: 'image', mediaType: 'image/jpeg', data: input.toString('base64') }])).attachments[0]!
+    const expected = orientation >= 5 ? { width: 300, height: 1200 } : { width: 1200, height: 300 }
+    assert.deepEqual({ width: image.width, height: image.height }, expected, `EXIF ${orientation}`)
+    const stored = await sharp(image.path).metadata()
+    assert.deepEqual({ width: stored.width, height: stored.height }, expected)
+    assert.equal(stored.orientation, undefined)
+  }
+})
+
+test('image normalization retains its pixel budget and aspect ratio after orientation', async t => {
+  const cwd = await mkdtemp(join(tmpdir(), 'knot-image-orientation-budget-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const store = createAttachmentStore(cwd, 's')
+  const width = 4000, height = 2000
+  const scale = Math.sqrt(2048 * 2048 / (width * height))
+  for (const orientation of [1, 6]) {
+    const input = await sharp({ create: { width, height, channels: 3, background: '#336699' } })
+      .withMetadata({ orientation }).jpeg().toBuffer()
+    const image = (await store.admit([{ type: 'image', mediaType: 'image/jpeg', data: input.toString('base64') }])).attachments[0]!
+    const expected = orientation === 6
+      ? { width: Math.floor(height * scale), height: Math.floor(width * scale) }
+      : { width: Math.floor(width * scale), height: Math.floor(height * scale) }
+    assert.deepEqual({ width: image.width, height: image.height }, expected)
+    assert.ok(image.width! * image.height! <= 2048 * 2048)
+    assert.ok(image.width! <= (orientation === 6 ? height : width))
+    assert.ok(image.height! <= (orientation === 6 ? width : height))
+  }
+})
+
 test('native raw uploads, mixed prompts, historical images and Provider image bytes form one Host-to-Agent loop', async t => {
   const cwd = await mkdtemp(join(tmpdir(), 'knot-attachment-http-'))
   t.after(() => rm(cwd, { recursive: true, force: true }))
