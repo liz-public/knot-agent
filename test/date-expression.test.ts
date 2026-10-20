@@ -13,13 +13,19 @@ test('one strict grammar resolves local days, months, natural weeks and minutes'
     ['+m1d3T17:00', '2026-11-03T17:00'], ['-m1d25', '2026-09-25T00:00'],
     ['+w2d3T09:15', '2026-10-28T09:15'], ['+w0d3', '2026-10-14T00:00'],
     ['2028-02-29T10:15', '2028-02-29T10:15'],
+    ['+1d', '2026-10-19T00:00'], ['-3d', '2026-10-15T00:00'],
+    ['+1m3dT17:00', '2026-11-03T17:00'], ['-1m25d', '2026-09-25T00:00'],
+    ['+1m2d', '2026-11-02T00:00'],
+    ['+2w3dT09:15', '2026-10-28T09:15'], ['+0w3d', '2026-10-14T00:00'],
+    ['2026-10-21T15:00:59', '2026-10-21T15:00'], ['+2dT10:15:30', '2026-10-20T10:15'],
   ]) assert.equal(parseDeviceDate(expr!, now, zone), Date.parse(iso + ':00+08:00'), expr)
   assert.equal(travelDate('+m1d5', Date.parse('2026-12-29T00:00:00Z'), zone), '20270105')
   assert.equal(travelDate('+m1d1', Date.parse('2026-01-31T00:00:00Z'), zone), '20260201')
 })
 test('rejects unsupported aliases, invalid dates and mixed expressions instead of normalizing them', () => {
-  for (const expr of ['明天', '+3d', '10-23', '2026-10-23 09:00', '2026-02-30', '+m1d31',
-    '+w1d0', '+w1d8', '+m1d3+w1d1', '+d1T24:00', '+d1T10:60'])
+  for (const expr of ['明天', '10-23', '2026-10-23 09:00', '2026-02-30', '+m1d31',
+    '+w1d0', '+w1d8', '+m1d3+w1d1', '+d1T24:00', '+d1T10:60',
+    '+1m31d', '+1w0d', '+1w8d', '+1m3d+1w1d', '+1d2d', '2026-10-21T15:00:60'])
     assert.equal(parseDeviceDate(expr, now, zone), undefined, expr)
   assert.equal(travelDate('+d1T17:00', now, zone), undefined)
 })

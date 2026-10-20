@@ -35,7 +35,8 @@ test('assembly puts native background into the first request context and uses th
   const dynamic = observed.find(event => event.type === 'context.dynamic')!.data as { content: string }
   assert.match(dynamic.content, /电量16%/)
   const registry = JSON.stringify(observed.find(event => event.type === 'tool.registry')!.data)
-  assert.match(registry, /record:/)
+  const fixed = observed.find(event => event.type === 'context.fixed')!.data
+  assert.match(JSON.stringify(fixed), /record:/)
   assert.doesNotMatch(registry, /confirm|cancel/)
 })
 

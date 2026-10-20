@@ -17,6 +17,7 @@ import { outputPlugin, type OutputSinks } from '../../agent/plugins/output.js'
 import { toolsPlugin, type ToolDefinition } from '../../agent/plugins/tools.js'
 import { runtimeContextPlugin } from './runtime-context.js'
 import { CASE1_SYSTEM_PROMPT, systemPromptPlugin } from './system-prompt.js'
+import { catalogContextPlugin } from './catalog-context.js'
 
 interface BuildContext {
   readonly boundary: Plugin
@@ -40,6 +41,7 @@ const boundary = definePlugin<BuildContext>({
 
 const business: readonly PluginDefinition<BuildContext>[] = [
   definePlugin({ metadata: { id: 'system-prompt', name: 'SystemPrompt', category: 'context', responsibility: 'Install the stable mobile-assistant instruction once.', listens: ['session.start'], emits: ['system.prompt'], source: 'src/cases/case1/system-prompt.ts' }, create: () => systemPromptPlugin(CASE1_SYSTEM_PROMPT), inspect: () => ({ systemPrompts: [CASE1_SYSTEM_PROMPT] }) }),
+  { metadata: { id: 'catalog-context', name: 'CatalogContext', category: 'context', responsibility: 'Record the CLI directory once as stable session reference.', listens: ['user.message'], emits: ['context.fixed'], source: 'src/cases/case1/catalog-context.ts' }, create: context => catalogContextPlugin(context.catalog) },
   { metadata: { id: 'runtime-context', name: 'RuntimeContext', category: 'context', responsibility: 'Build one turn-scoped context from app, tool-intent, time, and active-state sources.', listens: ['user.message'], emits: ['context.dynamic'], source: 'src/cases/case1/runtime-context.ts' }, create: context => runtimeContextPlugin([appMatchSource(context.appMatcher), toolIntentMatchSource(context.catalog), ...(context.contextSources ?? [])], { now: context.now, includeToolState: context.includeToolState }) },
   { metadata: { id: 'history-compression', name: 'CompressHistory', category: 'context', responsibility: 'Create a semantic checkpoint after the context threshold.', listens: ['llm.generated', 'history.compress.request'], emits: ['history.compaction.required', 'history.checkpoint', 'llm.request'], source: 'src/agent/plugins/compress-history.ts' }, create: context => compressHistoryPlugin(context.compression) },
   { metadata: { id: 'agent-flow', name: 'AgentFlow', category: 'flow', responsibility: 'Advance a mobile-assistant turn within a 16-decision budget.', listens: ['context.dynamic', 'tool.result'], emits: ['content.request', 'llm.request', 'assistant.message'], source: 'src/cases/case1/agent-flow.ts' }, create: () => agentFlowPlugin() },

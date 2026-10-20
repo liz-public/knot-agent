@@ -24,7 +24,7 @@ function gate() {
   return { promise, resolve }
 }
 
-test('CASE1 mock, ADB and native backends share the catalog and inspected schema', async () => {
+test('CASE1 mock, ADB and native backends share the catalog, schema and fixed reference', async () => {
   const runtimes = [createMockCase1ToolRuntime(), createAdbCase1ToolRuntime(),
     createDeviceCase1ToolRuntime({ async request() { throw new Error('Inspection must not execute a device operation') } })]
   const schemas: unknown[] = []
@@ -34,7 +34,9 @@ test('CASE1 mock, ADB and native backends share the catalog and inspected schema
     const registered = agent.journal.read().find(event => event.type === TOOL_REGISTRY)!.data as { schemas: Record<string, unknown>[] }
     schemas.push(registered.schemas)
     assert.deepEqual(pluginTools(registered.schemas.map(schema => ({ schema }))), createCase1Assembly().description.tools)
-    assert.match(JSON.stringify(registered.schemas), /record:/)
+    await agent.submit('你好')
+    const reference = agent.journal.read().find(event => event.type === 'context.fixed')!.data
+    assert.match(JSON.stringify(reference), /record:/)
   }
   assert.deepEqual(schemas[0], schemas[1])
   assert.deepEqual(schemas[1], schemas[2])

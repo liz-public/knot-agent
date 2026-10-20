@@ -229,7 +229,7 @@ export const ANDROID_TOOL_CATALOG: readonly CliCommand[] = [
     ]),
   command({
     toolId: "pay", name: "qrcode.pay", summary: "付款码",
-    description: "打开付款码界面。",
+    description: "打开付款码界面。省略 provider 时按微信、支付宝、云闪付顺序选择已安装应用；指定 provider 时只使用该应用，不回落。用户指定应用时应填写 provider。",
     examples: ["qrcode.pay","qrcode.pay alipay"],
     keywords: ["付款码"],
   }, [

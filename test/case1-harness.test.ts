@@ -2,13 +2,57 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createJournal } from '../src/journal.js'
 import { agentFlowPlugin } from '../src/cases/case1/agent-flow.js'
-import { createBashTool, createCliCatalog } from '../src/cases/case1/cli.js'
+import { bashToolSchema, createBashTool, createCliCatalog } from '../src/cases/case1/cli.js'
+import { toolIntentMatchSource } from '../src/cases/case1/context-contributions.js'
+import { catalogContextPlugin } from '../src/cases/case1/catalog-context.js'
 import { ANDROID_TOOL_CATALOG } from '../src/cases/case1/android-tool-catalog.js'
 import { calculate } from '../src/cases/case1/calculate.js'
 import { toolsPlugin } from '../src/agent/plugins/tools.js'
 import { createToolDispatcher } from '../src/cases/case1/dispatcher.js'
 import { createCase1Agent } from '../src/cases/case1/case1.js'
 import { llmPlugin } from '../src/agent/plugins/llm.js'
+
+test('the CLI directory belongs to context, not the native function description', async () => {
+  const catalog = createCliCatalog(ANDROID_TOOL_CATALOG)
+  const schema = bashToolSchema(catalog) as {
+    function: { name: string; description: string; parameters: { properties: { command: { description: string } } } }
+  }
+  assert.equal(schema.function.name, 'bash')
+  assert.ok(!schema.function.description.includes('flight.query'))
+  assert.ok(!schema.function.description.includes('可用命令'))
+  const sample = schema.function.parameters.properties.command.description.split('例如：')[1]!
+  assert.ok('command' in catalog.resolve(sample))
+  const source = toolIntentMatchSource(catalog)
+  const { journal, runUntilIdle } = createJournal()
+  catalogContextPlugin(catalog)(journal)
+  assert.equal(journal.read().length, 0)
+  for (const query of ['查明天北京到上海的机票', '打开微信', '你好']) {
+    journal.append('user.message', { turnId: query, content: query })
+    await runUntilIdle()
+    const fixed = journal.read().filter(event => event.type === 'context.fixed')
+    assert.equal(fixed.length, 1)
+    const contribution = await source(query)
+    for (const command of catalog.commands) {
+      assert.ok(JSON.stringify(fixed[0]!.data).includes(`${command.name}: ${command.summary}`), command.name)
+    }
+    const details = catalog.detailsFor(query)
+    assert.deepEqual(contribution?.matchedCommands ?? [], details.names)
+    if (details.names.length) assert.ok(contribution?.content.includes(details.content))
+    else assert.equal(contribution, undefined)
+  }
+  const restored = createJournal()
+  for (const event of journal.read()) restored.journal.append(event.type, event.data)
+  await restored.runUntilIdle()
+  catalogContextPlugin(catalog)(restored.journal)
+  restored.journal.append('user.message', { turnId: 'restored', content: '你好' })
+  await restored.runUntilIdle()
+  assert.equal(restored.journal.read().filter(event => event.type === 'context.fixed').length, 1)
+})
+
+test('the bash command example is derived from the assembled catalog', () => {
+  const custom = createCliCatalog([])
+  assert.ok(JSON.stringify(bashToolSchema(custom)).includes('help'))
+})
 
 test('decision budget counts agent generations per turn, not calls or compression', async () => {
   const { journal, runUntilIdle } = createJournal()

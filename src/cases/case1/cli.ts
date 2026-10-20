@@ -84,15 +84,15 @@ export function createCliCatalog(commands: readonly CliCommand[]): CliCatalog {
 }
 
 export function bashToolSchema(catalog: CliCatalog): ToolDefinition['schema'] {
-  const compact = catalog.commands.map(command => `${command.name}: ${command.summary}`).join('\n')
+  const example = catalog.commands.find(command => command.name === 'app.open')?.examples[0] ?? 'help'
   return {
     type: 'function',
     function: {
       name: 'bash',
-      description: `执行一条 CLI 命令。参数含空格时使用双引号。help 查看目录；help <command> 查看命令说明。可用命令：\n${compact}`,
+      description: '执行一条手机业务 CLI 命令。参数含空格时使用双引号。help 查看目录；help <command> 查看命令说明。',
       parameters: {
         type: 'object',
-        properties: { command: { type: 'string', description: '一条 CLI 命令。' } },
+        properties: { command: { type: 'string', description: `完整业务命令字符串，例如：${example}` } },
         required: ['command'],
         additionalProperties: false,
       },

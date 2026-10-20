@@ -4,6 +4,26 @@ import { deviceAppHandlers } from '../src/cases/case1/device-app-handlers.js'
 import { ANDROID_TOOL_CATALOG } from '../src/cases/case1/android-tool-catalog.js'
 
 const context = { turnId: 'turn', callId: 'call' }
+test('payment omission uses installed order, but an explicit provider never falls back', async () => {
+  for (const installed of [['com.tencent.mm', 'com.eg.android.AlipayGphone'], ['com.eg.android.AlipayGphone'], ['com.unionpay']]) {
+    const calls: any[] = []
+    const handlers = deviceAppHandlers({ async request(capability, args) {
+      calls.push({ capability, args })
+      return capability === 'packages.installed'
+        ? { ok: true, installed: installed.includes(String(args.packageName)) } : { ok: true }
+    } })
+    const expected = installed[0] === 'com.tencent.mm' ? 'wechat' : installed[0] === 'com.eg.android.AlipayGphone' ? 'alipay' : 'unionpay'
+    assert.equal(JSON.parse((await handlers['pay']!({}, context)).content).provider, expected)
+    calls.length = 0
+    const explicit = JSON.parse((await handlers['pay']!({ provider: 'wechat' }, context)).content)
+    assert.equal(explicit.ok, installed.includes('com.tencent.mm'))
+    if (!explicit.ok) {
+      assert.equal(explicit.error, 'app_not_installed')
+      assert.equal(calls.length, 1)
+      assert.equal(calls[0].capability, 'packages.installed')
+    }
+  }
+})
 test('Taobao uses its exported browser entry; JD and PDD keep ordinary VIEW', async () => {
   const calls: any[] = []
   const handlers = deviceAppHandlers({ async request(capability, args) { calls.push({ capability, args }); return { ok: true, installed: true } } })

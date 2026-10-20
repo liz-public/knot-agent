@@ -5,6 +5,18 @@ import { parseDeviceDate, startOfDeviceDay } from '../src/cases/case1/device-clo
 import { createDeviceCase1ToolRuntime } from '../src/cases/case1/device-runtime.js'
 const context = { turnId: 'turn', callId: 'call' }
 const now = Date.parse('2026-10-11T03:15:00Z')
+test('calendar converts numeric-first dates and ignores valid ISO seconds before the device write', async () => {
+  const writes: any[] = []
+  const handlers = deviceRecordHandlers({ async request(capability, args) {
+    if (capability === 'clock.read') return { ok: true, epochMillis: now, timeZone: 'Asia/Shanghai' }
+    assert.equal(capability, 'calendar.upsert')
+    writes.push(args); return { ok: true }
+  } })
+  for (const date_expr of ['+1dT09:00', '2026-10-12T09:00:59']) {
+    assert.equal(JSON.parse((await handlers['calendar_create_or_update_event']!({ title: 'fixture', date_expr }, context)).content).ok, true)
+    assert.equal(writes.at(-1).beginMillis, Date.parse('2026-10-12T01:00:00Z'))
+  }
+})
 test('notification authorization produces a retry-after-grant hint, not an empty notification success', async () => {
   let requests = 0
   const handlers = deviceRecordHandlers({ async request(capability) {

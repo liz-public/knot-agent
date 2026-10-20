@@ -18,7 +18,9 @@ export function startOfDeviceDay(epoch: number, timeZone: string, daysFromToday 
 }
 export function parseDeviceDate(text: string, now: number, timeZone: string): number | undefined {
   const p = zonedParts(now, timeZone)
-  const match = /^(\d{4}-\d{2}-\d{2}|[+-]d\d+|[+-][mw]\d+d\d+)(?:T(\d{2}):(\d{2}))?$/.exec(text)
+  const normalized = text.replace(/^([+-])(\d+)d(?=T|$)/, '$1d$2')
+    .replace(/^([+-])(\d+)([mw])(\d+)d(?=T|$)/, '$1$3$2d$4')
+  const match = /^(\d{4}-\d{2}-\d{2}|[+-]d\d+|[+-][mw]\d+d\d+)(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(normalized)
   if (!match) return undefined
   const [datePart, hour, minute] = [match[1]!, Number(match[2] ?? 0), Number(match[3] ?? 0)]
   let year: number, month: number, day: number
@@ -40,7 +42,7 @@ export function parseDeviceDate(text: string, now: number, timeZone: string): nu
   }
   const wall = Date.UTC(year, month - 1, day, hour, minute), date = new Date(wall)
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
-    || hour > 23 || minute > 59) return undefined
+    || hour > 23 || minute > 59 || Number(match[4] ?? 0) > 59) return undefined
   const epoch = wallToEpoch(wall, timeZone), actual = zonedParts(epoch, timeZone)
   return actual['hour'] === hour && actual['minute'] === minute ? epoch : undefined
 }
