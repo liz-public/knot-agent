@@ -14,7 +14,7 @@ That growing history is the **Journal**. It records more than what an agent did:
 
 [中文](README.md) · [Core concepts and semantics](docs/concepts.md) · [Plugin best practices](docs/plugin-best-practices.md)
 
-> **Alpha**: Android assistant (CASE1), coding agent (CASE2), and Web Run using the official DSH frontend shell have been exercised. The focus is real usage and a better workbench; public plugin APIs and experiment capabilities are still evolving.
+> **Alpha**: The public version has exercised the Android assistant (CASE1), coding agent (CASE2), and Web Run using the official DSH frontend shell. Additional validations and research plans are listed below; public plugin APIs and experiment capabilities are still evolving.
 
 ![Plugins subscribe to existing facts and append new facts to the Journal timeline](docs/assets/journal-participants.svg)
 
@@ -130,20 +130,25 @@ flowchart TD
 
 This illustrates the **experimental direction**, not a claim that arbitrary-node forks or controlled replay of all external effects are productized. See [core concepts](docs/concepts.md) for recovery, model nondeterminism, and side effects.
 
-## Two very different agents, one kernel
+## Different agents, one kernel
 
-The Android assistant and coding agent share the same **56-line Journal kernel**. What changes is the assembly: plugins, tools, context, and execution environment.
+From Android and coding agents to domain-specific and personal assistants, Knot exercises the same **56-line Journal kernel** across different scenarios. What changes is the assembly—plugins, tools, context, and execution environment—not a separate runtime for each scenario.
 
-| | CASE1: Android assistant | CASE2: Coding agent |
-|---|---|---|
-| Workload | Frequent requests, short context, bounded actions | Long-running tasks, open workspace, many tool calls |
-| Capabilities | Intent-matched context, Bash/CLI, device execution | File editing, Shell, approvals, Todo/Goal, subagents |
-| Content sources | Rules and LLM | Long-context reasoning and successive tool use |
-| Validation | Consecutive requests on a USB-connected phone | Multi-stage development in a real repository |
+The table includes public implementations, private validations, and research plans. Validation in enterprise environments or private branches does not mean those business integrations ship with the public version.
+
+| Case | Purpose | Approach and core capabilities | Status and validation scope |
+|---|---|---|---|
+| CASE1: Android assistant | Frequent device-control requests with short context | Rules and LLM content sources, intent-matched context, Bash/CLI; device actions via ADB or `DevicePort`, not limited to USB | Public implementation; consecutive USB-device requests and DevicePort device integration validated |
+| CASE2: Coding agent | Long-running tasks in an open workspace | Long-context reasoning, successive tool use, file editing, Shell, approvals, Todo/Goal, subagents | Public implementation; multi-stage development in a real repository validated |
+| CASE3: Unified entry agent | Request routing and global management | Routes user requests to suitable subagents and sessions, with unified management | Public roadmap; not implemented |
+| CASE4: Query-constrained agent | Sensitive authorization, relaying, and calls on the user's behalf | Function-call arguments preserve the user's original wording, without rewriting or completion | Validated in enterprise environments; private branch |
+| CASE5: Domain-specific agent | Dedicated business capabilities | Attachment uploads/downloads and cloud-storage capability invocation | Validated in enterprise environments; private branch |
+| CASE6: Doctor | Harness / RSI research | Investigates improvements to other cases' harnesses and Journal plugin assemblies, and the development of new cases (aspiring to reach “No. 18”) | Public exploratory research; autonomous improvement loop not yet validated |
+| CASE7: Personal agent | Personal assistance and ongoing tasks | Sandbox and terminal channels, configurable assistant entities, scheduled task triggers | Basic validation completed; under development in a private branch |
 
 ### CASE1: Android device assistant
 
-CASE1 does not put Android business logic in a central loop. The system prompt and Bash function schema stay stable; intent matching supplies relevant apps and CLI instructions for the current query. Catalog, parser, and dispatcher then route the command to a device handler.
+CASE1 does not put Android business logic in a central loop. The system prompt and Bash function schema stay stable; intent matching supplies relevant apps and CLI instructions for the current query. Catalog, parser, and dispatcher route the command to its execution backend: ADB can operate a real phone, while `DevicePort` delegates capability requests to a device client.
 
 ```mermaid
 sequenceDiagram

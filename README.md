@@ -14,7 +14,7 @@
 
 [English](README.en.md) · [核心概念与运行语义](docs/concepts.md) · [插件最佳实践](docs/plugin-best-practices.md)
 
-> **Alpha**：已完成 Android 终端助手（CASE1）、Coding Agent（CASE2）及接入 DSH 官方前端壳的 Web Run 验证。当前重点是扩大真实使用和完善工作台；插件公共接口与实验能力仍在演进。
+> **Alpha**：公开版本已完成 Android 终端助手（CASE1）、Coding Agent（CASE2）及接入 DSH 官方前端壳的 Web Run 验证。更多场景的验证状态与研究计划见下表；插件公共接口与实验能力仍在演进。
 
 ![Journal 记事，插件履职：插件订阅已有事件，再向时间轴尾部追加新事实](docs/assets/journal-participants.svg)
 
@@ -130,20 +130,25 @@ flowchart TD
 
 这张图表达的是 Knot 的**实验方向**，并不意味着任意节点 Fork 和所有外部 Effect 的受控重放都已产品化。具体可恢复范围、非确定性模型和副作用处理见 [核心概念](docs/concepts.md)。
 
-## 两个完全不同的 Agent，同一个内核
+## 不同的 Agent，同一个内核
 
-Knot 没有为手机助手和 Coding Agent 分别开发一套运行时：两者使用同一个 **56 行 Journal 内核**，改变的是装配的插件、工具、上下文和执行环境。
+从手机助手到 Coding Agent，再到业务与个人助理，Knot 用不同场景验证同一个 **56 行 Journal 内核**。改变的是装配的插件、工具、上下文和执行环境，而不是为每个场景另写一套运行时。
 
-| | CASE1：Android 助手 | CASE2：Coding Agent |
-|---|---|---|
-| 工作方式 | 高频、短上下文、受限动作 | 长程任务、开放工作区、大量工具调用 |
-| 关键能力 | 动态工具上下文、Bash/CLI、设备执行 | 文件编辑、Shell、审批、Todo/Goal、Subagent |
-| 模型参与 | 规则与 LLM 内容来源 | 长上下文推理与连续工具使用 |
-| 验证 | USB 真机连续请求 | 真实代码仓库多阶段开发 |
+下表同时列出公开实现、私有场景验证和研究计划；企业／私有分支中的验证不表示相关业务集成已随公开版本提供。
+
+| Case | 定位 | 工作方式与核心能力 | 状态与验证范围 |
+|---|---|---|---|
+| CASE1：Android 助手 | 高频、短上下文的终端控制 | 规则与 LLM 内容来源、动态工具上下文、Bash/CLI；经 ADB 或 `DevicePort` 下发设备操作，不限于 USB | 公开实现；USB 真机连续请求与 DevicePort 设备联调已验证 |
+| CASE2：Coding Agent | 长程、开放工作区任务 | 长上下文推理、连续工具使用、文件编辑、Shell、审批、Todo/Goal、Subagent | 公开实现；真实代码仓库多阶段开发已验证 |
+| CASE3：统一入口 Agent | 请求分发与全局管理 | 将用户请求分发至合适的子智能体和会话，统一管理 | 公开计划；待实现 |
+| CASE4：原文约束 Agent | 敏感授权、转达、代打 | Function Call 参数严格保留用户 query 原文，不改写、不补全 | 企业场景已验证；私有分支 |
+| CASE5：业务场景 Agent | 专用业务能力调用 | 附件上传／下载、网盘相关能力的调用与触发 | 企业场景已验证；私有分支 |
+| CASE6：博士 | Harness / RSI 研究 | 研究改进其他 Case 的 Harness 与 Journal 插件编排，探索开发新 Case（愿景：一路到“18号”） | 公开预研；尚未验证自主改进闭环 |
+| CASE7：Personal Agent | 个人助理与持续任务 | 沙箱与终端双通道、助理实体配置、定时任务触发 | 基本完成验证，持续开发中；私有分支 |
 
 ### CASE1：Android 终端控制助手
 
-CASE1 没有把 Android 业务逻辑塞进中央 AgentLoop。系统提示词和 Bash Function Schema 可以保持稳定；本轮请求仅装配相关应用和 CLI 用法，再经 Catalog、Parser、Dispatcher 分发到设备 Handler。
+CASE1 没有把 Android 业务逻辑塞进中央 AgentLoop。系统提示词和 Bash Function Schema 可以保持稳定；本轮请求仅装配相关应用和 CLI 用法，再经 Catalog、Parser、Dispatcher 分发到具体执行端：既可通过 ADB 操作真机，也可通过 `DevicePort` 将能力请求交给设备客户端执行。
 
 ```mermaid
 sequenceDiagram
