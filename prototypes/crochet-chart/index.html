@@ -1,0 +1,2237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>钩绘 · 钩针图解预览</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M21 4.5c-6.2 1-8.4 6.2-6.2 9.2 2.2 3 6.4 2.1 6.4 5.2 0 4.4-8.6 5.4-8.6 10.2' fill='none' stroke='%23c4491d' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M18.5 4.5h5' stroke='%23c4491d' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@430;560;700&family=Noto+Serif+SC:wght@560;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #e6d9c6;
+    --panel: #fffaf4;
+    --ink: #241c16;
+    --muted: #7c6e61;
+    --line: #eadfce;
+    --accent: #c4491d;
+    --accent-soft: #f8e6da;
+    --sage: #1d6a56;
+    --danger: #9d3a32;
+    --shadow: 0 18px 50px rgba(72, 42, 18, 0.08);
+    --sans: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
+    --serif: "Noto Serif SC", "Songti SC", "STSong", "SimSun", "WenQuanYi Micro Hei", serif;
+    --mono: "Cascadia Mono", "WenQuanYi Micro Hei Mono", ui-monospace, monospace;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #14110e;
+    --panel: #221e1a;
+    --ink: #f6efe6;
+    --muted: #b7aa9d;
+    --line: #3c342c;
+    --accent: #e48455;
+    --accent-soft: #3c261c;
+    --sage: #8fd0bd;
+    --danger: #f0a297;
+    --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--bg);
+    overflow: hidden;
+  }
+  [hidden] { display: none !important; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .app {
+    height: 100dvh;
+    display: grid;
+    grid-template-columns: 360px minmax(0, 1fr) 292px;
+    grid-template-rows: 62px minmax(0, 1fr) 112px;
+    grid-template-areas:
+      "header header header"
+      "editor canvas inspector"
+      "history history history";
+  }
+  header, .col-editor, .col-inspector, .col-history { background: var(--panel); }
+  header {
+    grid-area: header;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 16px 0 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .brand svg { width: 28px; height: 28px; color: var(--accent); flex: none; }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+  }
+  .subtitle { margin: 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .status { margin: 0; color: var(--muted); font-size: 13px; min-width: 0; }
+  .spacer { flex: 1; }
+  .header-actions { display: flex; gap: 8px; flex: none; }
+  .col-editor, .col-inspector { min-height: 0; min-width: 0; }
+  .col-editor {
+    grid-area: editor;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 14px 12px;
+    border-right: 1px solid var(--line);
+  }
+  .col-canvas {
+    grid-area: canvas;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 12px;
+    gap: 8px;
+  }
+  .col-inspector {
+    grid-area: inspector;
+    overflow: auto;
+    padding: 12px 14px 16px;
+    border-left: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .col-history {
+    grid-area: history;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    padding: 10px 14px 12px;
+    border-top: 1px solid var(--line);
+    gap: 8px;
+  }
+  .kicker, .inspector h2, .history-head h2 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+  }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip, .btn, .seg button, .tabbar button, .hdel, .check-line, .eye, .errors button {
+    border: 1px solid var(--line);
+    background: transparent;
+    border-radius: 999px;
+  }
+  .chip, .btn { padding: 7px 12px; font-size: 13px; white-space: nowrap; }
+  .chip.is-on { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fffaf6; }
+  .btn-block { width: 100%; border-radius: 14px; padding: 12px 14px; font-size: 15px; font-weight: 700; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .editor-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+  textarea, .field input, .field textarea {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--panel) 70%, white 30%);
+    padding: 12px 14px;
+  }
+  :root[data-theme="dark"] textarea,
+  :root[data-theme="dark"] .field input,
+  :root[data-theme="dark"] .field textarea { background: #1a1613; }
+  #pattern {
+    flex: 1;
+    min-height: 132px;
+    max-height: 210px;
+    resize: none;
+    line-height: 1.65;
+    font-family: var(--mono);
+    font-size: 13.5px;
+  }
+  .tool-row, .generate-bar { display: flex; gap: 8px; align-items: center; }
+  .tool-row { justify-content: space-between; }
+  .tool-row .left { display: flex; gap: 8px; }
+  .seg { display: flex; padding: 3px; background: color-mix(in srgb, var(--line) 55%, transparent); border-radius: 999px; }
+  .seg button { flex: 1; border: 0; border-radius: 999px; padding: 7px 8px; font-size: 13px; }
+  .seg button[aria-pressed="true"] { background: var(--panel); box-shadow: 0 1px 2px rgba(40, 20, 10, 0.08); }
+  .dirty { margin: 0; color: var(--accent); font-size: 12px; min-height: 1em; }
+  .errors button, .warn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border-radius: 12px;
+    padding: 8px 10px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .errors button { background: color-mix(in srgb, var(--danger) 12%, var(--panel)); color: var(--danger); margin-top: 6px; }
+  .warn { background: #fbf1d8; color: #6d4a12; border: 0; }
+  :root[data-theme="dark"] .warn { background: #3a2e1c; color: #f3ddb0; }
+  .checks { display: flex; flex-direction: column; gap: 2px; }
+  .check { display: flex; gap: 6px; align-items: center; }
+  .check-line {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 48px 52px minmax(0, 1fr);
+    gap: 4px;
+    text-align: left;
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-size: 12.5px;
+  }
+  .check em { font-style: normal; color: var(--sage); }
+  .check.bad em { color: var(--danger); }
+  .eye { padding: 4px 8px; font-size: 12px; color: var(--muted); }
+  .sum { margin: 0; font-size: 13px; color: var(--sage); }
+  .sum.bad { color: var(--danger); }
+  details { font-size: 13px; color: var(--muted); }
+  details ol { margin: 8px 0 0; padding-left: 18px; }
+  details li { word-break: break-all; margin: 3px 0; }
+  .note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+  .stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: var(--shadow);
+    touch-action: none;
+    cursor: grab;
+  }
+  .stage:active { cursor: grabbing; }
+  .stage.paper { background: #fbf6ec; }
+  .stage.clear {
+    background-color: #fff;
+    background-image:
+      linear-gradient(45deg, #efe4d4 25%, transparent 25%),
+      linear-gradient(-45deg, #efe4d4 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #efe4d4 75%),
+      linear-gradient(-45deg, transparent 75%, #efe4d4 75%);
+    background-size: 18px 18px;
+    background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+  }
+  .stage svg { width: 100%; height: 100%; display: block; user-select: none; }
+  .gesture-hint, .zoombar {
+    position: absolute;
+    z-index: 1;
+  }
+  .gesture-hint {
+    left: 14px;
+    top: 12px;
+    margin: 0;
+    color: #8d7b6a;
+    font-size: 12px;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .stage.has-moved .gesture-hint { opacity: 0; }
+  .zoombar {
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
+    border: 1px solid var(--line);
+  }
+  .zoombar button, .zoombar span { min-width: 36px; border: 0; background: transparent; border-radius: 999px; padding: 6px 8px; font-size: 13px; }
+  .canvas-msg {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 24px;
+    pointer-events: none;
+  }
+  .canvas-msg h2 { margin: 0 0 8px; font-family: var(--serif); font-weight: 700; font-size: 28px; }
+  .canvas-msg p { margin: 0; color: var(--muted); }
+  .group { display: flex; flex-direction: column; gap: 8px; }
+  .slider-top, .switch, .history-head, .field span { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+  .slider-top, .switch, .field span { font-size: 13px; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .legend { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+  .legend li { display: flex; align-items: center; gap: 4px; font-size: 13px; min-width: 0; }
+  .legend small { color: var(--muted); margin-left: 4px; }
+  .history-head h2 { letter-spacing: 0.14em; }
+  .linkish { border: 0; background: transparent; color: var(--muted); padding: 0; font-size: 13px; }
+  .hlist { display: flex; gap: 10px; overflow: auto; min-height: 0; }
+  .hcard {
+    flex: 0 0 230px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 6px;
+    background: color-mix(in srgb, var(--panel) 80%, white 20%);
+  }
+  .hcard.is-on { border-color: var(--accent); }
+  .hopen { flex: 1; display: flex; gap: 8px; align-items: center; min-width: 0; border: 0; background: transparent; text-align: left; padding: 0; }
+  .hthumb { width: 78px; height: 62px; flex: none; background: #fff; border-radius: 8px; overflow: hidden; }
+  .hmeta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .hmeta strong, .hmeta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hmeta small { color: var(--muted); }
+  .hdel { padding: 6px 8px; font-size: 12px; color: var(--muted); }
+  .empty { margin: 0; color: var(--muted); font-size: 13px; }
+  .tabbar { display: none; }
+  dialog { border: 0; padding: 0; border-radius: 20px; background: var(--panel); color: var(--ink); width: min(560px, calc(100vw - 28px)); box-shadow: var(--shadow); }
+  dialog.wide { width: min(760px, calc(100vw - 28px)); }
+  dialog::backdrop { background: rgba(28, 20, 14, 0.48); }
+  .dialog-head, .dialog-body, .dialog-actions { padding: 18px 20px; }
+  .dialog-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); }
+  .dialog-head h2 { margin: 0; font-family: var(--serif); font-size: 22px; }
+  .dialog-body { max-height: min(70vh, 680px); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
+  .syntax { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .syntax th, .syntax td { border-bottom: 1px solid var(--line); text-align: left; padding: 8px 6px; vertical-align: top; }
+  .syntax code { font-family: var(--mono); font-size: 13px; }
+  .export-preview { border: 1px solid var(--line); border-radius: 12px; background: #fff; max-height: 48vh; overflow: auto; }
+  .export-preview.is-paper { background: #fbf6ec; }
+  .export-preview.is-clear {
+    background-color: #fff;
+    background-image:
+      linear-gradient(45deg, #efe4d4 25%, transparent 25%),
+      linear-gradient(-45deg, #efe4d4 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #efe4d4 75%),
+      linear-gradient(-45deg, transparent 75%, #efe4d4 75%);
+    background-size: 18px 18px;
+    background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+  }
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    z-index: 30;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: #241c16;
+    color: #fffaf4;
+    border-radius: 999px;
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+  .toast button { border: 0; background: transparent; color: #ffd2bf; padding: 0; }
+  .toast[hidden] { display: none; }
+  body.phone-frame { display: grid; place-items: center; background: #d5c3ab; }
+  body.phone-frame .app {
+    width: 390px;
+    height: min(844px, calc(100dvh - 28px));
+    border: 10px solid #241c16;
+    border-radius: 36px;
+    overflow: hidden;
+    box-shadow: 0 24px 70px rgba(40, 22, 10, 0.28);
+  }
+  body.compact .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 52px minmax(0, 1fr) 58px;
+    grid-template-areas: "header" "main" "tabs";
+  }
+  body.compact .subtitle, body.compact .status, body.compact #themeBtn, body.compact #settingsBtn { display: none; }
+  body.narrow-window #phoneBtn { display: none; }
+  body.compact .col-editor,
+  body.compact .col-canvas,
+  body.compact .col-inspector,
+  body.compact .col-history { grid-area: main; display: none; border: 0; }
+  body.compact[data-tab="edit"] .col-editor,
+  body.compact[data-tab="chart"] .col-canvas,
+  body.compact[data-tab="tune"] .col-inspector,
+  body.compact[data-tab="history"] .col-history { display: flex; }
+  body.compact .tabbar {
+    display: flex;
+    grid-area: tabs;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+  }
+  body.compact .tabbar button { flex: 1; border: 0; border-radius: 0; padding: 8px 0; font-size: 12px; color: var(--muted); }
+  body.compact .tabbar button[aria-current="page"] { color: var(--accent); font-weight: 700; }
+  body.compact .hlist { flex-direction: column; }
+  body.compact .hcard { flex: none; }
+  body.compact .toast { bottom: 74px; }
+  body.phone-frame #phoneBtn { position: fixed; top: 16px; right: 16px; z-index: 5; background: var(--panel); }
+  @media (max-width: 1180px) {
+    .app { grid-template-columns: 320px minmax(0, 1fr) 260px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body data-tab="chart">
+<div class="app">
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M21 4.5c-6.2 1-8.4 6.2-6.2 9.2 2.2 3 6.4 2.1 6.4 5.2 0 4.4-8.6 5.4-8.6 10.2" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/><path d="M18.5 4.5h5" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/></svg>
+      <div>
+        <h1>钩绘</h1>
+        <p class="subtitle">网页预览 · 看图解，不装 App</p>
+      </div>
+    </div>
+    <p class="status" id="status"></p>
+    <div class="spacer"></div>
+    <div class="header-actions">
+      <button class="btn" id="phoneBtn" type="button" aria-pressed="false">手机框</button>
+      <button class="btn" id="themeBtn" type="button">深色</button>
+      <button class="btn" id="settingsBtn" type="button">设置</button>
+      <button class="btn" id="saveBtn" type="button">保存</button>
+      <button class="btn btn-primary" id="exportBtn" type="button">导出</button>
+    </div>
+  </header>
+
+  <section class="col-editor" aria-label="文字图解">
+    <p class="kicker">文字图解</p>
+    <div class="chips" id="chips"></div>
+    <div class="editor-scroll">
+      <label class="sr" for="pattern" style="position:absolute;left:-999px">图解文本</label>
+      <textarea id="pattern" spellcheck="false" autocapitalize="off"></textarea>
+      <div class="tool-row">
+        <div class="left">
+          <button class="btn" id="pasteBtn" type="button">粘贴</button>
+          <button class="btn" id="clearBtn" type="button">清空</button>
+          <button class="btn" id="syntaxBtn" type="button">语法</button>
+        </div>
+        <div class="seg" id="modeSeg" data-live="generate">
+          <button type="button" data-value="auto" aria-pressed="true">自动</button>
+          <button type="button" data-value="round" aria-pressed="false">圈织</button>
+          <button type="button" data-value="flat" aria-pressed="false">片织</button>
+        </div>
+      </div>
+      <div id="errors"></div>
+      <p class="sum" id="sum" hidden></p>
+      <div class="checks" id="checks"></div>
+      <details id="expansion"><summary>查看每一圈怎么展开</summary><ol id="expansionList"></ol></details>
+    </div>
+    <div class="generate-bar">
+      <p class="dirty" id="dirtyNote"></p>
+    </div>
+    <button class="btn btn-primary btn-block" id="generateBtn" type="button">生成图解</button>
+    <p class="note">Ctrl 或 ⌘ + Enter。符号：ch 锁针、x 短针、f 长针、sl 引拔、v 加针、a 减针。</p>
+  </section>
+
+  <section class="col-canvas" aria-label="图解画布">
+    <div id="warn" class="warn" hidden></div>
+    <div class="stage white" id="stage">
+      <svg id="chartSvg" xmlns="http://www.w3.org/2000/svg"><g id="camera"><g id="content"></g></g></svg>
+      <div class="canvas-msg" id="canvasMsg" hidden><div><h2>这段还织不出来</h2><p id="canvasMsgText"></p></div></div>
+      <p class="gesture-hint">拖拽平移，滚轮或双指缩放</p>
+      <div class="zoombar">
+        <button type="button" id="zoomOut" aria-label="缩小">−</button>
+        <span id="zoomLabel">100%</span>
+        <button type="button" id="zoomIn" aria-label="放大">+</button>
+        <button type="button" id="fitBtn">适配</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="col-inspector" aria-label="图解调整">
+    <div class="group">
+      <h2>样式</h2>
+      <div class="seg" id="styleSeg" data-live="chart">
+        <button type="button" data-value="standard" aria-pressed="true">标准</button>
+        <button type="button" data-value="sketch" aria-pressed="false">手绘</button>
+      </div>
+      <div class="seg" id="colorSeg" data-live="chart">
+        <button type="button" data-value="mono" aria-pressed="true">单色</button>
+        <button type="button" data-value="color" aria-pressed="false">分色</button>
+      </div>
+      <p class="note">分色用来核对加针和减针，单色更接近书上的图。</p>
+    </div>
+    <div class="group">
+      <h2>疏密</h2>
+      <label class="slider"><span class="slider-top"><span id="gapLabel">圈间距</span><b id="gapVal">46</b></span><input id="gap" type="range" min="24" max="72" step="1" value="46"></label>
+      <label class="slider"><span class="slider-top"><span>符号大小</span><b id="symbolVal">15</b></span><input id="symbol" type="range" min="10" max="32" step="1" value="15"></label>
+      <label class="slider"><span class="slider-top"><span>线条粗细</span><b id="strokeVal">1.7</b></span><input id="stroke" type="range" min="0.8" max="3.2" step="0.1" value="1.7"></label>
+    </div>
+    <div class="group">
+      <h2>标注和底</h2>
+      <label class="switch"><span>圈数标注</span><input id="showLabels" type="checkbox" checked></label>
+      <label class="field"><span>图上的标题</span><input id="titleInput" maxlength="24" value="经典圆球"></label>
+      <div class="seg" id="bgSeg" data-live="chart">
+        <button type="button" data-value="white" aria-pressed="true">白</button>
+        <button type="button" data-value="paper" aria-pressed="false">暖纸</button>
+        <button type="button" data-value="clear" aria-pressed="false">透明</button>
+      </div>
+      <p class="note" id="flatNote" hidden>片织按往返排：写在前面的针，落在这一行起针的那一头。</p>
+    </div>
+    <div class="group">
+      <h2>针法</h2>
+      <ul class="legend">
+        <li><span class="legend-icon" data-kind="ch"></span><span>锁针<small>ch</small></span></li>
+        <li><span class="legend-icon" data-kind="sc"></span><span>短针<small>x</small></span></li>
+        <li><span class="legend-icon" data-kind="dc"></span><span>长针<small>f</small></span></li>
+        <li><span class="legend-icon" data-kind="sl"></span><span>引拔<small>sl</small></span></li>
+        <li><span class="legend-icon" data-kind="inc"></span><span>加针<small>v</small></span></li>
+        <li><span class="legend-icon" data-kind="dec"></span><span>减针<small>a</small></span></li>
+      </ul>
+      <p class="note">v 在同一针里画两个短针，a 把相邻两针收成一针。</p>
+    </div>
+  </aside>
+
+  <section class="col-history" aria-label="历史记录">
+    <div class="history-head">
+      <h2>记录</h2>
+      <button class="linkish" id="clearHistory" type="button">清空</button>
+    </div>
+    <div class="hlist" id="historyList"></div>
+  </section>
+
+  <nav class="tabbar" aria-label="页面">
+    <button type="button" data-tab="edit">编写</button>
+    <button type="button" data-tab="chart" aria-current="page">图解</button>
+    <button type="button" data-tab="tune">调整</button>
+    <button type="button" data-tab="history">记录</button>
+    <button type="button" data-tab="settings">设置</button>
+  </nav>
+</div>
+
+<dialog id="syntaxDialog">
+  <div class="dialog-head"><h2>语法</h2><button class="btn" id="closeSyntax" type="button">关闭</button></div>
+  <div class="dialog-body">
+    <p class="note">按常见钩针文字来写。中文说明会跳过，例如「环形起针」「往返编织」「断线」。</p>
+    <table class="syntax">
+      <tr><th>写法</th><th>意思</th></tr>
+      <tr><td><code>R1: 6x</code></td><td>第 1 圈，6 个短针</td></tr>
+      <tr><td><code>v*6</code></td><td>加针重复 6 次</td></tr>
+      <tr><td><code>(x,v)*6</code></td><td>一个短针、一个加针，循环 6 次</td></tr>
+      <tr><td><code>(2x,v)*6</code></td><td>两个短针再加针，循环 6 次</td></tr>
+      <tr><td><code>(3x,a)*6</code></td><td>三个短针再减针，循环 6 次</td></tr>
+      <tr><td><code>起针: 16ch</code></td><td>片织的锁针起针</td></tr>
+      <tr><td><code>行1: 16x</code></td><td>片织的一行</td></tr>
+      <tr><td><code>6短针</code></td><td>和 <code>6x</code> 一样</td></tr>
+    </table>
+    <p class="note">这一版先画锁针、短针、长针、引拔、加针、减针。中长针、狗牙针会提示还没做。</p>
+    <button class="btn" id="fillError" type="button">填入一段写错的例子</button>
+  </div>
+</dialog>
+
+<dialog id="settingsDialog">
+  <div class="dialog-head"><h2>设置</h2><button class="btn" id="closeSettings" type="button">关闭</button></div>
+  <div class="dialog-body">
+    <div class="group">
+      <h2 class="kicker">外观</h2>
+      <div class="seg" id="themeSeg">
+        <button type="button" data-value="light">浅色</button>
+        <button type="button" data-value="dark">深色</button>
+      </div>
+      <p class="note">右边的间距、符号和线粗会记在这台浏览器里，下次打开还在。</p>
+    </div>
+    <div class="group">
+      <h2 class="kicker">导出清晰度</h2>
+      <div class="seg" id="scaleSeg" data-live="scale">
+        <button type="button" data-value="2">2 倍</button>
+        <button type="button" data-value="3">3 倍</button>
+      </div>
+      <p class="note">网页里用下载代替写入相册。能唤起系统分享时，会把 PNG 交出去。</p>
+    </div>
+    <div class="group">
+      <h2 class="kicker">关于这个预览</h2>
+      <p class="note">对应 PRD V1.0（2026-10-24）。文档的详细功能写了圈织和片织，版本计划里片织放在 V1.1。这里两种都做了，方便一起看。</p>
+      <p class="note">还没做的是真机相册、微信和 QQ、以及按手机帧率打磨手势。那些要等确定做 App 再接。</p>
+    </div>
+    <label class="field"><span>功能反馈</span><textarea id="feedback" rows="3" placeholder="哪一步不顺，或哪一圈不像书上的图"></textarea></label>
+    <button class="btn" id="feedbackBtn" type="button">记在这台浏览器</button>
+  </div>
+</dialog>
+
+<dialog class="wide" id="exportDialog">
+  <div class="dialog-head"><h2>导出</h2><button class="btn" id="closeExport" type="button">关闭</button></div>
+  <div class="dialog-body">
+    <div class="export-preview" id="exportPreview"></div>
+    <p class="note" id="exportNote"></p>
+  </div>
+  <div class="dialog-actions">
+    <button class="btn" id="shareBtn" type="button">分享</button>
+    <button class="btn" id="svgBtn" type="button">下载 SVG</button>
+    <button class="btn btn-primary" id="pngBtn" type="button">下载 PNG</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+<noscript>需要打开 JavaScript 才能画图解。</noscript>
+
+<script>
+/* @engine-start */
+function fmt(value) {
+  return (Math.round(value * 100) / 100).toString();
+}
+
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
+function jitter(seed) {
+  const raw = Math.sin(seed * 127.1 + 19.19) * 43758.5453;
+  return raw - Math.floor(raw) - 0.5;
+}
+
+const FONT_STACK = "'Noto Serif SC','Songti SC','STSong','SimSun','PingFang SC','Microsoft YaHei','WenQuanYi Micro Hei','Droid Sans Fallback',serif";
+
+function chartOptions(over) {
+  const opt = {
+    symbol: 15,
+    gap: 46,
+    stroke: 1.7,
+    style: 'standard',
+    colorMode: 'mono',
+    showLabels: true,
+    title: '',
+    hiddenLabels: [],
+    bg: 'white',
+  };
+  if (!over) return opt;
+  Object.keys(opt).forEach((key) => {
+    if (over[key] !== undefined) opt[key] = over[key];
+  });
+  return opt;
+}
+
+function hiddenSet(value) {
+  if (!value) return new Set();
+  if (value instanceof Set) return value;
+  return new Set(value);
+}
+
+function normalize(text) {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[（【\[]/g, '(')
+    .replace(/[）】\]]/g, ')')
+    .replace(/[＊×✕✖]/g, '*')
+    .replace(/[：﹕]/g, ':')
+    .replace(/[，、；;]/g, ',')
+    .replace(/＋/g, '+')
+    .replace(/　/g, ' ')
+    .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0));
+}
+
+function splitInline(line) {
+  return line
+    .replace(/\s+(?=(?:R|第)\s*\d+\s*(?:圈|行)?\s*[:.]?)/gi, '\n')
+    .replace(/\s+(?=行\s*\d+\s*[:.]?)/g, '\n')
+    .replace(/\s+(?=起针\s*[:.]?)/g, '\n')
+    .split('\n')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function replaceStitchWords(body) {
+  const pairs = [
+    ['引拔针', ' sl '],
+    ['三卷长针', ' dtr '],
+    ['中长针', ' hdc '],
+    ['长长针', ' tr '],
+    ['狗牙针', ' picot '],
+    ['短针', ' x '],
+    ['长针', ' f '],
+    ['锁针', ' ch '],
+    ['引拔', ' sl '],
+    ['加针', ' v '],
+    ['减针', ' a '],
+  ];
+  return pairs.reduce((next, [from, to]) => next.split(from).join(to), body);
+}
+
+function stripComments(body) {
+  return body.replace(/[\u4e00-\u9fff]+/g, ' ');
+}
+
+function classifyWord(word) {
+  const known = { slst: 'sl', slip: 'sl', sl: 'sl', ch: 'ch', chain: 'ch', sc: 'x', x: 'x', dc: 'f', f: 'f', inc: 'v', v: 'v', dec: 'a', a: 'a' };
+  if (known[word]) return { kind: known[word] };
+  const future = { hdc: '中长针', t: '中长针', tr: '长长针', dtr: '三卷长针', picot: '狗牙针', p: '狗牙针', w: '三针加针' };
+  if (future[word]) return { future: future[word] };
+  return { unknown: word };
+}
+
+function tokenize(body) {
+  const tokens = [];
+  let index = 0;
+  while (index < body.length) {
+    const ch = body[index];
+    if (ch === ' ' || ch === '\t' || ch === ',' || ch === '+') {
+      index += 1;
+      continue;
+    }
+    if (ch === '(' || ch === ')' || ch === '*') {
+      tokens.push({ type: ch });
+      index += 1;
+      continue;
+    }
+    const number = /^\d+/.exec(body.slice(index));
+    if (number) {
+      tokens.push({ type: 'num', value: Number(number[0]) });
+      index += number[0].length;
+      continue;
+    }
+    const word = /^[A-Za-z]+/.exec(body.slice(index));
+    if (word) {
+      const found = classifyWord(word[0].toLowerCase());
+      if (found.kind) tokens.push({ type: 'st', value: found.kind });
+      else if (found.future) tokens.push({ type: 'future', name: found.future });
+      else tokens.push({ type: 'bad', value: word[0] });
+      index += word[0].length;
+      continue;
+    }
+    tokens.push({ type: 'bad', value: ch });
+    index += 1;
+  }
+  return tokens;
+}
+
+function legalHint() {
+  return '可用：ch 锁针、x 短针、f 长针、sl 引拔、v 加针、a 减针';
+}
+
+function parseTokens(body, lineNo) {
+  const tokens = tokenize(body);
+  let index = 0;
+  const peek = () => tokens[index];
+  function appendCopies(target, stitches, times) {
+    if (times < 1 || times > 240) return `第 ${lineNo} 行的重复次数超出范围`;
+    if (target.length + stitches.length * times > 5000) return `第 ${lineNo} 行展开后针数太多`;
+    for (let copy = 0; copy < times; copy += 1) {
+      stitches.forEach((stitch) => target.push({ kind: stitch.kind }));
+    }
+    return '';
+  }
+  function readSeq() {
+    const stitches = [];
+    while (index < tokens.length && peek().type !== ')') {
+      const token = peek();
+      if (token.type === 'bad') {
+        return { error: `第 ${lineNo} 行有无法识别的符号「${token.value}」。${legalHint()}` };
+      }
+      if (token.type === 'future') {
+        return { error: `第 ${lineNo} 行的「${token.name}」这一版先不画。可以改成 x 短针或 f 长针。` };
+      }
+      if (token.type === '(') {
+        index += 1;
+        const inner = readSeq();
+        if (inner.error) return inner;
+        if (!peek() || peek().type !== ')') return { error: `第 ${lineNo} 行的括号没有闭合。例如写成 (x,v)*6` };
+        index += 1;
+        if (!inner.stitches.length) return { error: `第 ${lineNo} 行的括号里没有针法` };
+        let times = 1;
+        if (peek() && peek().type === '*') {
+          index += 1;
+          if (!peek() || peek().type !== 'num') return { error: `第 ${lineNo} 行的 * 后面缺少次数。例如 (x,v)*6` };
+          times = peek().value;
+          index += 1;
+        }
+        const error = appendCopies(stitches, inner.stitches, times);
+        if (error) return { error };
+        continue;
+      }
+      if (token.type === '*') return { error: `第 ${lineNo} 行的 * 前面没有针法。重复要写成 (x,v)*6 或 v*6` };
+      if (token.type === 'num') {
+        index += 1;
+        const times = token.value;
+        const next = peek();
+        if (next && next.type === 'future') return { error: `第 ${lineNo} 行的「${next.name}」这一版先不画。可以改成 x 短针或 f 长针。` };
+        if (next && next.type === 'bad') return { error: `第 ${lineNo} 行有无法识别的符号「${next.value}」。${legalHint()}` };
+        if (next && next.type === '*') return { error: `第 ${lineNo} 行的「${times}*」不好判断。短针请写 ${times}x，重复请写 (x,v)*${times}` };
+        if (next && next.type === 'st') {
+          index += 1;
+          const error = appendCopies(stitches, [{ kind: next.value }], times);
+          if (error) return { error };
+          continue;
+        }
+        if (next && next.type === '(') {
+          index += 1;
+          const inner = readSeq();
+          if (inner.error) return inner;
+          if (!peek() || peek().type !== ')') return { error: `第 ${lineNo} 行的括号没有闭合` };
+          index += 1;
+          const error = appendCopies(stitches, inner.stitches, times);
+          if (error) return { error };
+          continue;
+        }
+        return { error: `第 ${lineNo} 行的数字 ${times} 后面要跟针法，例如 ${times}x` };
+      }
+      if (token.type === 'st') {
+        index += 1;
+        let times = 1;
+        if (peek() && peek().type === '*') {
+          index += 1;
+          if (!peek() || peek().type !== 'num') return { error: `第 ${lineNo} 行的重复次数缺失，例如 ${token.value}*6` };
+          times = peek().value;
+          index += 1;
+        }
+        const error = appendCopies(stitches, [{ kind: token.value }], times);
+        if (error) return { error };
+        continue;
+      }
+      return { error: `第 ${lineNo} 行有无法理解的内容` };
+    }
+    return { stitches };
+  }
+  const result = readSeq();
+  if (result.error) return result;
+  if (index < tokens.length) return { error: `第 ${lineNo} 行末尾还有多余符号` };
+  if (!result.stitches.length) return { error: `第 ${lineNo} 行没有写针法` };
+  return result;
+}
+
+function parseLine(line, lineNo) {
+  const magic = /环形起针|魔术环|魔法环|\bmr\b|magic\s*ring/i.test(line);
+  const flatHint = /往返|片织/.test(line);
+  if (/^(注|备注|说明)\s*[:.]/.test(line) || line.startsWith('//') || line.startsWith('#')) return { skip: true, magic, flatHint };
+  if (/^(断线|收线|结束|完成|环形起针|魔术环|魔法环|mr|magic\s*ring|往返编织|片织|圈织)$/i.test(line)) return { skip: true, magic, flatHint };
+  let rowKind = 'segment';
+  let label = '';
+  let body = line;
+  let match;
+  if ((match = /^(起针)\s*[:.]?\s*(.*)$/.exec(line))) {
+    rowKind = 'foundation';
+    label = '起针';
+    body = match[2];
+  } else if ((match = /^(?:R|第)\s*(\d+)\s*(圈|行)?\s*[:.]?\s*(.*)$/i.exec(line))) {
+    rowKind = match[2] === '行' ? 'row' : 'round';
+    label = `${match[2] === '行' ? '行' : 'R'}${match[1]}`;
+    body = match[3];
+  } else if ((match = /^(\d+)\s*(圈|行)\s*[:.]?\s*(.*)$/.exec(line))) {
+    rowKind = match[2] === '行' ? 'row' : 'round';
+    label = `${match[2]}${match[1]}`;
+    body = match[3];
+  } else if ((match = /^行\s*(\d+)\s*[:.]?\s*(.*)$/.exec(line))) {
+    rowKind = 'row';
+    label = `行${match[1]}`;
+    body = match[2];
+  }
+  body = stripComments(replaceStitchWords(body)).replace(/[。\.]+$/g, '').trim();
+  if (!body) {
+    if (label) return { error: `第 ${lineNo} 行的 ${label} 没有写针法` };
+    return { skip: true, magic, flatHint };
+  }
+  const parsed = parseTokens(body, lineNo);
+  if (parsed.error) return { error: parsed.error, magic, flatHint };
+  return { skip: false, rowKind, label, stitches: parsed.stitches, magic, flatHint };
+}
+
+function parseDocument(text, forcedMode) {
+  const normalized = normalize(text);
+  const pieces = [];
+  normalized.split('\n').forEach((line, lineIndex) => {
+    splitInline(line).forEach((part) => pieces.push({ text: part, lineNo: lineIndex + 1 }));
+  });
+  const rounds = [];
+  const errors = [];
+  let magic = false;
+  let flatHint = false;
+  pieces.forEach((piece) => {
+    const parsed = parseLine(piece.text, piece.lineNo);
+    if (parsed.magic) magic = true;
+    if (parsed.flatHint) flatHint = true;
+    if (parsed.skip) return;
+    if (parsed.error) {
+      errors.push({ line: piece.lineNo, message: parsed.error });
+      return;
+    }
+    rounds.push({
+      label: parsed.label || `段${rounds.length + 1}`,
+      line: piece.lineNo,
+      rowKind: parsed.rowKind,
+      stitches: parsed.stitches,
+    });
+  });
+  if (!rounds.length && !errors.length) errors.push({ line: 1, message: '没有找到针法。可以点一个示例，或写上 R1: 6x' });
+  const hasRow = rounds.some((round) => round.rowKind === 'row' || round.rowKind === 'foundation');
+  const hasRound = rounds.some((round) => round.rowKind === 'round');
+  const notes = [];
+  let mode = forcedMode === 'round' || forcedMode === 'flat' ? forcedMode : '';
+  if (!mode) {
+    if (hasRow && hasRound) {
+      mode = 'flat';
+      notes.push('同一段里既有圈也有行，先按片织来排。可以切到圈织看另一种排法。');
+    } else if (hasRow || flatHint) mode = 'flat';
+    else mode = 'round';
+  }
+  return { ok: errors.length === 0, errors, notes, rounds, mode, magic: magic || /环形|魔术环|魔法环|magic\s*ring/i.test(normalized) };
+}
+
+function compressKinds(stitches) {
+  const parts = [];
+  let last = '';
+  let count = 0;
+  const flush = () => {
+    if (!count) return;
+    parts.push(count > 1 ? `${count}${last}` : last);
+  };
+  stitches.forEach((stitch) => {
+    if (stitch.kind === last) count += 1;
+    else {
+      flush();
+      last = stitch.kind;
+      count = 1;
+    }
+  });
+  flush();
+  return parts.join(' ');
+}
+
+function expandVisual(stitches) {
+  const items = [];
+  stitches.forEach((stitch) => {
+    if (stitch.kind === 'v') {
+      items.push({ shape: 'sc', role: 'inc', consume: 1, fanIndex: 0, fanCount: 2, share: false });
+      items.push({ shape: 'sc', role: 'inc', consume: 0, fanIndex: 1, fanCount: 2, share: true });
+    } else if (stitch.kind === 'a') {
+      items.push({ shape: 'sc', role: 'dec', consume: 2, fanIndex: 0, fanCount: 1, share: false });
+    } else if (stitch.kind === 'ch') {
+      items.push({ shape: 'ch', role: 'ch', consume: 1, fanIndex: 0, fanCount: 1, share: false });
+    } else if (stitch.kind === 'f') {
+      items.push({ shape: 'dc', role: 'dc', consume: 1, fanIndex: 0, fanCount: 1, share: false });
+    } else if (stitch.kind === 'sl') {
+      items.push({ shape: 'sl', role: 'sl', consume: 1, fanIndex: 0, fanCount: 1, share: false });
+    } else {
+      items.push({ shape: 'sc', role: 'sc', consume: 1, fanIndex: 0, fanCount: 1, share: false });
+    }
+  });
+  return items;
+}
+
+function analyzeRounds(rounds) {
+  const rows = [];
+  let prev = 0;
+  rounds.forEach((round, index) => {
+    const visual = expandVisual(round.stitches);
+    const produce = visual.length;
+    const consume = visual.reduce((sum, item) => sum + item.consume, 0);
+    rows.push({
+      index,
+      label: round.label,
+      line: round.line,
+      produce,
+      consume,
+      prev,
+      status: index === 0 ? 'base' : consume === prev ? 'ok' : 'bad',
+      visual,
+      expansion: compressKinds(round.stitches),
+    });
+    prev = produce;
+  });
+  return rows;
+}
+
+function polar(radius, angle) {
+  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+}
+
+function meanAngle(angles) {
+  let x = 0;
+  let y = 0;
+  angles.forEach((angle) => {
+    x += Math.cos(angle);
+    y += Math.sin(angle);
+  });
+  return Math.atan2(y, x);
+}
+
+function reachOf(shape, size) {
+  if (shape === 'dc') return size;
+  if (shape === 'sc') return size * 0.96;
+  if (shape === 'ch') return size * 0.64;
+  if (shape === 'sl') return size * 0.48;
+  return size;
+}
+
+function fanAnchor(radius, angle, fanIndex, fanCount, size, parentCount) {
+  const arc = radius * ((Math.PI * 2) / Math.max(parentCount, 1));
+  const mag = Math.min(Math.max(size * 0.95, 8), arc * 0.34);
+  const shift = (fanIndex - (fanCount - 1) / 2) * mag;
+  return {
+    x: Math.cos(angle) * radius + (-Math.sin(angle)) * shift,
+    y: Math.sin(angle) * radius + Math.cos(angle) * shift,
+  };
+}
+
+function makeSymbol(item, anchor, angle, roundIndex, index) {
+  return { shape: item.shape, role: item.role, x: anchor.x, y: anchor.y, angle, roundIndex, index };
+}
+
+function pushStem(stems, parent, anchor, roundIndex) {
+  stems.push({
+    x1: parent.x + Math.cos(parent.angle) * parent.reach,
+    y1: parent.y + Math.sin(parent.angle) * parent.reach,
+    x2: anchor.x,
+    y2: anchor.y,
+    roundIndex,
+  });
+}
+
+function rememberParents(placed, size) {
+  return placed
+    .map((symbol) => ({ x: symbol.x, y: symbol.y, angle: symbol.angle, reach: reachOf(symbol.shape, size) }))
+    .sort((a, b) => a.x - b.x || a.y - b.y);
+}
+
+function attachTitle(layout, opt, size) {
+  if (!opt.title) return layout;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  layout.symbols.forEach((symbol) => {
+    minX = Math.min(minX, symbol.x);
+    maxX = Math.max(maxX, symbol.x);
+    minY = Math.min(minY, symbol.y + Math.sin(symbol.angle) * reachOf(symbol.shape, size));
+  });
+  layout.title = { text: String(opt.title), x: (minX + maxX) / 2, y: minY - 32 };
+  return layout;
+}
+
+function layoutRound(doc, opt) {
+  const rows = analyzeRounds(doc.rounds);
+  const size = opt.symbol;
+  const hidden = hiddenSet(opt.hiddenLabels);
+  const symbols = [];
+  const stems = [];
+  const guides = [];
+  const labels = [];
+  const warnings = [];
+  let parents = [];
+  const inner = Math.max(36, size * 2.2);
+  const labelX = inner + Math.max(0, rows.length - 1) * opt.gap + size + 36;
+  rows.forEach((row) => {
+    const items = row.visual;
+    if (!items.length) return;
+    const radius = inner + row.index * opt.gap;
+    guides.push({ type: 'circle', r: radius });
+    const placed = [];
+    if (row.status === 'bad') {
+      warnings.push({ message: `${row.label} 要接上圈 ${row.consume} 针，上一圈是 ${row.prev} 针，这一圈先均匀排开` });
+    }
+    if (row.index === 0 || row.status === 'bad' || !parents.length) {
+      items.forEach((item, index) => {
+        const angle = -Math.PI / 2 + (index / items.length) * Math.PI * 2;
+        const anchor = polar(radius, angle);
+        placed.push(makeSymbol(item, anchor, angle, row.index, index));
+        if (row.index === 0) {
+          const from = polar(12, angle);
+          stems.push({ x1: from.x, y1: from.y, x2: anchor.x, y2: anchor.y, roundIndex: row.index });
+        } else if (parents.length) {
+          const parent = parents[Math.min(parents.length - 1, Math.floor(((index + 0.5) * parents.length) / items.length))];
+          pushStem(stems, parent, anchor, row.index);
+        }
+      });
+    } else {
+      // 同一针上的多针平分这一针的角度，整圈仍铺满，不会收成几条放射线。
+      const parentStep = (Math.PI * 2) / parents.length;
+      const buckets = [];
+      let cursor = 0;
+      items.forEach((item) => {
+        if (item.share) {
+          buckets[buckets.length - 1].items.push(item);
+          return;
+        }
+        if (item.consume <= 1) {
+          buckets.push({ items: [item], parents: [parents[Math.min(cursor, parents.length - 1)]] });
+          cursor += item.consume;
+          return;
+        }
+        buckets.push({ items: [item], parents: parents.slice(cursor, cursor + item.consume) });
+        cursor += item.consume;
+      });
+      let symbolIndex = 0;
+      buckets.forEach((bucket) => {
+        const center = bucket.parents.length > 1
+          ? meanAngle(bucket.parents.map((parent) => parent.angle))
+          : bucket.parents[0].angle;
+        bucket.items.forEach((item, index) => {
+          const angle = center + (index - (bucket.items.length - 1) / 2) * parentStep * 0.5;
+          const anchor = polar(radius, angle);
+          placed.push(makeSymbol(item, anchor, angle, row.index, symbolIndex));
+          bucket.parents.forEach((parent) => pushStem(stems, parent, anchor, row.index));
+          symbolIndex += 1;
+        });
+      });
+    }
+    if (opt.showLabels && !hidden.has(row.index)) {
+      labels.push({
+        text: row.label,
+        x: labelX,
+        y: (row.index - (rows.length - 1) / 2) * 18,
+        anchor: 'start',
+        roundIndex: row.index,
+      });
+    }
+    parents = placed.map((symbol) => ({ x: symbol.x, y: symbol.y, angle: symbol.angle, reach: reachOf(symbol.shape, size) }));
+    symbols.push(...placed);
+  });
+  return attachTitle({ symbols, stems, guides, labels, center: true, warnings, mode: 'round' }, opt, size);
+}
+
+function layoutFlat(doc, opt) {
+  const rows = analyzeRounds(doc.rounds);
+  const size = opt.symbol;
+  const pitch = Math.max(size * 1.55, 20);
+  const hidden = hiddenSet(opt.hiddenLabels);
+  const symbols = [];
+  const stems = [];
+  const guides = [];
+  const labels = [];
+  const warnings = [];
+  let parents = [];
+  rows.forEach((row) => {
+    const items = row.visual;
+    if (!items.length) return;
+    const y = -row.index * opt.gap;
+    const angle = -Math.PI / 2;
+    // 奇数行是往返回去的那一遍，写在前面的针落在右手边。
+    const reversed = row.index % 2 === 1;
+    const placed = [];
+    if (row.status === 'bad') warnings.push({ message: `${row.label} 要接上行 ${row.consume} 针，上一行是 ${row.prev} 针，这一行先均匀排开` });
+    if (row.index === 0 || row.status === 'bad') {
+      items.forEach((item, index) => {
+        const slot = reversed ? items.length - 1 - index : index;
+        const x = (slot - (items.length - 1) / 2) * pitch;
+        placed.push(makeSymbol(item, { x, y }, angle, row.index, index));
+      });
+    } else {
+      const order = reversed ? parents.slice().reverse() : parents;
+      let cursor = 0;
+      items.forEach((item, index) => {
+        let used = [];
+        let x = 0;
+        const fanGap = Math.min(pitch * 0.42, size * 0.9);
+        if (item.share) {
+          const parent = order[Math.max(0, cursor - 1)];
+          x = parent.x + (item.fanIndex - (item.fanCount - 1) / 2) * fanGap;
+          used = [parent];
+        } else if (item.consume <= 1) {
+          const parent = order[Math.min(cursor, order.length - 1)];
+          x = parent.x;
+          if (item.fanCount > 1) x = parent.x + (item.fanIndex - (item.fanCount - 1) / 2) * fanGap;
+          used = [parent];
+          cursor += item.consume;
+        } else {
+          used = order.slice(cursor, cursor + item.consume);
+          x = used.reduce((sum, parent) => sum + parent.x, 0) / used.length;
+          cursor += item.consume;
+        }
+        const anchor = { x, y };
+        placed.push(makeSymbol(item, anchor, angle, row.index, index));
+        used.forEach((parent) => pushStem(stems, parent, anchor, row.index));
+      });
+    }
+    if (placed.length) {
+      const xs = placed.map((symbol) => symbol.x);
+      guides.push({ type: 'line', x1: Math.min(...xs), x2: Math.max(...xs), y });
+    }
+    if (opt.showLabels && !hidden.has(row.index)) labels.push({ text: row.label, y, anchor: 'end', roundIndex: row.index, x: 0 });
+    parents = rememberParents(placed, size);
+    symbols.push(...placed);
+  });
+  if (symbols.length && labels.length) {
+    const minX = Math.min(...symbols.map((symbol) => symbol.x));
+    labels.forEach((label) => { label.x = minX - size - 28; });
+  }
+  return attachTitle({ symbols, stems, guides, labels, center: false, warnings, mode: 'flat' }, opt, size);
+}
+
+function layoutOf(doc, opt) {
+  return doc.mode === 'flat' ? layoutFlat(doc, opt) : layoutRound(doc, opt);
+}
+
+function computeBounds(layout, size) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const add = (x, y, pad = 0) => {
+    minX = Math.min(minX, x - pad);
+    minY = Math.min(minY, y - pad);
+    maxX = Math.max(maxX, x + pad);
+    maxY = Math.max(maxY, y + pad);
+  };
+  if (layout.center) add(0, 0, 16);
+  (layout.guides || []).forEach((guide) => {
+    if (guide.type === 'circle') {
+      add(-guide.r, -guide.r);
+      add(guide.r, guide.r);
+    } else {
+      add(guide.x1, guide.y);
+      add(guide.x2, guide.y);
+    }
+  });
+  (layout.stems || []).forEach((stem) => {
+    add(stem.x1, stem.y1);
+    add(stem.x2, stem.y2);
+  });
+  (layout.symbols || []).forEach((symbol) => add(symbol.x, symbol.y, size + 2));
+  (layout.labels || []).forEach((label) => {
+    const width = Math.max(24, String(label.text).length * 14);
+    if (label.anchor === 'end') {
+      add(label.x - width, label.y, 8);
+      add(label.x, label.y, 8);
+    } else if (label.anchor === 'middle') add(label.x, label.y, width / 2);
+    else {
+      add(label.x, label.y, 8);
+      add(label.x + width, label.y, 8);
+    }
+  });
+  if (layout.title) {
+    const width = String(layout.title.text).length * 18;
+    add(layout.title.x - width / 2, layout.title.y - 16);
+    add(layout.title.x + width / 2, layout.title.y + 10);
+  }
+  if (!Number.isFinite(minX)) return { minX: -20, minY: -20, maxX: 20, maxY: 20 };
+  return { minX, minY, maxX, maxY };
+}
+
+function strokePath(x1, y1, x2, y2, amount, seed) {
+  if (!amount) return `<path d="M ${fmt(x1)} ${fmt(y1)} L ${fmt(x2)} ${fmt(y2)}"/>`;
+  let d = `M ${fmt(x1)} ${fmt(y1)}`;
+  const steps = 3;
+  for (let step = 1; step <= steps; step += 1) {
+    const t = step / steps;
+    const x = x1 + (x2 - x1) * t + (step === steps ? 0 : jitter(seed + step) * amount);
+    const y = y1 + (y2 - y1) * t + (step === steps ? 0 : jitter(seed + step + 9) * amount);
+    d += ` L ${fmt(x)} ${fmt(y)}`;
+  }
+  return `<path d="${d}"/>`;
+}
+
+function symbolInner(shape, size, amount, seed) {
+  const wobble = amount || 0;
+  if (shape === 'sc') {
+    const center = size * 0.66;
+    const arm = size * 0.3;
+    return [
+      strokePath(0, 0, center - arm * 0.2, 0, wobble, seed),
+      strokePath(center - arm, -arm, center + arm, arm, wobble, seed + 3),
+      strokePath(center - arm, arm, center + arm, -arm, wobble, seed + 6),
+    ].join('');
+  }
+  if (shape === 'dc') {
+    return [
+      strokePath(0, 0, size, 0, wobble, seed),
+      strokePath(size, -size * 0.38, size, size * 0.38, wobble, seed + 3),
+      strokePath(size * 0.42, -size * 0.24, size * 0.7, size * 0.24, wobble, seed + 6),
+    ].join('');
+  }
+  if (shape === 'ch') {
+    const tilt = wobble ? jitter(seed) * 8 : 0;
+    return `<g transform="rotate(${fmt(tilt)} ${fmt(size * 0.42)} 0)"><ellipse cx="${fmt(size * 0.42)}" cy="0" rx="${fmt(size * 0.16)}" ry="${fmt(size * 0.3)}"/></g>${strokePath(0, 0, size * 0.26, 0, wobble, seed)}`;
+  }
+  if (shape === 'sl') return `<circle cx="${fmt(size * 0.3)}" cy="0" r="${fmt(Math.max(2.2, size * 0.13))}" fill="currentColor" stroke="none"/>`;
+  return '';
+}
+
+function strokeFor(role, opt) {
+  const mono = opt.style === 'sketch' ? '#6a4632' : '#2a241c';
+  if (opt.colorMode !== 'color') return mono;
+  const colors = { sc: '#2a241c', dc: '#1f5c52', ch: '#8a5a2b', sl: '#2a241c', inc: '#c4491d', dec: '#7a3d55' };
+  return colors[role] || mono;
+}
+
+function stemColor(opt) {
+  return opt.style === 'sketch' ? '#b4896a' : '#c9b39a';
+}
+
+function guideColor() {
+  return '#f0e2d0';
+}
+
+function renderChartContent(layout, opt) {
+  const size = opt.symbol;
+  const amount = opt.style === 'sketch' ? 0.7 : 0;
+  const parts = [`<g fill="none" stroke="${guideColor()}" stroke-width="1">`];
+  layout.guides.forEach((guide) => {
+    if (guide.type === 'circle') parts.push(`<circle cx="0" cy="0" r="${fmt(guide.r)}"/>`);
+    else parts.push(`<line x1="${fmt(guide.x1)}" y1="${fmt(guide.y)}" x2="${fmt(guide.x2)}" y2="${fmt(guide.y)}"/>`);
+  });
+  parts.push('</g>');
+  if (layout.center) {
+    const ink = strokeFor('sc', opt);
+    parts.push(`<g fill="none" stroke="${ink}" stroke-width="${fmt(opt.stroke)}"><circle cx="0" cy="0" r="7"/><circle cx="0" cy="0" r="11.5" stroke-width="${fmt(Math.max(0.75, opt.stroke * 0.65))}"/></g>`);
+  }
+  parts.push(`<g fill="none" stroke="${stemColor(opt)}" stroke-width="${fmt(Math.max(0.8, opt.stroke * 0.75))}" stroke-linecap="round">`);
+  layout.stems.forEach((stem, index) => parts.push(strokePath(stem.x1, stem.y1, stem.x2, stem.y2, amount * 0.55, 1000 + index)));
+  parts.push('</g>');
+  layout.symbols.forEach((symbol, index) => {
+    const color = strokeFor(symbol.role, opt);
+    parts.push(`<g color="${color}" stroke="${color}" fill="none" stroke-width="${fmt(opt.stroke)}" stroke-linecap="round" stroke-linejoin="round" transform="translate(${fmt(symbol.x)} ${fmt(symbol.y)}) rotate(${fmt(symbol.angle * 180 / Math.PI)})">${symbolInner(symbol.shape, size, amount, symbol.roundIndex * 50 + index)}</g>`);
+  });
+  const halo = opt.bg === 'paper' ? '#fbf6ec' : '#ffffff';
+  const haloAttr = opt.bg === 'clear' ? '' : ` stroke="${halo}" stroke-width="4" paint-order="stroke"`;
+  layout.labels.forEach((label) => {
+    parts.push(`<text x="${fmt(label.x)}" y="${fmt(label.y)}" text-anchor="${label.anchor || 'start'}" dominant-baseline="middle" fill="#8d5b3c" font-size="12" font-family="${FONT_STACK}"${haloAttr}>${esc(label.text)}</text>`);
+  });
+  if (layout.title) {
+    parts.push(`<text x="${fmt(layout.title.x)}" y="${fmt(layout.title.y)}" text-anchor="middle" dominant-baseline="middle" fill="${strokeFor('sc', opt)}" font-size="18" font-family="${FONT_STACK}"${haloAttr}>${esc(layout.title.text)}</text>`);
+  }
+  return parts.join('');
+}
+
+function renderSvgDocument(layout, opt) {
+  const bounds = computeBounds(layout, opt.symbol);
+  const pad = 32;
+  const x = bounds.minX - pad;
+  const y = bounds.minY - pad;
+  const width = Math.max(1, bounds.maxX - bounds.minX + pad * 2);
+  const height = Math.max(1, bounds.maxY - bounds.minY + pad * 2);
+  const background = opt.bg === 'paper' ? '#fbf6ec' : opt.bg === 'white' ? '#ffffff' : '';
+  const rect = background ? `<rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(width)}" height="${fmt(height)}" fill="${background}"/>` : '';
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(width)}" height="${fmt(height)}" viewBox="${fmt(x)} ${fmt(y)} ${fmt(width)} ${fmt(height)}">${rect}${renderChartContent(layout, opt)}</svg>`;
+}
+
+function buildTubeText() {
+  const lines = ['环形起针', 'R1: 6x', 'R2: v*6', 'R3: (x,v)*6', 'R4: (2x,v)*6', 'R5: (3x,v)*6'];
+  for (let round = 6; round <= 30; round += 1) lines.push(`R${round}: 30x`);
+  return lines.join('\n');
+}
+
+const TEMPLATES = [
+  { id: 'ball', name: '经典圆球', desc: '6 针起，加到第 8 圈', text: '环形起针\nR1: 6x\nR2: v*6\nR3: (x,v)*6\nR4: (2x,v)*6\nR5: (3x,v)*6\nR6: (4x,v)*6\nR7: (5x,v)*6\nR8: 42x' },
+  { id: 'head', name: '玩偶头', desc: '先加针，再收成球形', text: '环形起针\nR1: 6x\nR2: v*6\nR3: (x,v)*6\nR4: (2x,v)*6\nR5: (3x,v)*6\nR6: 30x\nR7: 30x\nR8: (3x,a)*6\nR9: (2x,a)*6\nR10: (x,a)*6\nR11: a*6' },
+  { id: 'coaster', name: '圆杯垫', desc: '8 针起，引拔收边', text: '环形起针\nR1: 8x\nR2: v*8\nR3: (x,v)*8\nR4: (2x,v)*8\nR5: (3x,v)*8\nR6: 40sl' },
+  { id: 'scarf', name: '围巾片', desc: '锁针起，短针和长针往返', text: '往返编织\n起针: 16ch\n行1: 16x\n行2: 4x,12f\n行3: 4x,12f\n行4: 16x\n行5: 16sl' },
+  { id: 'tube', name: '30 圈圆筒', desc: '看长图解会不会乱', text: buildTubeText() },
+];
+
+const ERROR_SAMPLE = '环形起针\nR1: 6x\nR2: (x,v*6\nR3: 6k';
+/* @engine-end */
+
+const STORAGE = { settings: 'gouhui.settings.v1', history: 'gouhui.history.v1', draft: 'gouhui.draft.v1', feedback: 'gouhui.feedback.v1' };
+const pattern = document.querySelector('#pattern');
+const titleInput = document.querySelector('#titleInput');
+const content = document.querySelector('#content');
+const camera = document.querySelector('#camera');
+const stage = document.querySelector('#stage');
+const statusEl = document.querySelector('#status');
+const errorsEl = document.querySelector('#errors');
+const checksEl = document.querySelector('#checks');
+const sumEl = document.querySelector('#sum');
+const expansion = document.querySelector('#expansion');
+const expansionList = document.querySelector('#expansionList');
+const dirtyNote = document.querySelector('#dirtyNote');
+const warnEl = document.querySelector('#warn');
+const canvasMsg = document.querySelector('#canvasMsg');
+const canvasMsgText = document.querySelector('#canvasMsgText');
+const chipsEl = document.querySelector('#chips');
+const historyList = document.querySelector('#historyList');
+const toastEl = document.querySelector('#toast');
+const gapInput = document.querySelector('#gap');
+const symbolInput = document.querySelector('#symbol');
+const strokeInput = document.querySelector('#stroke');
+const gapVal = document.querySelector('#gapVal');
+const symbolVal = document.querySelector('#symbolVal');
+const strokeVal = document.querySelector('#strokeVal');
+const gapLabel = document.querySelector('#gapLabel');
+const showLabelsInput = document.querySelector('#showLabels');
+const flatNote = document.querySelector('#flatNote');
+const zoomLabel = document.querySelector('#zoomLabel');
+const exportPreview = document.querySelector('#exportPreview');
+const exportNote = document.querySelector('#exportNote');
+const phoneBtn = document.querySelector('#phoneBtn');
+const themeBtn = document.querySelector('#themeBtn');
+const syntaxDialog = document.querySelector('#syntaxDialog');
+const settingsDialog = document.querySelector('#settingsDialog');
+const exportDialog = document.querySelector('#exportDialog');
+const mq = window.matchMedia('(max-width: 980px)');
+
+const state = {
+  visual: loadSettings(),
+  mode: 'auto',
+  doc: null,
+  layout: null,
+  opt: null,
+  hidden: new Set(),
+  history: loadHistory(),
+  activeHistoryId: '',
+  pan: { x: 0, y: 0 },
+  zoom: 1,
+  userMoved: false,
+  clearArmed: false,
+};
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function loadSettings() {
+  const defaults = { theme: 'light', style: 'standard', colorMode: 'mono', gap: 46, symbol: 15, stroke: 1.7, showLabels: true, bg: 'white', exportScale: 2 };
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE.settings) || 'null');
+    if (!saved) return defaults;
+    return {
+      theme: saved.theme === 'dark' ? 'dark' : 'light',
+      style: saved.style === 'sketch' ? 'sketch' : 'standard',
+      colorMode: saved.colorMode === 'color' ? 'color' : 'mono',
+      gap: clamp(Number(saved.gap) || 46, 24, 72),
+      symbol: clamp(Number(saved.symbol) || 15, 10, 32),
+      stroke: clamp(Number(saved.stroke) || 1.7, 0.8, 3.2),
+      showLabels: saved.showLabels !== false,
+      bg: ['white', 'paper', 'clear'].includes(saved.bg) ? saved.bg : 'white',
+      exportScale: Number(saved.exportScale) === 3 ? 3 : 2,
+    };
+  } catch (error) {
+    return defaults;
+  }
+}
+
+function loadHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE.history) || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function persist(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (error) { /* private mode */ }
+}
+
+function saveSettings() {
+  persist(STORAGE.settings, state.visual);
+}
+
+function currentOpt() {
+  return chartOptions({
+    symbol: state.visual.symbol,
+    gap: state.visual.gap,
+    stroke: state.visual.stroke,
+    style: state.visual.style,
+    colorMode: state.visual.colorMode,
+    showLabels: state.visual.showLabels,
+    title: titleInput.value.trim(),
+    hiddenLabels: state.hidden,
+    bg: state.visual.bg,
+  });
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = state.visual.theme;
+  themeBtn.textContent = state.visual.theme === 'dark' ? '浅色' : '深色';
+}
+
+function reflectSeg(container, value) {
+  container.querySelectorAll('button[data-value]').forEach((button) => {
+    button.setAttribute('aria-pressed', button.dataset.value === String(value) ? 'true' : 'false');
+  });
+}
+
+function syncControls() {
+  gapInput.value = String(state.visual.gap);
+  symbolInput.value = String(state.visual.symbol);
+  strokeInput.value = String(state.visual.stroke);
+  gapVal.textContent = String(state.visual.gap);
+  symbolVal.textContent = String(state.visual.symbol);
+  strokeVal.textContent = Number(state.visual.stroke).toFixed(1);
+  showLabelsInput.checked = state.visual.showLabels;
+  reflectSeg(document.querySelector('#styleSeg'), state.visual.style);
+  reflectSeg(document.querySelector('#colorSeg'), state.visual.colorMode);
+  reflectSeg(document.querySelector('#bgSeg'), state.visual.bg);
+  reflectSeg(document.querySelector('#modeSeg'), state.mode);
+  reflectSeg(document.querySelector('#themeSeg'), state.visual.theme);
+  reflectSeg(document.querySelector('#scaleSeg'), state.visual.exportScale);
+  phoneBtn.setAttribute('aria-pressed', document.body.classList.contains('phone-frame') ? 'true' : 'false');
+  phoneBtn.textContent = document.body.classList.contains('phone-frame') ? '退出手机框' : '手机框';
+}
+
+function renderChips() {
+  chipsEl.replaceChildren();
+  TEMPLATES.forEach((template) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'chip';
+    button.dataset.id = template.id;
+    button.title = template.desc;
+    button.textContent = template.name;
+    button.addEventListener('click', () => {
+      applyTemplate(template);
+      generate({ animate: true, fit: true });
+    });
+    chipsEl.append(button);
+  });
+}
+
+function updateChips() {
+  const value = pattern.value.trim();
+  chipsEl.querySelectorAll('.chip').forEach((button) => {
+    const template = TEMPLATES.find((item) => item.id === button.dataset.id);
+    button.classList.toggle('is-on', Boolean(template && template.text.trim() === value));
+  });
+}
+
+function applyTemplate(template, keepTitle) {
+  pattern.value = template.text;
+  state.mode = 'auto';
+  if (!keepTitle) titleInput.value = template.name;
+  updateChips();
+  syncControls();
+}
+
+function legendMarkup(kind, opt) {
+  const color = strokeFor(kind === 'inc' ? 'inc' : kind === 'dec' ? 'dec' : kind === 'dc' ? 'dc' : kind === 'ch' ? 'ch' : kind === 'sl' ? 'sl' : 'sc', opt);
+  const wobble = opt.style === 'sketch' ? 0.6 : 0;
+  if (kind === 'inc') {
+    return `<svg viewBox="-8 -4 44 36" width="42" height="34" aria-hidden="true"><g color="${color}" stroke="${color}" fill="none" stroke-width="1.6" stroke-linecap="round" transform="translate(14 30) rotate(-90)"><g transform="translate(0 -6)">${symbolInner('sc', 14, wobble, 1)}</g><g transform="translate(0 6)">${symbolInner('sc', 14, wobble, 2)}</g></g></svg>`;
+  }
+  if (kind === 'dec') {
+    return `<svg viewBox="-10 -4 46 36" width="42" height="34" aria-hidden="true"><g color="${color}" stroke="${color}" fill="none" stroke-width="1.6" stroke-linecap="round" transform="translate(16 30) rotate(-90)">${strokePath(0, -6, 6, 0, wobble, 1)}${strokePath(0, 6, 6, 0, wobble, 2)}<g transform="translate(6 0)">${symbolInner('sc', 13, wobble, 3)}</g></g></svg>`;
+  }
+  const shape = { dc: 'dc', ch: 'ch', sl: 'sl' }[kind] || 'sc';
+  return `<svg viewBox="-4 -12 36 28" width="36" height="28" aria-hidden="true"><g color="${color}" stroke="${color}" fill="none" stroke-width="1.6" stroke-linecap="round" transform="translate(4 14) rotate(-90)">${symbolInner(shape, 16, wobble, 1)}</g></svg>`;
+}
+
+function updateLegend() {
+  const opt = state.opt || currentOpt();
+  document.querySelectorAll('.legend-icon').forEach((node) => { node.innerHTML = legendMarkup(node.dataset.kind, opt); });
+}
+
+function formatWhen(timestamp) {
+  return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(timestamp));
+}
+
+function miniSvg(item) {
+  const doc = parseDocument(item.text, item.mode || 'auto');
+  if (!doc.ok) return '';
+  const opt = chartOptions({ symbol: item.symbol, gap: item.gap, stroke: item.stroke, style: item.style, colorMode: item.colorMode, showLabels: false, title: '', bg: 'white' });
+  const layout = layoutOf(doc, opt);
+  const bounds = computeBounds(layout, opt.symbol);
+  const pad = 12;
+  const x = bounds.minX - pad;
+  const y = bounds.minY - pad;
+  const width = Math.max(1, bounds.maxX - bounds.minX + pad * 2);
+  const height = Math.max(1, bounds.maxY - bounds.minY + pad * 2);
+  return `<svg viewBox="${fmt(x)} ${fmt(y)} ${fmt(width)} ${fmt(height)}" width="100%" height="100%">${renderChartContent(layout, opt)}</svg>`;
+}
+
+function renderHistory() {
+  historyList.replaceChildren();
+  if (!state.history.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = '还没有保存过的图解。生成之后可以存在这台浏览器里。';
+    historyList.append(empty);
+    return;
+  }
+  state.history.forEach((item) => {
+    const card = document.createElement('article');
+    card.className = `hcard${item.id === state.activeHistoryId ? ' is-on' : ''}`;
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'hopen';
+    open.innerHTML = `<span class="hthumb">${miniSvg(item)}</span><span class="hmeta"><strong></strong><small></small></span>`;
+    open.querySelector('strong').textContent = item.title || '未命名';
+    open.querySelector('small').textContent = `${formatWhen(item.createdAt)} · ${item.rounds || ''}圈`;
+    open.addEventListener('click', () => restoreHistory(item));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'hdel';
+    remove.textContent = '删除';
+    remove.addEventListener('click', () => deleteHistory(item.id));
+    card.append(open, remove);
+    historyList.append(card);
+  });
+}
+
+function toast(message, actionLabel, action) {
+  toastEl.replaceChildren();
+  const text = document.createElement('span');
+  text.textContent = message;
+  toastEl.append(text);
+  if (actionLabel && action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = actionLabel;
+    button.addEventListener('click', () => { action(); hideToast(); });
+    toastEl.append(button);
+  }
+  toastEl.hidden = false;
+  clearTimeout(toastEl._timer);
+  toastEl._timer = setTimeout(hideToast, actionLabel ? 4200 : 2400);
+}
+
+function hideToast() { toastEl.hidden = true; }
+
+function focusLine(lineNo) {
+  const lines = pattern.value.split('\n');
+  let start = 0;
+  for (let index = 0; index < lineNo - 1 && index < lines.length; index += 1) start += lines[index].length + 1;
+  const end = start + (lines[lineNo - 1] ? lines[lineNo - 1].length : 0);
+  pattern.focus();
+  pattern.setSelectionRange(start, end);
+  if (document.body.classList.contains('compact')) showTab('edit');
+}
+
+function renderIssues(doc) {
+  errorsEl.replaceChildren();
+  if (!doc.errors.length) {
+    canvasMsg.hidden = true;
+    return;
+  }
+  doc.errors.forEach((error) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = error.message;
+    button.addEventListener('click', () => focusLine(error.line));
+    errorsEl.append(button);
+  });
+  canvasMsg.hidden = false;
+  canvasMsgText.textContent = doc.errors[0].message;
+}
+
+function renderChecklist(doc) {
+  checksEl.replaceChildren();
+  expansionList.replaceChildren();
+  if (!doc.ok) {
+    sumEl.hidden = true;
+    expansion.hidden = true;
+    return;
+  }
+  const rows = analyzeRounds(doc.rounds);
+  const bad = rows.filter((row) => row.status === 'bad').length;
+  const unit = doc.mode === 'flat' ? '行' : '圈';
+  sumEl.hidden = false;
+  sumEl.className = `sum${bad ? ' bad' : ''}`;
+  sumEl.textContent = bad ? `有 ${bad} ${unit}针数对不上，图仍会画出来` : `${rows.length} ${unit}针数都接得上`;
+  rows.forEach((row) => {
+    const wrap = document.createElement('div');
+    wrap.className = `check ${row.status}`;
+    const line = document.createElement('button');
+    line.type = 'button';
+    line.className = 'check-line';
+    const status = row.status === 'base' ? '起针' : row.status === 'ok' ? `接上${unit} ${row.consume}` : `要接 ${row.consume}，上${unit} ${row.prev}`;
+    line.innerHTML = `<b></b><span></span><em></em>`;
+    line.querySelector('b').textContent = row.label;
+    line.querySelector('span').textContent = `${row.produce} 针`;
+    line.querySelector('em').textContent = status;
+    line.addEventListener('click', () => focusLine(row.line));
+    const eye = document.createElement('button');
+    eye.type = 'button';
+    eye.className = 'eye';
+    eye.textContent = state.hidden.has(row.index) ? '显示' : '隐藏';
+    eye.addEventListener('click', () => {
+      if (state.hidden.has(row.index)) state.hidden.delete(row.index);
+      else state.hidden.add(row.index);
+      renderChart({ animate: false, fit: false });
+      renderChecklist(doc);
+    });
+    wrap.append(line, eye);
+    checksEl.append(wrap);
+    const item = document.createElement('li');
+    const name = document.createElement('b');
+    name.textContent = row.label;
+    item.append(name, document.createTextNode(` ${row.expansion}`));
+    expansionList.append(item);
+  });
+  expansion.hidden = false;
+}
+
+function updateDirty() {
+  const dirty = !state.doc || pattern.value !== state.doc.sourceText || state.mode !== state.doc.sourceMode;
+  dirtyNote.textContent = dirty ? '文本改了，点一次重新画' : '';
+  updateChips();
+}
+
+function saveDraft() {
+  persist(STORAGE.draft, { text: pattern.value, title: titleInput.value, mode: state.mode });
+}
+
+function clearChart() {
+  content.replaceChildren();
+  state.layout = null;
+  warnEl.hidden = true;
+}
+
+function renderWarnings(doc, layout) {
+  const messages = [...(doc.notes || []), ...(layout ? layout.warnings.map((item) => item.message) : [])];
+  warnEl.hidden = messages.length === 0;
+  warnEl.textContent = messages.join(' ');
+}
+
+function applyCamera() {
+  camera.setAttribute('transform', `translate(${fmt(state.pan.x)} ${fmt(state.pan.y)}) scale(${fmt(state.zoom)})`);
+  zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+  stage.classList.toggle('has-moved', state.userMoved);
+}
+
+function fit() {
+  if (!state.layout) return;
+  const bounds = content.getBBox();
+  const rect = stage.getBoundingClientRect();
+  if (!rect.width || !rect.height || !bounds.width || !bounds.height) return;
+  const pad = 48;
+  const zoom = clamp(Math.min((rect.width - pad) / bounds.width, (rect.height - pad) / bounds.height), 0.15, 2.6);
+  state.zoom = zoom;
+  state.pan.x = (rect.width - bounds.width * zoom) / 2 - bounds.x * zoom;
+  state.pan.y = (rect.height - bounds.height * zoom) / 2 - bounds.y * zoom;
+  applyCamera();
+}
+
+function zoomAt(cx, cy, next) {
+  const zoom = clamp(next, 0.15, 4);
+  const ratio = zoom / state.zoom;
+  state.pan.x = cx - (cx - state.pan.x) * ratio;
+  state.pan.y = cy - (cy - state.pan.y) * ratio;
+  state.zoom = zoom;
+  state.userMoved = true;
+  applyCamera();
+}
+
+function animateIn() {
+  content.querySelectorAll('path, ellipse, circle').forEach((node, index) => {
+    if (node.tagName.toLowerCase() === 'circle') {
+      node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: Math.min(index * 2, 160), fill: 'both' });
+      return;
+    }
+    try {
+      const length = node.getTotalLength();
+      if (!length) return;
+      node.style.strokeDasharray = String(length);
+      node.style.strokeDashoffset = String(length);
+      const animation = node.animate(
+        [{ strokeDashoffset: length }, { strokeDashoffset: 0 }],
+        { duration: 420, delay: Math.min(index * 2, 220), easing: 'ease-out', fill: 'forwards' },
+      );
+      animation.onfinish = () => {
+        node.style.strokeDasharray = '';
+        node.style.strokeDashoffset = '';
+      };
+    } catch (error) {
+      /* some browsers cannot measure ellipse length */
+    }
+  });
+}
+
+function renderChart(options) {
+  if (!state.doc || !state.doc.ok) return;
+  const opt = currentOpt();
+  const layout = layoutOf(state.doc, opt);
+  state.layout = layout;
+  state.opt = opt;
+  content.innerHTML = renderChartContent(layout, opt);
+  stage.classList.toggle('paper', opt.bg === 'paper');
+  stage.classList.toggle('clear', opt.bg === 'clear');
+  stage.classList.toggle('white', opt.bg === 'white');
+  gapLabel.textContent = state.doc.mode === 'flat' ? '行距' : '圈间距';
+  flatNote.hidden = state.doc.mode !== 'flat';
+  renderWarnings(state.doc, layout);
+  canvasMsg.hidden = true;
+  updateLegend();
+  document.querySelector('#exportBtn').disabled = false;
+  if (options.fit) {
+    state.userMoved = false;
+    requestAnimationFrame(fit);
+  } else applyCamera();
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (options.animate && !reduce && layout.symbols.length <= 320) animateIn();
+}
+
+function updateStatus(doc, ms) {
+  const msText = ms < 1 ? '<1 ms' : `${Math.round(ms)} ms`;
+  if (!doc.ok) {
+    statusEl.textContent = '还没织出来';
+    return;
+  }
+  const rows = analyzeRounds(doc.rounds);
+  const stitches = rows.reduce((sum, row) => sum + row.produce, 0);
+  const how = state.mode === 'auto' ? '自动' : '手动';
+  const shape = doc.mode === 'flat' ? '片织' : '圈织';
+  const unit = doc.mode === 'flat' ? '行' : '圈';
+  statusEl.textContent = `${titleInput.value.trim() || '未命名'} · ${how}${shape} · ${rows.length} ${unit} · ${stitches} 针 · ${msText}`;
+}
+
+function generate(options) {
+  const started = performance.now();
+  const doc = parseDocument(pattern.value, state.mode);
+  doc.sourceText = pattern.value;
+  doc.sourceMode = state.mode;
+  state.doc = doc;
+  if (!options.keepHidden) state.hidden = new Set();
+  const ms = performance.now() - started;
+  renderIssues(doc);
+  renderChecklist(doc);
+  updateDirty();
+  saveDraft();
+  if (!doc.ok) {
+    clearChart();
+    updateStatus(doc, ms);
+    document.querySelector('#exportBtn').disabled = true;
+    return;
+  }
+  renderChart({ animate: options.animate, fit: options.fit });
+  updateStatus(doc, ms);
+}
+
+function visualSnapshot() {
+  return {
+    style: state.visual.style,
+    colorMode: state.visual.colorMode,
+    gap: state.visual.gap,
+    symbol: state.visual.symbol,
+    stroke: state.visual.stroke,
+    showLabels: state.visual.showLabels,
+    bg: state.visual.bg,
+  };
+}
+
+function saveCurrent() {
+  if (!state.doc || !state.doc.ok) {
+    toast('先生成一张图解');
+    return;
+  }
+  const rows = analyzeRounds(state.doc.rounds);
+  const item = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    title: titleInput.value.trim() || '未命名',
+    text: pattern.value,
+    mode: state.mode,
+    createdAt: Date.now(),
+    rounds: rows.length,
+    hiddenLabels: [...state.hidden],
+    ...visualSnapshot(),
+  };
+  state.history.unshift(item);
+  state.history = state.history.slice(0, 40);
+  state.activeHistoryId = item.id;
+  persist(STORAGE.history, state.history);
+  renderHistory();
+  toast('已存在这台浏览器里');
+}
+
+function restoreHistory(item) {
+  pattern.value = item.text;
+  titleInput.value = item.title || '';
+  state.mode = item.mode || 'auto';
+  state.visual = { ...state.visual, ...visualSnapshotFrom(item) };
+  syncControls();
+  applyTheme();
+  saveSettings();
+  generate({ animate: false, fit: true, keepHidden: true });
+  state.hidden = new Set(item.hiddenLabels || []);
+  state.activeHistoryId = item.id;
+  renderChart({ animate: false, fit: true });
+  renderChecklist(state.doc);
+  renderHistory();
+  if (document.body.classList.contains('compact')) showTab('chart');
+}
+
+function visualSnapshotFrom(item) {
+  return {
+    style: item.style === 'sketch' ? 'sketch' : 'standard',
+    colorMode: item.colorMode === 'color' ? 'color' : 'mono',
+    gap: clamp(Number(item.gap) || state.visual.gap, 24, 72),
+    symbol: clamp(Number(item.symbol) || state.visual.symbol, 10, 32),
+    stroke: clamp(Number(item.stroke) || state.visual.stroke, 0.8, 3.2),
+    showLabels: item.showLabels !== false,
+    bg: ['white', 'paper', 'clear'].includes(item.bg) ? item.bg : 'white',
+  };
+}
+
+function deleteHistory(id) {
+  const index = state.history.findIndex((item) => item.id === id);
+  if (index < 0) return;
+  const [removed] = state.history.splice(index, 1);
+  persist(STORAGE.history, state.history);
+  renderHistory();
+  toast('已删除', '撤销', () => {
+    state.history.splice(index, 0, removed);
+    persist(STORAGE.history, state.history);
+    renderHistory();
+  });
+}
+
+function fileStem() {
+  return (titleInput.value.trim() || '钩绘').replace(/[\\/:*?"<>|]/g, '') || '钩绘';
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1200);
+}
+
+function pngBlob(scale) {
+  const svg = renderSvgDocument(state.layout, state.opt);
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+  const bounds = computeBounds(state.layout, state.opt.symbol);
+  const width = bounds.maxX - bounds.minX + 64;
+  const height = bounds.maxY - bounds.minY + 64;
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      const context = canvas.getContext('2d');
+      if (state.opt.bg !== 'clear') {
+        context.fillStyle = state.opt.bg === 'paper' ? '#fbf6ec' : '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob) reject(new Error('png'));
+        else resolve(blob);
+      }, 'image/png');
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('svg'));
+    };
+    image.src = url;
+  });
+}
+
+function openExport() {
+  if (!state.layout || !state.opt) {
+    toast('先生成一张图解');
+    return;
+  }
+  const svg = renderSvgDocument(state.layout, state.opt).replace(/<\?xml[^>]*>/, '');
+  const holder = document.createElement('div');
+  holder.innerHTML = svg;
+  const node = holder.querySelector('svg');
+  node.removeAttribute('width');
+  node.removeAttribute('height');
+  node.style.width = '100%';
+  node.style.height = 'auto';
+  exportPreview.classList.toggle('is-paper', state.opt.bg === 'paper');
+  exportPreview.classList.toggle('is-clear', state.opt.bg === 'clear');
+  exportPreview.replaceChildren(node);
+  exportNote.textContent = `PNG 按 ${state.visual.exportScale} 倍清晰度下载。透明底在棋盘格上只是预览，文件本身没有底色。`;
+  exportDialog.showModal();
+}
+
+function showTab(tab) {
+  document.body.dataset.tab = tab;
+  document.querySelectorAll('.tabbar button[data-tab]').forEach((button) => {
+    if (button.dataset.tab === 'settings') return;
+    button.toggleAttribute('aria-current', button.dataset.tab === tab);
+    if (button.dataset.tab === tab) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  if (tab === 'chart') requestAnimationFrame(() => { if (!state.userMoved) fit(); });
+}
+
+function syncShell() {
+  const narrow = mq.matches;
+  document.body.classList.toggle('narrow-window', narrow);
+  document.body.classList.toggle('compact', narrow || document.body.classList.contains('phone-frame'));
+  syncControls();
+  requestAnimationFrame(() => { if (!state.userMoved) fit(); });
+}
+
+function bindSeg(container, apply) {
+  container.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button || !container.contains(button)) return;
+    apply(button.dataset.value);
+  });
+}
+
+bindSeg(document.querySelector('#modeSeg'), (value) => {
+  state.mode = value;
+  syncControls();
+  generate({ animate: true, fit: true });
+});
+bindSeg(document.querySelector('#styleSeg'), (value) => {
+  state.visual.style = value;
+  saveSettings();
+  syncControls();
+  renderChart({ animate: false, fit: false });
+});
+bindSeg(document.querySelector('#colorSeg'), (value) => {
+  state.visual.colorMode = value;
+  saveSettings();
+  syncControls();
+  renderChart({ animate: false, fit: false });
+});
+bindSeg(document.querySelector('#bgSeg'), (value) => {
+  state.visual.bg = value;
+  saveSettings();
+  syncControls();
+  renderChart({ animate: false, fit: false });
+});
+bindSeg(document.querySelector('#themeSeg'), (value) => {
+  state.visual.theme = value;
+  saveSettings();
+  applyTheme();
+  syncControls();
+});
+bindSeg(document.querySelector('#scaleSeg'), (value) => {
+  state.visual.exportScale = Number(value) === 3 ? 3 : 2;
+  saveSettings();
+  syncControls();
+});
+
+function bindSlider(input, output, key, format) {
+  input.addEventListener('input', () => {
+    state.visual[key] = Number(input.value);
+    output.textContent = format(state.visual[key]);
+    saveSettings();
+    renderChart({ animate: false, fit: false });
+  });
+}
+bindSlider(gapInput, gapVal, 'gap', (value) => String(value));
+bindSlider(symbolInput, symbolVal, 'symbol', (value) => String(value));
+bindSlider(strokeInput, strokeVal, 'stroke', (value) => value.toFixed(1));
+
+showLabelsInput.addEventListener('change', () => {
+  state.visual.showLabels = showLabelsInput.checked;
+  saveSettings();
+  renderChart({ animate: false, fit: false });
+});
+titleInput.addEventListener('input', () => {
+  saveDraft();
+  renderChart({ animate: false, fit: false });
+  if (state.doc) updateStatus(state.doc, 0);
+});
+pattern.addEventListener('input', () => {
+  updateDirty();
+  clearTimeout(pattern._timer);
+  pattern._timer = setTimeout(saveDraft, 250);
+});
+document.querySelector('#generateBtn').addEventListener('click', () => generate({ animate: true, fit: true }));
+document.querySelector('#pasteBtn').addEventListener('click', async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) { toast('剪贴板是空的'); return; }
+    pattern.value = text;
+    state.mode = 'auto';
+    syncControls();
+    updateDirty();
+    toast('已粘贴，点生成图解');
+  } catch (error) {
+    toast('浏览器没有给剪贴板权限，可以直接在文本框里粘贴');
+  }
+});
+document.querySelector('#clearBtn').addEventListener('click', () => {
+  pattern.value = '';
+  updateDirty();
+  pattern.focus();
+});
+document.querySelector('#syntaxBtn').addEventListener('click', () => syntaxDialog.showModal());
+document.querySelector('#closeSyntax').addEventListener('click', () => syntaxDialog.close());
+document.querySelector('#fillError').addEventListener('click', () => {
+  pattern.value = ERROR_SAMPLE;
+  titleInput.value = '错误示例';
+  state.mode = 'auto';
+  syntaxDialog.close();
+  syncControls();
+  generate({ animate: false, fit: true });
+});
+document.querySelector('#settingsBtn').addEventListener('click', () => settingsDialog.showModal());
+document.querySelector('#closeSettings').addEventListener('click', () => settingsDialog.close());
+themeBtn.addEventListener('click', () => {
+  state.visual.theme = state.visual.theme === 'dark' ? 'light' : 'dark';
+  saveSettings();
+  applyTheme();
+  syncControls();
+});
+phoneBtn.addEventListener('click', () => {
+  document.body.classList.toggle('phone-frame');
+  state.userMoved = false;
+  syncShell();
+});
+document.querySelector('#saveBtn').addEventListener('click', saveCurrent);
+document.querySelector('#exportBtn').addEventListener('click', openExport);
+document.querySelector('#closeExport').addEventListener('click', () => exportDialog.close());
+document.querySelector('#svgBtn').addEventListener('click', () => {
+  const blob = new Blob([renderSvgDocument(state.layout, state.opt)], { type: 'image/svg+xml;charset=utf-8' });
+  downloadBlob(blob, `${fileStem()}.svg`);
+  toast('已下载 SVG');
+});
+document.querySelector('#pngBtn').addEventListener('click', async () => {
+  try {
+    const blob = await pngBlob(state.visual.exportScale);
+    downloadBlob(blob, `${fileStem()}.png`);
+    toast('已下载 PNG');
+  } catch (error) {
+    toast('PNG 没做成，可以先下载 SVG');
+  }
+});
+document.querySelector('#shareBtn').addEventListener('click', async () => {
+  try {
+    const blob = await pngBlob(state.visual.exportScale);
+    const file = new File([blob], `${fileStem()}.png`, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: fileStem() });
+      return;
+    }
+    downloadBlob(blob, `${fileStem()}.png`);
+    toast('这个浏览器唤不起微信或 QQ，已改为下载 PNG');
+  } catch (error) {
+    if (error && error.name === 'AbortError') return;
+    toast('没有分享出去，可以改用下载');
+  }
+});
+document.querySelector('#feedbackBtn').addEventListener('click', () => {
+  const text = document.querySelector('#feedback').value.trim();
+  if (!text) { toast('先写一句'); return; }
+  persist(STORAGE.feedback, { text, at: Date.now() });
+  toast('已记在这台浏览器里，预览版不会发送');
+});
+document.querySelector('#clearHistory').addEventListener('click', () => {
+  if (!state.history.length) return;
+  if (!state.clearArmed) {
+    state.clearArmed = true;
+    document.querySelector('#clearHistory').textContent = '再点一次清空';
+    setTimeout(() => {
+      state.clearArmed = false;
+      document.querySelector('#clearHistory').textContent = '清空';
+    }, 2500);
+    return;
+  }
+  const previous = state.history.slice();
+  state.history = [];
+  state.clearArmed = false;
+  document.querySelector('#clearHistory').textContent = '清空';
+  persist(STORAGE.history, state.history);
+  renderHistory();
+  toast('记录已清空', '撤销', () => {
+    state.history = previous;
+    persist(STORAGE.history, state.history);
+    renderHistory();
+  });
+});
+document.querySelector('#zoomIn').addEventListener('click', () => zoomAt(stage.clientWidth / 2, stage.clientHeight / 2, state.zoom * 1.12));
+document.querySelector('#zoomOut').addEventListener('click', () => zoomAt(stage.clientWidth / 2, stage.clientHeight / 2, state.zoom / 1.12));
+document.querySelector('#fitBtn').addEventListener('click', () => { state.userMoved = false; fit(); });
+stage.addEventListener('dblclick', () => { state.userMoved = false; fit(); });
+stage.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  const rect = stage.getBoundingClientRect();
+  zoomAt(event.clientX - rect.left, event.clientY - rect.top, state.zoom * (event.deltaY < 0 ? 1.08 : 0.92));
+}, { passive: false });
+
+const pointers = new Map();
+let pinch = null;
+stage.addEventListener('pointerdown', (event) => {
+  stage.setPointerCapture(event.pointerId);
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: state.zoom };
+  }
+});
+stage.addEventListener('pointermove', (event) => {
+  if (!pointers.has(event.pointerId)) return;
+  const previous = pointers.get(event.pointerId);
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (pointers.size === 1 && !pinch) {
+    state.pan.x += event.clientX - previous.x;
+    state.pan.y += event.clientY - previous.y;
+    state.userMoved = true;
+    applyCamera();
+    return;
+  }
+  if (pointers.size >= 2 && pinch && pinch.dist > 0) {
+    const [a, b] = [...pointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    zoomAt(stage.clientWidth / 2, stage.clientHeight / 2, pinch.zoom * (dist / pinch.dist));
+  }
+});
+function endPointer(event) {
+  pointers.delete(event.pointerId);
+  if (pointers.size < 2) pinch = null;
+}
+stage.addEventListener('pointerup', endPointer);
+stage.addEventListener('pointercancel', endPointer);
+document.querySelector('.tabbar').addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-tab]');
+  if (!button) return;
+  if (button.dataset.tab === 'settings') {
+    settingsDialog.showModal();
+    return;
+  }
+  showTab(button.dataset.tab);
+});
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+    event.preventDefault();
+    generate({ animate: true, fit: true });
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault();
+    saveCurrent();
+  }
+});
+window.addEventListener('resize', syncShell);
+mq.addEventListener('change', syncShell);
+new ResizeObserver(() => { if (!state.userMoved) fit(); }).observe(stage);
+
+function boot() {
+  applyTheme();
+  renderChips();
+  renderHistory();
+  updateLegend();
+  const params = new URLSearchParams(location.search);
+  let loaded = false;
+  if (params.get('demo') === 'error') {
+    pattern.value = ERROR_SAMPLE;
+    titleInput.value = '错误示例';
+    state.mode = 'auto';
+    loaded = true;
+  } else if (params.get('demo')) {
+    const template = TEMPLATES.find((item) => item.id === params.get('demo'));
+    if (template) {
+      applyTemplate(template);
+      loaded = true;
+    }
+  }
+  if (!loaded) {
+    try {
+      const draft = JSON.parse(localStorage.getItem(STORAGE.draft) || 'null');
+      if (draft && typeof draft.text === 'string') {
+        pattern.value = draft.text;
+        titleInput.value = draft.title || TEMPLATES[0].name;
+        state.mode = ['auto', 'round', 'flat'].includes(draft.mode) ? draft.mode : 'auto';
+        loaded = true;
+      }
+    } catch (error) { /* ignore broken draft */ }
+  }
+  if (!loaded) applyTemplate(TEMPLATES[0]);
+  if (params.get('style') === 'sketch' || params.get('style') === 'standard') state.visual.style = params.get('style');
+  if (params.get('color') === 'color' || params.get('color') === 'mono') state.visual.colorMode = params.get('color');
+  if (['white', 'paper', 'clear'].includes(params.get('bg'))) state.visual.bg = params.get('bg');
+  if (params.get('theme') === 'dark' || params.get('theme') === 'light') state.visual.theme = params.get('theme');
+  if (['edit', 'chart', 'tune', 'history'].includes(params.get('tab'))) showTab(params.get('tab'));
+  if (params.get('phone') === '1') document.body.classList.add('phone-frame');
+  try {
+    const feedback = JSON.parse(localStorage.getItem(STORAGE.feedback) || 'null');
+    if (feedback && feedback.text) document.querySelector('#feedback').value = feedback.text;
+  } catch (error) { /* ignore */ }
+  applyTheme();
+  syncShell();
+  generate({ animate: false, fit: true });
+  if (params.get('dialog') === 'settings') settingsDialog.showModal();
+  if (params.get('dialog') === 'syntax') syntaxDialog.showModal();
+  if (params.get('dialog') === 'export') openExport();
+}
+
+boot();
+</script>
+</body>
+</html>
